@@ -1,0 +1,31 @@
+{
+  "source": "K8s pod read-only copy of /work/runtime/orchestration/signals.jsonl",
+  "bytes": 30000,
+  "records": 18,
+  "sha256": "8c1756b1ff6307ff8fa1be4bcd174ef2ff3e0c493ac3655b7d142828e4a6a88a",
+  "latest_created_at": "2026-09-21T13:01:44.689182+00:00",
+  "latest_signal_timestamp": "2026-09-21T12:45:00+00:00",
+  "p2_tailer_attached": false,
+  "p2_candidates_observed": 0,
+  "p2_entry_signals_observed": 0,
+  "signal_ids_observed_in_authoritative_snapshot": [
+    "SIG_abdbd78b266999b35dfbf788",
+    "SIG_f038bb600f17edbbc4519474",
+    "SIG_3431f495e0fc18a0d23e3984",
+    "SIG_79df70670e9c3d353b81a153",
+    "SIG_7cda7041d72df1de019e28f6",
+    "SIG_bb43078d2023ee191156318a",
+    "SIG_9cf61d9d2ddc3f79653bbc71",
+    "SIG_8dc1aac76bca9a66d62cc0f6",
+    "SIG_566849816f211ed7f67a8a63",
+    "SIG_1723cf84de588e3d7932e826",
+    "SIG_6210fd46995253bd4d9aa7fd",
+    "SIG_967872d4c312dd2a1817b8c1",
+    "SIG_c8d23d3a84e14dfca07f8cca",
+    "SIG_c6effb673ddb28230314407e",
+    "SIG_8b0c906dfabec06fb00b35c6",
+    "SIG_598f75bd8e962970428e440a",
+    "SIG_49a0691ec24c6190b55188f1",
+    "SIG_8f262ea20783e1c1149060bd"
+  ]
+}

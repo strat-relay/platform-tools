@@ -1,0 +1,50 @@
+{
+  "agent": "CODEX-V1.3-P2.1-LIVE-SHADOW-EVIDENCE",
+  "start_commit": "8f49aefe08bcba05df5875b41ba3f3a5f695183d",
+  "collection_utc": "2026-09-21T13:01:44Z",
+  "kubernetes": {
+    "kubeconfig": "/Users/caleb/Downloads/local.yaml",
+    "context": "local",
+    "namespace": "trading",
+    "reachable": true,
+    "main_runtime_pod": "mt5-native-bridge-main-runtime-7f7bd678ff-wlv7b",
+    "containers": {
+      "context-paper": "running",
+      "orchestrator-shadow": "running"
+    },
+    "image_digest": "sha256:b804eb6fca0da5fcc2e0555d6d5e11cb1b774fb54a5525cbd7c567d4fe977d52",
+    "p2_shadow_deployment_present": false,
+    "postgres_deployment_present": false,
+    "nats_deployment_present": false,
+    "execution_consumer_present": false,
+    "trade_manager_present": false,
+    "phase7_present": false
+  },
+  "legacy_runtime": {
+    "orchestrator_mode": "SHADOW",
+    "live_execution_enabled": false,
+    "signal_file": "/work/runtime/orchestration/signals.jsonl",
+    "signal_file_read_only_snapshot": true,
+    "data_fresh": true,
+    "last_heartbeat_seen": "2026-09-21T12:59:37.068228+00:00"
+  },
+  "bridge": {
+    "port_22347_reachable": true,
+    "port_22347_health": "read-only health response; pending=0",
+    "port_22348_listening": false,
+    "port_22348_observation": "connection refused"
+  },
+  "isolated_local_services": {
+    "postgres": "trading_platform / trading_app / schema 010",
+    "nats": "2.10.29 / JetStream enabled",
+    "usable_for_live_k8s_shadow": false,
+    "reason": "local Colima services are not a deployed K8s shadow target"
+  },
+  "safety": {
+    "strategy_restarted": false,
+    "orchestrator_restarted": false,
+    "production_config_changed": false,
+    "authority_changed": false,
+    "broker_writes": 0
+  }
+}

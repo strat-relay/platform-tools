@@ -1,0 +1,13 @@
+{
+  "SHADOW_WRITE_READY": "NOT_EVALUATED",
+  "DUAL_WRITE_RECONCILED": "NOT_EVALUATED",
+  "JETSTREAM_SHADOW_READY": "NOT_EVALUATED",
+  "DB_AUTHORITY_READY": "NOT_EVALUATED",
+  "JETSTREAM_PRIMARY_READY": "NOT_EVALUATED",
+  "LEGACY_READ_RETIRE_READY": "NOT_EVALUATED",
+  "LEGACY_WRITE_RETIRE_READY": "NOT_EVALUATED",
+  "reason": "No safe live P2 shadow target was deployed; synthetic/offline evidence is not substituted for live evidence.",
+  "signal_db_primary_enabled": false,
+  "signal_jetstream_primary_enabled": false,
+  "production_authority_changed": false
+}
