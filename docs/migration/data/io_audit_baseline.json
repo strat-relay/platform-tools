@@ -1,0 +1,60 @@
+{
+  "by_classification": {
+    "ALLOWED_CONFIG_READ": 3,
+    "ALLOWED_OFFLINE": 8,
+    "DURABILITY_CALL": 3,
+    "IPC_CANDIDATE": 174,
+    "UNRESOLVED": 66
+  },
+  "by_op": {
+    "EXISTS": 56,
+    "FSYNC": 3,
+    "READ": 125,
+    "REPLACE": 14,
+    "UNLINK": 19,
+    "WRITE": 37
+  },
+  "call_sites": 254,
+  "files_scanned": 72,
+  "fsync_call_sites": [
+    "liquidity_displacement_forward.py:25",
+    "scripts/watch_btc25_live_canary.py:307",
+    "scripts/watch_liquidity_live_all.py:274"
+  ],
+  "ipc_candidates_by_module": {
+    "context_structure_retrace_forward.py": 29,
+    "context_structure_retrace_phase7_observer.py": 25,
+    "execution/storage.py": 5,
+    "liquidity_displacement_forward.py": 18,
+    "live_execution_consumer.py": 41,
+    "orchestration/replay_guard.py": 3,
+    "orchestration/storage.py": 6,
+    "signal_orchestrator.py": 15,
+    "trade_manager/central.py": 6,
+    "trade_manager/fanout.py": 13,
+    "trade_manager/observation_storage.py": 3,
+    "trade_manager/prospective.py": 4,
+    "trade_manager/state.py": 2,
+    "trade_manager/storage.py": 2,
+    "trade_manager/stream_consumer.py": 2
+  },
+  "unresolved_by_module": {
+    "context_structure_retrace_compact_state.py": 4,
+    "context_structure_retrace_forward.py": 5,
+    "context_structure_retrace_phase7_observer.py": 4,
+    "control_api/app.py": 3,
+    "control_api/observability.py": 3,
+    "execution/demo.py": 3,
+    "liquidity_displacement_entry_forward.py": 1,
+    "liquidity_displacement_forward.py": 6,
+    "live_execution_consumer.py": 10,
+    "orchestration/adapters/context_structure_retrace.py": 1,
+    "orchestration/adapters/liquidity_displacement.py": 1,
+    "orchestration/liquidity_instances.py": 2,
+    "orchestration/tradeability.py": 1,
+    "scripts/watch_btc25_live_canary.py": 5,
+    "scripts/watch_liquidity_live_all.py": 4,
+    "signal_orchestrator.py": 9,
+    "trade_manager/stream_consumer.py": 4
+  }
+}

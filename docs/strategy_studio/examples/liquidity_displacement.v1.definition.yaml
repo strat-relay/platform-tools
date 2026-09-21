@@ -1,0 +1,126 @@
+# ILLUSTRATIVE StrategyDefinition (worked example A).  Documentation only; the DSL is
+# not implemented.  It re-expresses the behaviour read from liquidity_displacement.py
+# (sweep -> reclaim -> displacement + micro break -> retrace fill) WITHOUT copying its
+# code structure.  Exact parity with the frozen legacy strategy is NOT claimed: it must
+# be demonstrated by a golden-trace parity harness (10_CURRENT_STRATEGY_MIGRATION.md).
+schema: strategy-definition/1
+strategy_key: LIQUIDITY_DISPLACEMENT
+evaluation_mode: DETERMINISTIC
+
+meta:                                   # NOT part of the definition hash
+  name: Liquidity Displacement
+  summary: Liquidity sweep and reclaim, followed by displacement with a micro structure break, entered on a retrace.
+  tags: [liquidity, scalp, m5]
+
+direction:
+  mode: DETECTED                        # direction is an OUTPUT of the named stage
+  from: sweep
+universe:
+  kind: PER_PARAMETER_SET               # instruments come from the ParameterSets bound at StreamBinding
+
+timeframes:                             # named ROLES; stages and features refer to roles, not to M5/M15
+  trigger: M5
+  structure: M15
+data_requirements:                      # data sufficiency (legacy: len(m5) >= 40 and len(m15) >= 30)
+  trigger: {min_bars: 40}
+  structure: {min_bars: 30}
+
+parameters:                             # declarations only; VALUES live in a ParameterSet
+  level_lookback_bars:       {type: int,   default: 36,   bounds: [12, 200],  tunable: false}
+  swing_lookback:            {type: int,   default: 2,    bounds: [1, 5],     tunable: false}
+  recent_swings:             {type: int,   default: 3,    bounds: [1, 10],    tunable: false}
+  session_start_hour:        {type: int,   default: 8,    bounds: [0, 23],    unit: utc_hour}
+  session_end_hour:          {type: int,   default: 21,   bounds: [1, 24],    unit: utc_hour}
+  atr_period:                {type: int,   default: 14,   bounds: [2, 100]}
+  median_body_window:        {type: int,   default: 12,   bounds: [3, 60]}
+  min_body_atr:              {type: ratio, default: 0.50, bounds: [0.1, 3.0]}
+  min_body_median_multiple:  {type: ratio, default: 1.00, bounds: [0.5, 3.0]}
+  min_close_location:        {type: ratio, default: 0.60, bounds: [0.5, 0.95]}
+  micro_break_lookback:      {type: int,   default: 5,    bounds: [2, 20]}
+  max_structure_break_bars:  {type: int,   default: 5,    bounds: [1, 20],    tunable: true}
+  max_retrace_bars:          {type: int,   default: 3,    bounds: [1, 20],    tunable: true}
+  entry_fraction:            {type: ratio, default: 0.50, bounds: [0.1, 0.9], tunable: true}
+  atr_buffer_fraction:       {type: ratio, default: 0.10, bounds: [0.0, 1.0]}
+  spread_buffer_multiple:    {type: ratio, default: 1.25, bounds: [0.0, 5.0]}
+  target_r:                  {type: ratio, default: 1.25, bounds: [0.5, 5.0]}
+  max_hold_minutes:          {type: int,   default: 120,  bounds: [5, 1440],  unit: minutes}
+
+levels:
+  reference:
+    use: liquidity.reference_levels@1
+    role: trigger
+    params:
+      lookback_bars: $level_lookback_bars
+      swing_left: $swing_lookback
+      swing_right: $swing_lookback
+      recent_swings: $recent_swings
+      session_start_hour: $session_start_hour
+      session_end_hour: $session_end_hour
+
+features:
+  atr:         {use: volatility.atr@1,   role: trigger, params: {period: $atr_period, include_current: true}}
+  median_body: {use: stat.median_body@1, role: trigger, params: {window: $median_body_window}}
+
+setup:
+  kind: SEQUENCE                        # ordered stages, each within a bounded window after the previous
+  stages:
+    - id: sweep
+      role: trigger
+      detect:
+        use: liquidity.sweep@1
+        with: {levels: lv.reference}
+        params: {require_reclaim_close: true}
+    - id: displacement
+      role: trigger
+      after: sweep
+      within: {bars: $max_structure_break_bars}
+      select: FIRST
+      require:
+        - use: price_action.displacement@1
+          params: {min_body_atr: $min_body_atr, min_body_median_multiple: $min_body_median_multiple, min_close_location: $min_close_location}
+          with: {atr: "f.atr@s.sweep", median_body: "f.median_body@s.sweep"}
+        - use: structure.micro_break@1
+          params: {lookback_bars: $micro_break_lookback}
+          with: {anchor: s.sweep}
+    - id: retrace_fill
+      role: trigger
+      after: displacement
+      within: {bars: $max_retrace_bars}
+      select: FIRST
+      detect:
+        use: execution.touch_and_hold@1
+        with: {level: d.entry_level}
+
+derive:
+  entry_level:
+    use: position.bar_fraction_level@1
+    params: {fraction: $entry_fraction}
+    with: {direction: s.sweep.direction, bar: s.displacement.bar}
+
+context: {gates: [], flags: []}
+filters: {gates: [], flags: []}
+
+entry:
+  price: d.entry_level
+  time: s.retrace_fill.event_time
+
+invalidation: []                        # none beyond stage-window expiry (each expiry yields a terminal reason code)
+
+stop:
+  price: "beyond(s.sweep.direction, s.sweep.extreme, max(f.atr@s.sweep * $atr_buffer_fraction, market.spread * $spread_buffer_multiple, inst.min_stop_distance))"
+target:
+  kind: R_MULTIPLE
+  r: $target_r
+exits:
+  - {kind: STOP}
+  - {kind: TARGET}
+  - {kind: TIME, max_minutes: $max_hold_minutes}
+
+review_gates: []                        # DETERMINISTIC: none permitted
+
+decision_policy:
+  on_stage_failure: REJECT              # first failing stage supplies the terminal reason code
+  emit_signal_when: retrace_fill
+  flags_block_signal: false
+
+evidence_refs: []                       # NOT hashed; example sets / validation sets that informed authoring

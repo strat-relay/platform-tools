@@ -1,0 +1,27 @@
+# ILLUSTRATIVE ParameterSets for the Liquidity Displacement definition (worked example A).
+# Values below are those found in orchestration/liquidity_instances.py at the base commit:
+#   liquidity-xau-base  entry_fraction 0.50   max_retrace_candles 3
+#   liquidity-xau33     entry_fraction 1/3    max_retrace_candles 5
+#   liquidity-btc25     entry_fraction 0.25   max_retrace_candles 5
+#   liquidity-usdjpy25  entry_fraction 0.25   max_retrace_candles 5
+# (target_r 1.25 and max_hold_minutes 120 are constant across all four.)
+#
+# The point: four "strategies" in today's config are ONE definition with FOUR parameter
+# sets.  Only the values that differ are stated; everything else takes the definition
+# default.  A ParameterSet is immutable and content-hashed.
+schema: parameter-set/1
+definition: LIQUIDITY_DISPLACEMENT
+
+sets:
+  - id: XAUUSD_BASE
+    instrument: XAUUSD
+    values: {entry_fraction: 0.50, max_retrace_bars: 3}
+  - id: XAUUSD_33
+    instrument: XAUUSD
+    values: {entry_fraction: 0.3333333333, max_retrace_bars: 5}
+  - id: BTCUSD_25
+    instrument: BTCUSD
+    values: {entry_fraction: 0.25, max_retrace_bars: 5}
+  - id: USDJPY_25
+    instrument: USDJPY
+    values: {entry_fraction: 0.25, max_retrace_bars: 5}

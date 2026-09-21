@@ -1,0 +1,188 @@
+# ILLUSTRATIVE seed catalogue for the Strategy Studio primitive registry.
+# Documentation only: it is not executable, not authoritative, and not a schema
+# the runtime reads.  It exists so the worked examples can be checked for internal
+# consistency (tools/check_examples.py) and so the migration map can cite concrete
+# candidates.  `legacy_refs` point at the code the semantics were read from; where
+# several legacy implementations DIFFER, each becomes its own versioned primitive
+# (see 02_PRIMITIVE_REGISTRY.md §3) rather than being silently unified.
+schema: primitive-catalog-sketch/1
+
+kinds:
+  FEATURE:   value(s) computed as-of a time from completed bars
+  EVENT:     detector that emits 0..1 event with event_time (time it becomes KNOWN)
+  LEVEL:     reference price level(s) or zone(s), each with known_at
+  PREDICATE: boolean over features/events/levels
+  TRANSFORM: pure arithmetic on already-known values
+
+primitives:
+  # ---- bar geometry -------------------------------------------------------
+  bar.geometry@1:
+    kind: FEATURE
+    outputs: [body, range, upper_wick, lower_wick, close_location, direction]
+    params: {}
+    known_at: close_of_bar
+    legacy_refs: [context_structure_retrace/patterns.py, liquidity_displacement.py, research/multitimeframe_liquidity_sniper/state_machine.py]
+
+  # ---- volatility (three legacy semantics -> three primitives) -------------
+  volatility.atr@1:            # true-range mean over the last `period` bars
+    kind: FEATURE
+    outputs: [value]
+    params: {period: int, include_current: bool}
+    known_at: close_of_last_bar_consumed
+    legacy_refs: [paper_engine.atr, context_structure_retrace/indicators.py::atr]
+    notes: include_current=true is what liquidity_displacement.find_candidate uses; include_current=false is what context patterns.detect_patterns uses (atr(completed[-15:-1]))
+  volatility.range_mean@1:     # mean of plain high-low ranges, excluding current bar
+    kind: FEATURE
+    outputs: [value]
+    params: {period: int}
+    known_at: close_of_last_bar_consumed
+    legacy_refs: [research/multitimeframe_liquidity_sniper/state_machine.py::_atr]
+  stat.median_body@1:
+    kind: FEATURE
+    outputs: [value]
+    params: {window: int}
+    known_at: close_of_last_bar_consumed
+    legacy_refs: [liquidity_displacement.py::find_candidate]
+
+  # ---- moving averages / momentum ----------------------------------------
+  ma.ema@1:
+    kind: FEATURE
+    outputs: [value, slope]
+    params: {period: int}
+    known_at: close_of_last_bar_consumed
+    legacy_refs: [paper_engine.ema, context_structure_retrace/indicators.py::ema]
+  ma.sma@1:
+    kind: FEATURE
+    outputs: [value]
+    params: {period: int}
+    known_at: close_of_last_bar_consumed
+    legacy_refs: []
+  momentum.rsi@1:
+    kind: FEATURE
+    outputs: [value]
+    params: {period: int}
+    known_at: close_of_last_bar_consumed
+    legacy_refs: [paper_engine.rsi]
+    notes: legacy rsi uses simple windowed averages, not Wilder smoothing; that is its semantics at @1
+
+  # ---- structure ----------------------------------------------------------
+  structure.swing_points@1:    # pivots confirmed by `right` following bars
+    kind: LEVEL
+    outputs: [swings]                    # each: price, kind, bar_time, known_at
+    params: {left: int, right: int, strict: bool}
+    known_at: close_of_bar_index_plus_right     # CONFIRMATION LAG, not the extremum time
+    legacy_refs: [context_structure_retrace/sr.py::confirmed_swings (non-strict, ties count), research/multitimeframe_structure_sniper/engine.py::confirmed_swings (strict)]
+  structure.trend@1:           # HH/HL vs LH/LL classification from confirmed swings
+    kind: FEATURE
+    outputs: [state]                     # UP | DOWN | RANGE | UNKNOWN
+    params: {left: int, right: int, lookback_swings: int}
+    known_at: close_of_last_confirmed_swing
+    legacy_refs: [research/multitimeframe_structure_sniper/engine.py::build_structure_map, research/multitimeframe_liquidity_sniper/engine.py::structure_direction]
+  structure.protected_swing@1: # the swing whose break invalidates the current trend leg
+    kind: LEVEL
+    outputs: [level]
+    params: {left: int, right: int}
+    direction_aware: true                # LOW for LONG, HIGH for SHORT (runtime passes the evaluated direction)
+    known_at: close_of_last_confirmed_swing
+    legacy_refs: []
+  structure.support_resistance_zones@1:
+    kind: LEVEL
+    outputs: [zones]                     # each: role, zone_low, zone_high, midpoint, touches
+    params: {lookback_bars: int, cluster_tolerance_atr: float}
+    known_at: close_of_last_confirmed_swing
+    legacy_refs: [context_structure_retrace/sr.py::build_zones]
+  structure.micro_break@1:     # close beyond the extreme of the last N bars before an anchor
+    kind: PREDICATE
+    outputs: [break_level]
+    params: {lookback_bars: int}
+    known_at: close_of_evaluated_bar
+    legacy_refs: [liquidity_displacement.py::find_candidate]
+    notes: legacy expression m5[max(i-5,i-12):i] evaluates to m5[i-5:i] (the i-12 operand is dead); parity requires lookback_bars=5
+  structure.break_of_structure@1:
+    kind: EVENT
+    outputs: [level, kind]               # kind: BOS | CHOCH
+    params: {left: int, right: int}
+    known_at: close_of_breaking_bar
+    legacy_refs: [research/multitimeframe_liquidity_sniper/state_machine.py::_structure_type]
+
+  # ---- price action -------------------------------------------------------
+  price_action.engulfing@1:
+    kind: EVENT
+    outputs: [direction, previous_body, current_body]
+    params: {}
+    known_at: close_of_bar
+    legacy_refs: [context_structure_retrace/patterns.py::detect_patterns]
+  price_action.rejection_wick@1:
+    kind: EVENT
+    outputs: [direction, wick, body]
+    params: {wick_body_multiple: float, close_location_min: float}
+    known_at: close_of_bar
+    legacy_refs: [context_structure_retrace/patterns.py::detect_patterns, context_structure_retrace_forward.py::_m5_mechanisms (re-implemented inline)]
+  price_action.star_reversal@1:
+    kind: EVENT
+    outputs: [direction]
+    params: {middle_body_atr_max: float, third_body_atr_min: float}
+    known_at: close_of_bar
+    legacy_refs: [context_structure_retrace/patterns.py::detect_patterns]
+  price_action.displacement@1:
+    kind: PREDICATE
+    outputs: [body, body_atr, close_location, range]
+    params: {min_body_atr: float, min_body_median_multiple: float, min_close_location: float}
+    known_at: close_of_evaluated_bar
+    legacy_refs: [liquidity_displacement.py::find_candidate, research/multitimeframe_liquidity_sniper/state_machine.py::_displacement]
+    notes: the two legacy definitions differ (median-body condition exists only in the first)
+  price_action.reclaim@1:
+    kind: PREDICATE
+    outputs: [level]
+    params: {}
+    known_at: close_of_evaluated_bar
+    legacy_refs: [research/multitimeframe_liquidity_sniper/state_machine.py::_close_valid]
+
+  # ---- liquidity ----------------------------------------------------------
+  liquidity.reference_levels@1:
+    kind: LEVEL
+    outputs: [low_level, high_level]
+    params: {lookback_bars: int, swing_left: int, swing_right: int, recent_swings: int, session_start_hour: int, session_end_hour: int}
+    known_at: close_of_last_bar_consumed
+    legacy_refs: [liquidity_displacement.py::_levels]
+    notes: combines recent confirmed swings with the prior completed session extremes (UTC hours); takes the higher of the lows / higher of the highs
+  liquidity.sweep@1:
+    kind: EVENT
+    outputs: [direction, level, extreme]
+    params: {require_reclaim_close: bool}
+    known_at: close_of_sweep_bar
+    legacy_refs: [liquidity_displacement.py::find_candidate, research/multitimeframe_liquidity_sniper/state_machine.py::detect_m15_setups]
+
+  # ---- position / context ------------------------------------------------
+  position.retracement@1:      # pullback depth as a fraction of a reference impulse leg
+    kind: FEATURE
+    outputs: [fraction, depth_price]
+    params: {leg: str}                   # leg: LAST_IMPULSE | GIVEN
+    known_at: close_of_last_bar_consumed
+    legacy_refs: [context_structure_retrace/retracement.py::measure_retracement (LABEL ONLY today)]
+  position.zone_interaction@1:
+    kind: EVENT
+    outputs: [zone, first_touch_time]
+    params: {tolerance_atr: float}
+    known_at: close_of_touching_bar
+    legacy_refs: [context_structure_retrace/structures.py::meaningful_interaction_episodes]
+  position.bar_fraction_level@1:
+    kind: TRANSFORM
+    outputs: [price]
+    params: {fraction: float}
+    known_at: close_of_anchor_bar
+    legacy_refs: [liquidity_displacement.py::find_candidate (entry), context_structure_retrace_forward.py::make_setup (entry)]
+  time.session_window@1:
+    kind: PREDICATE
+    outputs: []
+    params: {start_hour: int, end_hour: int}
+    known_at: bar_open_time
+    legacy_refs: [liquidity_displacement.py::_levels]
+
+  # ---- execution semantics used in definitions (reference-trade semantics) --
+  execution.touch_and_hold@1:  # touched the level AND closed on the entry side of it
+    kind: EVENT
+    outputs: [fill_bar_time, level]
+    params: {}
+    known_at: close_of_fill_bar
+    legacy_refs: [liquidity_displacement.py::evaluate, context_structure_retrace_forward.py::_process_bar]

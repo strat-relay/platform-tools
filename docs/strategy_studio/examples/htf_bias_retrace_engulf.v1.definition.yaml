@@ -1,0 +1,141 @@
+# ILLUSTRATIVE StrategyDefinition (worked example B): a multi-timeframe strategy that
+# began as a discretionary description and is HYBRID: everything that can be operational
+# is; one judgement ("is the H1 structure clean?") is a DECLARED review gate.
+#
+#   H1 context/bias -> M15 support retracement -> M5 confirmation (engulfing or
+#   rejection) -> retracement completion -> structural invalidation.
+#
+# Origins ("origin:") point at accepted clarification interpretations (03_…); nothing
+# here was converted from vague language silently.  Documentation only.
+schema: strategy-definition/1
+strategy_key: HTF_BIAS_RETRACE_ENGULF
+evaluation_mode: HYBRID
+
+meta:
+  name: HTF Bias Retracement with LTF Confirmation
+  summary: Trade with the H1 bias when price retraces to M15 support and M5 confirms with engulfing or rejection.
+  tags: [multi-timeframe, retracement, confirmation]
+
+direction:
+  mode: EVALUATE_EACH                   # evaluated independently as LONG and as SHORT (mirrored semantics)
+  allowed: [LONG, SHORT]
+universe:
+  kind: EXPLICIT
+  instruments: [XAUUSD, EURUSD]
+
+timeframes:
+  context: H1
+  structure: M15
+  trigger: M5
+data_requirements:
+  context: {min_bars: 120}
+  structure: {min_bars: 200}
+  trigger: {min_bars: 60}
+
+parameters:
+  swing_lookback:            {type: int,   default: 2,    bounds: [1, 5]}
+  trend_lookback_swings:     {type: int,   default: 4,    bounds: [2, 10]}
+  atr_period:                {type: int,   default: 14,   bounds: [2, 100]}
+  zone_lookback_bars:        {type: int,   default: 96,   bounds: [20, 400]}
+  zone_cluster_tolerance_atr: {type: ratio, default: 0.50, bounds: [0.1, 2.0]}
+  zone_tolerance_atr:        {type: ratio, default: 0.25, bounds: [0.0, 1.0]}
+  retrace_window_bars:       {type: int,   default: 16,   bounds: [2, 60],   unit: m15_bars}
+  min_retrace_fraction:      {type: ratio, default: 0.30, bounds: [0.05, 0.9]}
+  confirm_window_bars:       {type: int,   default: 6,    bounds: [1, 24],   unit: m5_bars}
+  wick_body_multiple:        {type: ratio, default: 2.0,  bounds: [1.0, 5.0]}
+  close_location_min:        {type: ratio, default: 0.65, bounds: [0.5, 0.95]}
+  stop_buffer_atr:           {type: ratio, default: 0.20, bounds: [0.0, 2.0]}
+  target_r:                  {type: ratio, default: 1.50, bounds: [0.5, 5.0]}
+  rsi_period:                {type: int,   default: 14,   bounds: [2, 50]}
+  review_timeout_minutes:    {type: int,   default: 10,   bounds: [1, 240],  unit: minutes}
+
+levels:
+  h1_protected:
+    use: structure.protected_swing@1
+    role: context
+    params: {left: $swing_lookback, right: $swing_lookback}
+  m15_zones:
+    use: structure.support_resistance_zones@1
+    role: structure
+    params: {lookback_bars: $zone_lookback_bars, cluster_tolerance_atr: $zone_cluster_tolerance_atr}
+
+features:
+  atr_m15: {use: volatility.atr@1, role: structure, params: {period: $atr_period, include_current: false}}
+  rsi_m15: {use: momentum.rsi@1,   role: structure, params: {period: $rsi_period}}
+
+context:
+  gates:                                # a failing gate REJECTS
+    - id: h1_bias
+      pred: {use: structure.trend@1, role: context, params: {left: $swing_lookback, right: $swing_lookback, lookback_swings: $trend_lookback_swings}}
+      expect: {state: WITH_DIRECTION}
+  flags:                                # a flag ANNOTATES the trace; it never rejects
+    - id: rsi_stretched
+      pred: {use: momentum.rsi@1, role: structure, params: {period: $rsi_period}}
+      expect: {value: {beyond: 70}}
+
+setup:
+  kind: SEQUENCE
+  stages:
+    - id: zone_touch
+      role: structure
+      detect:
+        use: position.zone_interaction@1
+        with: {zones: lv.m15_zones}
+        params: {tolerance_atr: $zone_tolerance_atr}
+    - id: retrace_complete
+      role: structure
+      after: zone_touch
+      within: {bars: $retrace_window_bars}
+      require:
+        - use: position.retracement@1
+          params: {leg: LAST_IMPULSE}
+          expect: {fraction: {at_least: $min_retrace_fraction}}
+    - id: confirmation
+      role: trigger
+      after: retrace_complete
+      within: {bars: $confirm_window_bars}
+      select: FIRST
+      any_of:
+        - use: price_action.engulfing@1
+        - use: price_action.rejection_wick@1
+          params: {wick_body_multiple: $wick_body_multiple, close_location_min: $close_location_min}
+
+filters: {gates: [], flags: []}
+
+invalidation:
+  - id: h1_protected_low_broken
+    active_from: zone_touch             # from the first touch until a signal is emitted (and after entry as an exit)
+    when: "closes_through(context, lv.h1_protected)"
+    reason: H1_STRUCTURE_INVALIDATED
+    origin: {interpretation: INT-0012}  # accepted answer to "the retracement is too deep" (AMB-0004)
+
+entry:
+  price: "close(trigger)"
+  time: s.confirmation.event_time
+
+stop:
+  price: "beyond(direction, s.zone_touch.zone_low, f.atr_m15 * $stop_buffer_atr)"
+target:
+  kind: R_MULTIPLE
+  r: $target_r
+exits:
+  - {kind: STOP}
+  - {kind: TARGET}
+  - {kind: INVALIDATION_EXIT, ref: h1_protected_low_broken}
+
+review_gates:                           # the DECLARED discretionary confirmation
+  - id: h1_structure_quality
+    after: confirmation
+    question: "Is the H1 structure clean enough to trade this setup?"
+    allowed: ["YES", "NO"]
+    evidence: [chart_context, decision_trace]
+    on_timeout: REJECT                  # fail closed
+    timeout_minutes: $review_timeout_minutes
+    origin: {ambiguity: AMB-0007}       # "clean" has no operational definition yet
+
+decision_policy:
+  on_stage_failure: REJECT
+  emit_signal_when: review_gates_passed
+  flags_block_signal: false
+
+evidence_refs: []
