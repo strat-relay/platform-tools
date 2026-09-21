@@ -16,3 +16,8 @@ stage.
 
 The source bridge repository remains the owner of `mt5_bridge/`, `ea/`, bridge
 transport/lifecycle code, and bridge-specific tests.
+
+The architecture-only Strategy Studio material was imported from the completed
+A3 worktree at commit `26d4a40` under `docs/architecture/` plus
+`docs/SIGNAL_ANALYSIS_EVIDENCE_ARCHITECTURE_AUDIT.md`. It is reference design
+documentation only; no Strategy Studio runtime was implemented or activated.

@@ -1,0 +1,42 @@
+{
+  "by_domain": {
+    "adapters/mt5": 4,
+    "bridge": 15,
+    "core/market": 1,
+    "core/performance": 3,
+    "core/signals": 12,
+    "core/strategy": 122,
+    "core/trade_management": 23,
+    "docs": 18,
+    "kernel": 24,
+    "legacy": 116,
+    "migration": 14,
+    "ops_api": 13,
+    "personal_execution": 25,
+    "research": 113
+  },
+  "by_repo": {
+    "mt5-native-bridge": 15,
+    "trading-platform": 488
+  },
+  "files": 503,
+  "split_files": [
+    "context_structure_retrace_forward.py",
+    "control_api/app.py",
+    "execution/adapters.py",
+    "execution/demo_broker.py",
+    "liquidity_displacement_forward.py",
+    "live_execution_consumer.py",
+    "orchestration/brokers/mt5_shadow.py",
+    "orchestration/config.py",
+    "orchestration/config/platform.json",
+    "orchestration/models.py",
+    "orchestration/registry.py",
+    "paper_runner.py",
+    "research/fetch_fx_universe_snapshot_20260917.py",
+    "research/fetch_usdjpy_snapshot_20260917.py",
+    "signal_orchestrator.py",
+    "trade_manager/central.py"
+  ],
+  "unmapped": []
+}
