@@ -28,6 +28,17 @@ class JetStreamTopology:
                 await manager.add_stream(name=name, subjects=subject_list,
                                          storage="file", max_age=config["max_age"])
 
+    async def status(self, manager: Any) -> dict[str, Any]:
+        """Return read-only stream health without exposing client objects."""
+        streams: dict[str, Any] = {}
+        for name in self.streams:
+            try:
+                info = await manager.stream_info(name)
+                streams[name] = {"exists": True, "info": info}
+            except Exception as exc:
+                streams[name] = {"exists": False, "error": str(exc)}
+        return {"connected": True, "streams": streams}
+
 
 class JetStreamPublisher:
     def __init__(self, client: JetStreamClient):
@@ -49,3 +60,10 @@ class JetStreamConsumer:
         validate_subject(subject)
         return await self.subscribe(subject, handler=handler, durable=self.consumer_name,
                                     manual_ack=True)
+
+    async def status(self, manager: Any, stream: str) -> dict[str, Any]:
+        """Return durable-consumer status when supported by the injected manager."""
+        info = await manager.consumer_info(stream, self.consumer_name)
+        return {"consumer": self.consumer_name, "stream": stream,
+                "pending": getattr(info, "num_pending", None),
+                "redelivered": getattr(info, "num_redelivered", None)}
