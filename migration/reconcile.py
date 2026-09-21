@@ -35,6 +35,9 @@ def reconcile(legacy: Iterable[Mapping[str, Any]], database: Iterable[Mapping[st
         elif b is None: status, detail = ReconciliationStatus.MISSING_DATABASE, "legacy record has no database row"
         elif a.get("hash") is not None and b.get("hash") is not None and a["hash"] != b["hash"]:
             status, detail = ReconciliationStatus.HASH_MISMATCH, "canonical hashes differ"
+        elif any(a.get(field) is not None and b.get(field) is not None and a.get(field) != b.get(field)
+                 for field in ("strategy_id", "instrument", "direction", "decision_time", "decision")):
+            status, detail = ReconciliationStatus.HASH_MISMATCH, "canonical signal semantic fields differ"
         elif a.get("version") is not None and b.get("version") is not None and a["version"] != b["version"]:
             status, detail = ReconciliationStatus.VERSION_MISMATCH, "aggregate versions differ"
         elif a.get("terminal_state") is not None and b.get("terminal_state") is not None and a["terminal_state"] != b["terminal_state"]:

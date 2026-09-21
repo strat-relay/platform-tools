@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from migration.signal import canonical_signal
+from migration.signal_shadow import SignalShadowConsumer
 from migration.tailer import AppendOnlyTailer
 
 
@@ -41,6 +42,31 @@ class SignalMigrationTests(unittest.TestCase):
             source.write_text(json.dumps({**self.raw(), "signal_id": "sig-rotated"}) + "\n")
             rotated = AppendOnlyTailer(source, checkpoint).run_once()
             self.assertTrue(rotated.rotated); self.assertEqual(rotated.records[0]["signal_id"], "sig-rotated")
+
+    def test_shadow_consumer_dedupes_redelivery_without_execution(self):
+        class Cursor:
+            rowcount = 1
+            def execute(self, sql, args): self.sql, self.args = sql, args
+            def fetchone(self): return (1,)
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        class Conn:
+            def __init__(self): self.claimed = set(); self.cursor_obj = Cursor()
+            def cursor(self):
+                c = self
+                class C(Cursor):
+                    def execute(self, sql, args):
+                        self.args = args
+                        if "INSERT INTO platform.inbox_events" in sql:
+                            self.rowcount = int(args[1] not in c.claimed); c.claimed.add(args[1])
+                        else: self.rowcount = 1
+                return C()
+            def commit(self): pass
+            def rollback(self): pass
+        conn = Conn(); consumer = SignalShadowConsumer(conn)
+        payload = json.dumps({"event_id": "evt-1", "event_type": "signal.entry.created.v1"}).encode()
+        self.assertTrue(consumer.handle(payload)); self.assertFalse(consumer.handle(payload, redelivered=True))
+        self.assertEqual(consumer.metrics.processed, 1); self.assertEqual(consumer.metrics.duplicate_hits, 1)
 
 
 if __name__ == "__main__": unittest.main()

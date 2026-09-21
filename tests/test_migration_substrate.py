@@ -66,6 +66,8 @@ class MigrationSubstrateTests(unittest.TestCase):
         self.assertEqual(statuses["b"], ReconciliationStatus.HASH_MISMATCH.value)
         self.assertEqual(statuses["c"], ReconciliationStatus.MISSING_DATABASE.value)
         self.assertEqual(statuses["d"], ReconciliationStatus.MISSING_LEGACY.value)
+        decision = reconcile([{"id": "decision", "hash": "same", "decision": "SIGNAL"}], [{"id": "decision", "hash": "same", "decision": "REJECT"}])
+        self.assertEqual(decision["findings"][0]["status"], ReconciliationStatus.HASH_MISMATCH.value)
 
     def test_gate_requires_evidence_and_observability_is_read_only(self):
         denied = evaluate_gate(CutoverGate.DB_AUTHORITY_READY, GateEvidence(measures={"mismatch_count": 0}))
