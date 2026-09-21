@@ -48,6 +48,17 @@ class PlatformBoundaryTests(unittest.TestCase):
         ):
             self.assertTrue((ROOT / relative).exists(), relative)
 
+    def test_runtime_resolution_is_independent_of_checkout_path(self):
+        from platform_runtime import trading_platform_runtime_dir
+        self.assertEqual(trading_platform_runtime_dir(root=Path("/future/platform"), environ={}), Path("/future/platform/runtime"))
+        self.assertEqual(trading_platform_runtime_dir(root=Path("/future/platform"), environ={
+            "TRADING_PLATFORM_RUNTIME_DIR": "/var/tmp/platform-runtime"}), Path("/var/tmp/platform-runtime"))
+
+    def test_no_bridge_checkout_path_is_embedded(self):
+        for path in ROOT.rglob("*.py"):
+            if ".git" not in path.parts and "tests" not in path.parts:
+                self.assertNotIn("/Users/caleb/mt5-native-bridge", path.read_text(encoding="utf-8"), path)
+
 
 if __name__ == "__main__":
     unittest.main()

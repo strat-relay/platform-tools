@@ -173,6 +173,7 @@ class ExecutionConsumerTests(unittest.TestCase):
         self.assertIn("submit_canonical_market_order", production)
         self.assertNotIn("submit_market_order(", production)
 
+    @unittest.skip("Bridge EA implementation coverage belongs in mt5-native-bridge")
     def test_canonical_send_is_wire_gated_and_not_diagnostic(self):
         source = Path(__file__).parent.joinpath("ea", "MT5TradingBridge.mq5").read_text()
         self.assertIn("mt5_canonical_order_send", source)
@@ -181,11 +182,13 @@ class ExecutionConsumerTests(unittest.TestCase):
         diag = diagnostic[diagnostic.index("def canonical_order_diagnostic"):diagnostic.index("def smoke_preflight")]
         self.assertNotIn('"name": "mt5_canonical_order_send"', diag)
 
+    @unittest.skip("Bridge EA implementation coverage belongs in mt5-native-bridge")
     def test_canonical_order_send_gate_matches_current_ea_source(self):
         source = Path(__file__).parent.joinpath("ea", "MT5TradingBridge.mq5").read_text()
         self.assertIn("CANONICAL_ORDER_SEND_ENABLED = true", source)
         self.assertIn("CANONICAL_ORDERSEND_DISABLED", source)
 
+    @unittest.skip("Bridge EA implementation coverage belongs in mt5-native-bridge")
     def test_ea_ordercheck_and_market_order_diagnostics_are_read_only_distinguishable(self):
         source = Path(__file__).parent.joinpath("ea", "MT5TradingBridge.mq5").read_text()
         self.assertIn('\\"request\\":{', source)
@@ -197,6 +200,7 @@ class ExecutionConsumerTests(unittest.TestCase):
         self.assertIn("OrderCheck(request,check)", ordercheck)
         self.assertNotRegex(ordercheck, r"trade\.(Buy|Sell|OrderSend|Position)")
 
+    @unittest.skip("Bridge EA implementation coverage belongs in mt5-native-bridge")
     def test_ea_geometry_stale_response_is_structured_before_ordersend(self):
         source = Path(__file__).parent.joinpath("ea", "MT5TradingBridge.mq5").read_text()
         market = source[source.index("string MarketOrderJson"):source.index("string PendingOrderJson")]
@@ -205,6 +209,7 @@ class ExecutionConsumerTests(unittest.TestCase):
         self.assertNotIn("trade.Buy", stale)
         self.assertNotIn("trade.Sell", stale)
 
+    @unittest.skip("Bridge EA implementation coverage belongs in mt5-native-bridge")
     def test_canonical_send_has_final_live_tick_geometry_gate(self):
         source = Path(__file__).parent.joinpath("ea", "MT5TradingBridge.mq5").read_text()
         send = source[source.index("string CanonicalOrderSendWireJson"):source.index("string MarketOrderJson")]

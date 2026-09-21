@@ -56,14 +56,10 @@ class Stage0ConfigurationTests(unittest.TestCase):
         self.assertIn('os.environ.get("REAL_SMOKE_ACCOUNT")', source)
         self.assertNotIn("Exness-MT5Real27", source)
 
-    def test_read_once_and_wine_paths_have_unchanged_defaults_and_overrides(self):
-        source = Path("liquidity_displacement_forward.py").read_text(encoding="utf-8")
-        self.assertIn("MT5_WINE_BIN", source)
-        self.assertIn("MT5_WINEPREFIX", source)
-        self.assertIn("MT5_WINPY", source)
-        self.assertIn("MT5_READ_ONCE_PATH", source)
-        read_once = Path("mt5_read_once.py").read_text(encoding="utf-8")
-        self.assertIn("MT5_TERMINAL_PATH", read_once)
+    def test_platform_boundary_uses_mt5_contract_without_bridge_checkout(self):
+        client = Path("contracts/mt5_bridge/client.py").read_text(encoding="utf-8")
+        self.assertIn("class Mt5ReadClient", client)
+        self.assertFalse((Path(__file__).parents[1] / "mt5_read_once.py").exists())
 
 
 if __name__ == "__main__":

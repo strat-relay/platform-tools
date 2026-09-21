@@ -56,7 +56,7 @@ class LiquidityInstancePlumbingTests(unittest.TestCase):
     def test_signal_preserves_event_time_and_requires_explicit_emission(self):
         definition = replace(DEFINITIONS_BY_ID["LIQUIDITY_DISPLACEMENT_SCALP_USDJPY_25_V1"], real_execution_enabled=True)
         publisher = LiquidityLivePublisher(definition, mode="REAL_ELIGIBLE")
-        row = {"setup_id": "NEW", "event_time": "2026-09-19T00:00:00Z", "direction": "SHORT", "entry": 150.0, "stop": 151.0, "target": 148.75, "source_health": True, "gap_recovery": False, "source_event_id": definition.source_event_id("NEW", "2026-09-19T00:00:00Z")}
+        row = {"setup_id": "NEW", "event_time": "2026-09-19T00:00:00Z", "decision_time": "2026-09-19T00:00:02Z", "direction": "SHORT", "entry": 150.0, "stop": 151.0, "target": 148.75, "source_health": True, "gap_recovery": False, "source_event_id": definition.source_event_id("NEW", "2026-09-19T00:00:00Z")}
         signal = publisher.publish(row, emitted_at="2026-09-19T00:00:02Z")
         self.assertEqual(signal.signal_timestamp, "2026-09-19T00:00:00Z")
         self.assertEqual(signal.decision_time, "2026-09-19T00:00:02Z")

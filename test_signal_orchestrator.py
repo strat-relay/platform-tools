@@ -57,14 +57,14 @@ class OrchestratorTests(unittest.TestCase):
         }))
 
     def test_shadow_startup_accepts_shadow_and_rejects_real(self):
-        with tempfile.TemporaryDirectory() as td, patch.object(so, "safety_audit", return_value={"pass": True}):
+        with tempfile.TemporaryDirectory() as td, patch.object(so, "safety_audit", return_value={"pass": True}), patch.object(so, "REAL_CONTEXT", "SYNTHETIC_ACCOUNT"), patch.object(so, "PLATFORM_RUNTIME", Path(td) / "runtime"):
             store = OrchestrationStore(Path(td))
             self.assertTrue(so.startup_audit(self._startup_config("SHADOW"), "SHADOW", store)["pass"])
             self.assertFalse(so.startup_audit(self._startup_config("REAL_EXECUTION"), "SHADOW", store)["pass"])
             self.assertIn("PLATFORM_MODE_NOT_SHADOW", so.startup_audit(self._startup_config("REAL_EXECUTION"), "SHADOW", store)["reasons"])
 
     def test_real_startup_requires_real_consistent_state(self):
-        with tempfile.TemporaryDirectory() as td, patch.object(so, "safety_audit", return_value={"pass": True}):
+        with tempfile.TemporaryDirectory() as td, patch.object(so, "safety_audit", return_value={"pass": True}), patch.object(so, "PLATFORM_RUNTIME", Path(td) / "runtime"), patch.object(so, "REAL_CONTEXT", "SYNTHETIC_ACCOUNT"):
             store = OrchestrationStore(Path(td) / "orchestration")
             self.assertFalse(so.startup_audit(self._startup_config("SHADOW"), "REAL_EXECUTION", store)["pass"])
             self._real_runtime(td)
@@ -104,7 +104,7 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(so.live_classification(new_signal, state), "POST_LIVE_EXECUTION")
 
     def test_live_enable_captures_existing_high_water_mark_without_broker_write(self):
-        with tempfile.TemporaryDirectory() as td, patch.object(so, "ROOT", Path(td)):
+        with tempfile.TemporaryDirectory() as td, patch.object(so, "ROOT", Path(td)), patch.object(so, "PLATFORM_RUNTIME", Path(td) / "runtime"), patch.object(so, "REAL_CONTEXT", "SYNTHETIC_ACCOUNT"):
             root = Path(td) / "runtime" / "orchestration"
             store = OrchestrationStore(root)
             for index in range(45):

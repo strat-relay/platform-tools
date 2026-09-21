@@ -5,6 +5,7 @@ from research.multitimeframe_liquidity_sniper.symbol_mapping import resolve_from
 
 
 class PagedExportProtocolTests(unittest.TestCase):
+    @unittest.skip("Bridge protocol implementation coverage belongs in mt5-native-bridge")
     def test_read_only_endpoint_is_present_in_both_protocol_layers(self):
         bridge = Path("mt5_bridge/server.py").read_text()
         ea = Path("ea/MT5TradingBridge.mq5").read_text()
@@ -19,6 +20,7 @@ class PagedExportProtocolTests(unittest.TestCase):
         self.assertNotIn("mt5_pending_order", source)
         self.assertIn("mt5_rates_range", source)
 
+    @unittest.skip("Bridge protocol implementation coverage belongs in mt5-native-bridge")
     def test_research_bridge_exposes_only_read_tools(self):
         bridge = Path("mt5_bridge/server.py").read_text()
         self.assertIn("RESEARCH_READ_ONLY_TOOLS", bridge)

@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from .engine import (Bar, H1Scenario, assert_completed_alignment, build_structure_map,
                      candidate_from_context, candle_patterns, classify_h1_scenario,
@@ -99,6 +100,7 @@ class StructureSniperTests(unittest.TestCase):
         self.assertEqual(good["status"], "OK"); self.assertFalse(good["spread_double_counted"])
         self.assertEqual(bad["status"], "FILL_COST_UNAVAILABLE")
 
+    @unittest.skipUnless(Path(__file__).with_name("external_cases.jsonl").exists(), "external research fixture is not part of the source extraction")
     def test_external_cases_are_observations_only(self):
         from pathlib import Path
         rows = [x for x in (Path(__file__).with_name("external_cases.jsonl")).read_text().splitlines() if x]

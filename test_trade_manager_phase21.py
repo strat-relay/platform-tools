@@ -37,7 +37,8 @@ class Phase21Tests(unittest.TestCase):
 
     def test_activation_cutoff_excludes_old_positions(self):
         with tempfile.TemporaryDirectory() as d:
-            state = ProspectiveActivation(Path(d) / "activation.json").activate(strategies=["S"], instruments=["XAUUSDm"])
+            state = {"trade_manager_activation_cutoff": "2026-09-17T11:30:00+00:00",
+                     "strategies": ["S"], "instruments": ["XAUUSDm"]}
             collector = ProspectiveExperimentCollector(lambda: [pos()], lambda _: {"quote": {"bid": 100, "ask": 101}}, state, ObservationStore(Path(d) / "obs"))
             self.assertEqual(collector.collect_once("2026-09-17T10:00:00Z")["eligible_positions"], 0)
             newer = {**pos(), "created_at": "2026-09-17T12:00:00+00:00"}

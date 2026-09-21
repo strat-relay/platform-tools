@@ -1,0 +1,504 @@
+path,class,mixed,target_repo,stage1_path,stage2_path,live_reachable,note
+.gitignore,TRADING_PLATFORM,0,trading-platform,.gitignore,.gitignore (split per repo),0,
+AGENT_STATUS.md,TRADING_PLATFORM,0,trading-platform,AGENT_STATUS.md,docs/AGENT_STATUS.md,0,
+Dockerfile.postgres-tools,MIGRATION_TOOL,0,trading-platform,Dockerfile.postgres-tools,tools/migration/Dockerfile.postgres-tools,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+MT5TradingBridge.ex5,MT5_BRIDGE,0,mt5-native-bridge,MT5TradingBridge.ex5,(untrack: build artifact; publish from CI/release),0,
+MT5TradingBridge.mq5,MT5_BRIDGE,0,mt5-native-bridge,MT5TradingBridge.mq5,ea/MT5TradingBridge.mq5,0,
+MT5TradingBridge.mq5.lnk,LEGACY,0,trading-platform,MT5TradingBridge.mq5.lnk,research/legacy/MT5TradingBridge.mq5.lnk,0,superseded / unreferenced by any live process
+MT5TradingBridge_compile_probe.mq5 (2).lnk,LEGACY,0,trading-platform,MT5TradingBridge_compile_probe.mq5 (2).lnk,research/legacy/MT5TradingBridge_compile_probe.mq5 (2).lnk,0,superseded / unreferenced by any live process
+MT5TradingBridge_compile_probe.mq5 (3).lnk,LEGACY,0,trading-platform,MT5TradingBridge_compile_probe.mq5 (3).lnk,research/legacy/MT5TradingBridge_compile_probe.mq5 (3).lnk,0,superseded / unreferenced by any live process
+MT5TradingBridge_compile_probe.mq5.lnk,LEGACY,0,trading-platform,MT5TradingBridge_compile_probe.mq5.lnk,research/legacy/MT5TradingBridge_compile_probe.mq5.lnk,0,superseded / unreferenced by any live process
+README.md,TRADING_PLATFORM,0,trading-platform,README.md,README.md (rewrite),0,
+archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_forward_v2.py,LEGACY,0,trading-platform,archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_forward_v2.py,research/legacy/archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_forward_v2.py,0,superseded / unreferenced by any live process
+archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_manifest.json,LEGACY,0,trading-platform,archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_manifest.json,research/legacy/archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_manifest.json,0,superseded / unreferenced by any live process
+archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_results.json,LEGACY,0,trading-platform,archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_results.json,research/legacy/archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_results.json,0,superseded / unreferenced by any live process
+archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_summary.md,LEGACY,0,trading-platform,archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_summary.md,research/legacy/archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_summary.md,0,superseded / unreferenced by any live process
+archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_trades.csv,LEGACY,0,trading-platform,archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_trades.csv,research/legacy/archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_trades.csv,0,superseded / unreferenced by any live process
+archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_validate.py,LEGACY,0,trading-platform,archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_validate.py,research/legacy/archive/liquidity_displacement_v2_2026-09-15/liquidity_displacement_v2_validate.py,0,superseded / unreferenced by any live process
+archive/liquidity_displacement_v2_2026-09-15/test_liquidity_displacement_v2.py,LEGACY,0,trading-platform,archive/liquidity_displacement_v2_2026-09-15/test_liquidity_displacement_v2.py,research/legacy/archive/liquidity_displacement_v2_2026-09-15/test_liquidity_displacement_v2.py,0,superseded / unreferenced by any live process
+backtest_audit.jsonl,LEGACY,0,trading-platform,backtest_audit.jsonl,research/legacy/backtest_audit.jsonl,0,root-level historical research study or output
+backtest_results.json,LEGACY,0,trading-platform,backtest_results.json,research/legacy/backtest_results.json,0,root-level historical research study or output
+backtest_summary.md,LEGACY,0,trading-platform,backtest_summary.md,research/legacy/backtest_summary.md,0,root-level historical research study or output
+backtest_trades.csv,LEGACY,0,trading-platform,backtest_trades.csv,research/legacy/backtest_trades.csv,0,root-level historical research study or output
+backtest_validate.py,LEGACY,0,trading-platform,backtest_validate.py,research/legacy/backtest_validate.py,0,root-level historical research study or output
+bridge.py,MT5_BRIDGE,1,mt5-native-bridge,bridge.py,"mt5_bridge/server.py (+ tools.py, scheduler.py, write_gate.py, config.py; see BRIDGE_EXTRACTION.md)",1,"platform policy: caller-name priority, execution-mode write gate, X-Execution-Mode/Smoke headers"
+bridge_lifecycle.py,MT5_BRIDGE,0,mt5-native-bridge,bridge_lifecycle.py,mt5_bridge/lifecycle.py,1,
+bridge_transport_probe.py,MT5_BRIDGE,0,mt5-native-bridge,bridge_transport_probe.py,tools/bridge_transport_probe.py,0,
+candle_sequence_discovery.py,LEGACY,0,trading-platform,candle_sequence_discovery.py,research/legacy/candle_sequence_discovery.py,0,root-level historical research study or output
+candle_sequence_discovery_results.json,LEGACY,0,trading-platform,candle_sequence_discovery_results.json,research/legacy/candle_sequence_discovery_results.json,0,root-level historical research study or output
+candle_sequence_discovery_samples.csv,LEGACY,0,trading-platform,candle_sequence_discovery_samples.csv,research/legacy/candle_sequence_discovery_samples.csv,0,root-level historical research study or output
+candle_sequence_discovery_summary.md,LEGACY,0,trading-platform,candle_sequence_discovery_summary.md,research/legacy/candle_sequence_discovery_summary.md,0,root-level historical research study or output
+compose.yaml,TRADING_PLATFORM,0,trading-platform,compose.yaml,deploy/compose.yaml,0,
+context_structure_retrace/__init__.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/__init__.py,src/trading_platform/strategies/context_structure_retrace/__init__.py,1,
+context_structure_retrace/attention.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/attention.py,src/trading_platform/strategies/context_structure_retrace/attention.py,0,
+context_structure_retrace/config.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/config.py,src/trading_platform/strategies/context_structure_retrace/config.py,1,
+context_structure_retrace/data.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/data.py,src/trading_platform/strategies/context_structure_retrace/data.py,1,
+context_structure_retrace/indicators.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/indicators.py,src/trading_platform/strategies/context_structure_retrace/indicators.py,1,
+context_structure_retrace/ledger.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/ledger.py,src/trading_platform/strategies/context_structure_retrace/ledger.py,0,
+context_structure_retrace/normalization.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/normalization.py,src/trading_platform/strategies/context_structure_retrace/normalization.py,0,
+context_structure_retrace/outcomes.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/outcomes.py,src/trading_platform/strategies/context_structure_retrace/outcomes.py,0,
+context_structure_retrace/patterns.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/patterns.py,src/trading_platform/strategies/context_structure_retrace/patterns.py,1,
+context_structure_retrace/provenance.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/provenance.py,src/trading_platform/strategies/context_structure_retrace/provenance.py,0,
+context_structure_retrace/replay.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/replay.py,src/trading_platform/strategies/context_structure_retrace/replay.py,1,
+context_structure_retrace/retracement.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/retracement.py,src/trading_platform/strategies/context_structure_retrace/retracement.py,0,
+context_structure_retrace/schema.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/schema.py,src/trading_platform/strategies/context_structure_retrace/schema.py,1,
+context_structure_retrace/sr.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/sr.py,src/trading_platform/strategies/context_structure_retrace/sr.py,1,
+context_structure_retrace/structures.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace/structures.py,src/trading_platform/strategies/context_structure_retrace/structures.py,1,
+context_structure_retrace_compact_state.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_compact_state.py,src/trading_platform/strategies/context_structure_retrace/compact_state.py,1,
+context_structure_retrace_cross_instrument_results.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_cross_instrument_results.json,strategy_artifacts/context_structure_retrace_cross_instrument_results.json,0,strategy artifact / manifest / summary
+context_structure_retrace_cross_sanity.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_cross_sanity.py,research/context_structure_retrace/cross_sanity.py,0,
+context_structure_retrace_forward.py,TRADING_PLATFORM,1,trading-platform,context_structure_retrace_forward.py,src/trading_platform/strategies/context_structure_retrace/forward_runner.py,1,embedded MCP read client (bridge_read)
+context_structure_retrace_forward_cohort.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_forward_cohort.json,strategy_artifacts/context_structure_retrace_forward_cohort.json,0,strategy artifact / manifest / summary
+context_structure_retrace_forward_manifest.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_forward_manifest.json,strategy_artifacts/context_structure_retrace_forward_manifest.json,0,strategy artifact / manifest / summary
+context_structure_retrace_forward_state_compact.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_forward_state_compact.json,strategy_artifacts/context_structure_retrace_forward_state_compact.json,0,strategy artifact / manifest / summary
+context_structure_retrace_forward_summary.md,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_forward_summary.md,strategy_artifacts/context_structure_retrace_forward_summary.md,0,strategy artifact / manifest / summary
+context_structure_retrace_phase2.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_phase2.py,src/trading_platform/strategies/context_structure_retrace/phase2.py,0,
+context_structure_retrace_phase2_ledger.csv,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_phase2_ledger.csv,strategy_artifacts/context_structure_retrace_phase2_ledger.csv,0,strategy artifact / manifest / summary
+context_structure_retrace_phase2_ledger.jsonl,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_phase2_ledger.jsonl,strategy_artifacts/context_structure_retrace_phase2_ledger.jsonl,0,strategy artifact / manifest / summary
+context_structure_retrace_phase2_results.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_phase2_results.json,strategy_artifacts/context_structure_retrace_phase2_results.json,0,strategy artifact / manifest / summary
+context_structure_retrace_phase2_summary.md,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_phase2_summary.md,strategy_artifacts/context_structure_retrace_phase2_summary.md,0,strategy artifact / manifest / summary
+context_structure_retrace_phase7_manifest.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_phase7_manifest.json,strategy_artifacts/context_structure_retrace_phase7_manifest.json,0,strategy artifact / manifest / summary
+context_structure_retrace_phase7_observer.py,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_phase7_observer.py,src/trading_platform/strategies/context_structure_retrace/phase7_observer.py,1,
+context_structure_retrace_provenance_report.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_provenance_report.json,strategy_artifacts/context_structure_retrace_provenance_report.json,0,strategy artifact / manifest / summary
+context_structure_retrace_sample_event.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_sample_event.json,strategy_artifacts/context_structure_retrace_sample_event.json,0,strategy artifact / manifest / summary
+context_structure_retrace_sample_snapshot.json,TRADING_PLATFORM,0,trading-platform,context_structure_retrace_sample_snapshot.json,strategy_artifacts/context_structure_retrace_sample_snapshot.json,0,strategy artifact / manifest / summary
+control_api/__init__.py,TRADING_PLATFORM,0,trading-platform,control_api/__init__.py,src/trading_platform/control_api/__init__.py,1,
+control_api/__main__.py,TRADING_PLATFORM,0,trading-platform,control_api/__main__.py,src/trading_platform/control_api/__main__.py,1,
+control_api/app.py,TRADING_PLATFORM,1,trading-platform,control_api/app.py,src/trading_platform/control_api/app.py,1,embedded MCP BridgeReader + broker-tool allow-list
+control_api/observability.py,TRADING_PLATFORM,0,trading-platform,control_api/observability.py,src/trading_platform/control_api/observability.py,1,
+deploy/prod/cloudflared-config.example.yml,TRADING_PLATFORM,0,trading-platform,deploy/prod/cloudflared-config.example.yml,deploy/prod/cloudflared-config.example.yml,0,
+deploy/prod/control_api.env.example,TRADING_PLATFORM,0,trading-platform,deploy/prod/control_api.env.example,deploy/prod/control_api.env.example,0,
+deploy/prod/run_control_api.sh,TRADING_PLATFORM,0,trading-platform,deploy/prod/run_control_api.sh,deploy/prod/run_control_api.sh,0,
+docs/ADR/ADR-001-causal-replay.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-001-causal-replay.md,docs/ADR/ADR-001-causal-replay.md,0,
+docs/ADR/ADR-002-pair-independent.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-002-pair-independent.md,docs/ADR/ADR-002-pair-independent.md,0,
+docs/ADR/ADR-003-sr-zones.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-003-sr-zones.md,docs/ADR/ADR-003-sr-zones.md,0,
+docs/ADR/ADR-004-descriptive-context.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-004-descriptive-context.md,docs/ADR/ADR-004-descriptive-context.md,0,
+docs/ADR/ADR-005-originating-stop.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-005-originating-stop.md,docs/ADR/ADR-005-originating-stop.md,0,
+docs/ADR/ADR-006-structure-capped-target.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-006-structure-capped-target.md,docs/ADR/ADR-006-structure-capped-target.md,0,
+docs/ADR/ADR-007-signed-target.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-007-signed-target.md,docs/ADR/ADR-007-signed-target.md,0,
+docs/ADR/ADR-008-nontradable-target.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-008-nontradable-target.md,docs/ADR/ADR-008-nontradable-target.md,0,
+docs/ADR/ADR-009-target-completion.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-009-target-completion.md,docs/ADR/ADR-009-target-completion.md,0,
+docs/ADR/ADR-010-reentry.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-010-reentry.md,docs/ADR/ADR-010-reentry.md,0,
+docs/ADR/ADR-011-no-scalein.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-011-no-scalein.md,docs/ADR/ADR-011-no-scalein.md,0,
+docs/ADR/ADR-012-two-leg-risk.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-012-two-leg-risk.md,docs/ADR/ADR-012-two-leg-risk.md,0,
+docs/ADR/ADR-013-no-fixed-time-exit.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-013-no-fixed-time-exit.md,docs/ADR/ADR-013-no-fixed-time-exit.md,0,
+docs/ADR/ADR-014-shadow-runner.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-014-shadow-runner.md,docs/ADR/ADR-014-shadow-runner.md,0,
+docs/ADR/ADR-015-freeze-boundary.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-015-freeze-boundary.md,docs/ADR/ADR-015-freeze-boundary.md,0,
+docs/ADR/ADR-016-paper-isolation.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-016-paper-isolation.md,docs/ADR/ADR-016-paper-isolation.md,0,
+docs/ADR/ADR-017-cost-model.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-017-cost-model.md,docs/ADR/ADR-017-cost-model.md,0,
+docs/ADR/ADR-018-economic-identity.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-018-economic-identity.md,docs/ADR/ADR-018-economic-identity.md,0,
+docs/ADR/ADR-019-execution-boundary.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-019-execution-boundary.md,docs/ADR/ADR-019-execution-boundary.md,0,
+docs/ADR/ADR-020-exposed-data.md,TRADING_PLATFORM,0,trading-platform,docs/ADR/ADR-020-exposed-data.md,docs/ADR/ADR-020-exposed-data.md,0,
+docs/ARCHITECTURE.md,TRADING_PLATFORM,0,trading-platform,docs/ARCHITECTURE.md,docs/ARCHITECTURE.md,0,
+docs/BACKUP_AND_DISASTER_RECOVERY.md,TRADING_PLATFORM,0,trading-platform,docs/BACKUP_AND_DISASTER_RECOVERY.md,docs/BACKUP_AND_DISASTER_RECOVERY.md,0,
+docs/BROKER_RECONCILIATION.md,TRADING_PLATFORM,0,trading-platform,docs/BROKER_RECONCILIATION.md,docs/BROKER_RECONCILIATION.md,0,
+docs/CONTROL_API.md,TRADING_PLATFORM,0,trading-platform,docs/CONTROL_API.md,docs/CONTROL_API.md,0,
+docs/DATA_AND_STATE.md,TRADING_PLATFORM,0,trading-platform,docs/DATA_AND_STATE.md,docs/DATA_AND_STATE.md,0,
+docs/DEMO_EXECUTION.md,TRADING_PLATFORM,0,trading-platform,docs/DEMO_EXECUTION.md,docs/DEMO_EXECUTION.md,0,
+docs/DISTRIBUTION_PIPELINE.md,TRADING_PLATFORM,0,trading-platform,docs/DISTRIBUTION_PIPELINE.md,docs/DISTRIBUTION_PIPELINE.md,0,
+docs/DOCKER_DEPLOYMENT.md,TRADING_PLATFORM,0,trading-platform,docs/DOCKER_DEPLOYMENT.md,docs/DOCKER_DEPLOYMENT.md,0,
+docs/ENVIRONMENT.md,TRADING_PLATFORM,0,trading-platform,docs/ENVIRONMENT.md,docs/ENVIRONMENT.md,0,
+docs/EXECUTION_INTENT_SCHEMA.md,TRADING_PLATFORM,0,trading-platform,docs/EXECUTION_INTENT_SCHEMA.md,docs/EXECUTION_INTENT_SCHEMA.md,0,
+docs/HANDOFF.md,TRADING_PLATFORM,0,trading-platform,docs/HANDOFF.md,docs/HANDOFF.md,0,
+docs/KNOWN_LIMITATIONS.md,TRADING_PLATFORM,0,trading-platform,docs/KNOWN_LIMITATIONS.md,docs/KNOWN_LIMITATIONS.md,0,
+docs/LARGE_EVIDENCE_ARTIFACTS.md,TRADING_PLATFORM,0,trading-platform,docs/LARGE_EVIDENCE_ARTIFACTS.md,docs/LARGE_EVIDENCE_ARTIFACTS.md,0,
+docs/LIVE_ARMING_AND_KILL_SWITCH.md,TRADING_PLATFORM,0,trading-platform,docs/LIVE_ARMING_AND_KILL_SWITCH.md,docs/LIVE_ARMING_AND_KILL_SWITCH.md,0,
+docs/LIVE_EXECUTION_CONSUMER.md,TRADING_PLATFORM,0,trading-platform,docs/LIVE_EXECUTION_CONSUMER.md,docs/LIVE_EXECUTION_CONSUMER.md,0,
+docs/OPERATIONS.md,TRADING_PLATFORM,0,trading-platform,docs/OPERATIONS.md,docs/OPERATIONS.md,0,
+docs/ORCHESTRATOR_OPERATIONS.md,TRADING_PLATFORM,0,trading-platform,docs/ORCHESTRATOR_OPERATIONS.md,docs/ORCHESTRATOR_OPERATIONS.md,0,
+docs/PHASE6_893_FORENSICS.md,MIGRATION_TOOL,0,trading-platform,docs/PHASE6_893_FORENSICS.md,tools/migration/docs/PHASE6_893_FORENSICS.md,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+docs/PHASE6_POSTGRES_RECONCILIATION.md,MIGRATION_TOOL,0,trading-platform,docs/PHASE6_POSTGRES_RECONCILIATION.md,tools/migration/docs/PHASE6_POSTGRES_RECONCILIATION.md,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+docs/PHASE7_POSITION_MANAGEMENT.md,TRADING_PLATFORM,0,trading-platform,docs/PHASE7_POSITION_MANAGEMENT.md,docs/PHASE7_POSITION_MANAGEMENT.md,0,
+docs/PORTFOLIO_ACCOUNT_MODEL.md,TRADING_PLATFORM,0,trading-platform,docs/PORTFOLIO_ACCOUNT_MODEL.md,docs/PORTFOLIO_ACCOUNT_MODEL.md,0,
+docs/POSTGRES_SYSTEM_OF_RECORD.md,TRADING_PLATFORM,0,trading-platform,docs/POSTGRES_SYSTEM_OF_RECORD.md,docs/POSTGRES_SYSTEM_OF_RECORD.md,0,
+docs/PROD_DEPLOY.md,TRADING_PLATFORM,0,trading-platform,docs/PROD_DEPLOY.md,docs/PROD_DEPLOY.md,0,
+docs/PROJECT_INVENTORY.md,TRADING_PLATFORM,0,trading-platform,docs/PROJECT_INVENTORY.md,docs/PROJECT_INVENTORY.md,0,
+docs/PROJECT_STRUCTURE.md,TRADING_PLATFORM,0,trading-platform,docs/PROJECT_STRUCTURE.md,docs/PROJECT_STRUCTURE.md,0,
+docs/RECOVERY_RUNBOOK.md,TRADING_PLATFORM,0,trading-platform,docs/RECOVERY_RUNBOOK.md,docs/RECOVERY_RUNBOOK.md,0,
+docs/RESEARCH_HISTORY.md,TRADING_PLATFORM,0,trading-platform,docs/RESEARCH_HISTORY.md,docs/RESEARCH_HISTORY.md,0,
+docs/RESULTS_REGISTRY.md,TRADING_PLATFORM,0,trading-platform,docs/RESULTS_REGISTRY.md,docs/RESULTS_REGISTRY.md,0,
+docs/RISK_SIZING_ENGINE.md,TRADING_PLATFORM,0,trading-platform,docs/RISK_SIZING_ENGINE.md,docs/RISK_SIZING_ENGINE.md,0,
+docs/SAFETY_AND_ISOLATION.md,TRADING_PLATFORM,0,trading-platform,docs/SAFETY_AND_ISOLATION.md,docs/SAFETY_AND_ISOLATION.md,0,
+docs/SIGNAL_ANALYSIS_EVIDENCE_ARCHITECTURE_AUDIT.md,TRADING_PLATFORM,0,trading-platform,docs/SIGNAL_ANALYSIS_EVIDENCE_ARCHITECTURE_AUDIT.md,docs/SIGNAL_ANALYSIS_EVIDENCE_ARCHITECTURE_AUDIT.md,0,
+docs/SIGNAL_ORCHESTRATOR.md,TRADING_PLATFORM,0,trading-platform,docs/SIGNAL_ORCHESTRATOR.md,docs/SIGNAL_ORCHESTRATOR.md,0,
+docs/STRATEGY_REGISTRY.md,TRADING_PLATFORM,0,trading-platform,docs/STRATEGY_REGISTRY.md,docs/STRATEGY_REGISTRY.md,0,
+docs/STRATEGY_SIGNAL_SCHEMA.md,TRADING_PLATFORM,0,trading-platform,docs/STRATEGY_SIGNAL_SCHEMA.md,docs/STRATEGY_SIGNAL_SCHEMA.md,0,
+docs/TESTING.md,TRADING_PLATFORM,0,trading-platform,docs/TESTING.md,docs/TESTING.md,0,
+docs/signal-detail-evidence-audit.md,TRADING_PLATFORM,0,trading-platform,docs/signal-detail-evidence-audit.md,docs/signal-detail-evidence-audit.md,0,
+docs/strategies/CONTEXT_STRUCTURE_RETRACE_V1.md,TRADING_PLATFORM,0,trading-platform,docs/strategies/CONTEXT_STRUCTURE_RETRACE_V1.md,docs/strategies/CONTEXT_STRUCTURE_RETRACE_V1.md,0,
+engulfing_continuation_results.json,LEGACY,0,trading-platform,engulfing_continuation_results.json,research/legacy/engulfing_continuation_results.json,0,root-level historical research study or output
+engulfing_continuation_samples.csv,LEGACY,0,trading-platform,engulfing_continuation_samples.csv,research/legacy/engulfing_continuation_samples.csv,0,root-level historical research study or output
+engulfing_continuation_study.py,LEGACY,0,trading-platform,engulfing_continuation_study.py,research/legacy/engulfing_continuation_study.py,0,root-level historical research study or output
+engulfing_continuation_summary.md,LEGACY,0,trading-platform,engulfing_continuation_summary.md,research/legacy/engulfing_continuation_summary.md,0,root-level historical research study or output
+engulfing_pattern_discovery.json,LEGACY,0,trading-platform,engulfing_pattern_discovery.json,research/legacy/engulfing_pattern_discovery.json,0,root-level historical research study or output
+engulfing_pattern_discovery.py,LEGACY,0,trading-platform,engulfing_pattern_discovery.py,research/legacy/engulfing_pattern_discovery.py,0,root-level historical research study or output
+engulfing_pattern_discovery_summary.md,LEGACY,0,trading-platform,engulfing_pattern_discovery_summary.md,research/legacy/engulfing_pattern_discovery_summary.md,0,root-level historical research study or output
+engulfing_pattern_sequences.csv,LEGACY,0,trading-platform,engulfing_pattern_sequences.csv,research/legacy/engulfing_pattern_sequences.csv,0,root-level historical research study or output
+execution/__init__.py,TRADING_PLATFORM,0,trading-platform,execution/__init__.py,src/trading_platform/execution/__init__.py,0,
+execution/adapters.py,TRADING_PLATFORM,1,trading-platform,execution/adapters.py,src/trading_platform/execution/adapters.py,1,reaches into provider._read (private) for quotes
+execution/demo.py,TRADING_PLATFORM,0,trading-platform,execution/demo.py,src/trading_platform/execution/demo.py,1,
+execution/demo_broker.py,TRADING_PLATFORM,1,trading-platform,execution/demo_broker.py,src/trading_platform/execution/demo_broker.py,1,wire client + platform arming guards + MT5 retcode semantics
+execution/models.py,TRADING_PLATFORM,0,trading-platform,execution/models.py,src/trading_platform/execution/models.py,1,
+execution/risk_policy.py,TRADING_PLATFORM,0,trading-platform,execution/risk_policy.py,src/trading_platform/execution/risk_policy.py,1,
+execution/storage.py,TRADING_PLATFORM,0,trading-platform,execution/storage.py,src/trading_platform/execution/storage.py,1,
+execution_bridge.py,MT5_BRIDGE,0,mt5-native-bridge,execution_bridge.py,mt5_bridge/__main__.py --profile execution,1,
+historical_fetch.py,LEGACY,0,trading-platform,historical_fetch.py,research/legacy/historical_fetch.py,0,root-level historical research study or output
+historical_fetch_btc.py,LEGACY,0,trading-platform,historical_fetch_btc.py,research/legacy/historical_fetch_btc.py,0,root-level historical research study or output
+historical_fetch_context.py,LEGACY,0,trading-platform,historical_fetch_context.py,research/legacy/historical_fetch_context.py,0,root-level historical research study or output
+historical_fetch_m1.py,LEGACY,0,trading-platform,historical_fetch_m1.py,research/legacy/historical_fetch_m1.py,0,root-level historical research study or output
+historical_fetch_symbol.py,LEGACY,0,trading-platform,historical_fetch_symbol.py,research/legacy/historical_fetch_symbol.py,0,root-level historical research study or output
+historical_fetch_symbol_m1.py,LEGACY,0,trading-platform,historical_fetch_symbol_m1.py,research/legacy/historical_fetch_symbol_m1.py,0,root-level historical research study or output
+liquidity_displacement.py,TRADING_PLATFORM,0,trading-platform,liquidity_displacement.py,src/trading_platform/strategies/liquidity_displacement/core.py,1,
+liquidity_displacement_BTCUSDm_entry_25pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_BTCUSDm_entry_25pct_trades.csv,strategy_artifacts/liquidity_displacement_BTCUSDm_entry_25pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_BTCUSDm_entry_33pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_BTCUSDm_entry_33pct_trades.csv,strategy_artifacts/liquidity_displacement_BTCUSDm_entry_33pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_BTCUSDm_entry_50pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_BTCUSDm_entry_50pct_trades.csv,strategy_artifacts/liquidity_displacement_BTCUSDm_entry_50pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_EURUSDm_entry_25pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_EURUSDm_entry_25pct_trades.csv,strategy_artifacts/liquidity_displacement_EURUSDm_entry_25pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_EURUSDm_entry_33pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_EURUSDm_entry_33pct_trades.csv,strategy_artifacts/liquidity_displacement_EURUSDm_entry_33pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_EURUSDm_entry_50pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_EURUSDm_entry_50pct_trades.csv,strategy_artifacts/liquidity_displacement_EURUSDm_entry_50pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_EURUSDm_v1_5c_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_EURUSDm_v1_5c_trades.csv,strategy_artifacts/liquidity_displacement_EURUSDm_v1_5c_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_EURUSDm_v1_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_EURUSDm_v1_trades.csv,strategy_artifacts/liquidity_displacement_EURUSDm_v1_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_GBPUSDm_v1_5c_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_GBPUSDm_v1_5c_trades.csv,strategy_artifacts/liquidity_displacement_GBPUSDm_v1_5c_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_GBPUSDm_v1_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_GBPUSDm_v1_trades.csv,strategy_artifacts/liquidity_displacement_GBPUSDm_v1_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USDJPYm_25_oos_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USDJPYm_25_oos_trades.csv,strategy_artifacts/liquidity_displacement_USDJPYm_25_oos_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USDJPYm_entry_25pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USDJPYm_entry_25pct_trades.csv,strategy_artifacts/liquidity_displacement_USDJPYm_entry_25pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USDJPYm_entry_33pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USDJPYm_entry_33pct_trades.csv,strategy_artifacts/liquidity_displacement_USDJPYm_entry_33pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USDJPYm_entry_50pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USDJPYm_entry_50pct_trades.csv,strategy_artifacts/liquidity_displacement_USDJPYm_entry_50pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USDJPYm_v1_5c_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USDJPYm_v1_5c_trades.csv,strategy_artifacts/liquidity_displacement_USDJPYm_v1_5c_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USDJPYm_v1_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USDJPYm_v1_trades.csv,strategy_artifacts/liquidity_displacement_USDJPYm_v1_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTEC_x100m_25_oos_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTEC_x100m_25_oos_trades.csv,strategy_artifacts/liquidity_displacement_USTEC_x100m_25_oos_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTEC_x100m_v1_3c_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTEC_x100m_v1_3c_trades.csv,strategy_artifacts/liquidity_displacement_USTEC_x100m_v1_3c_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTEC_x100m_v1_5c_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTEC_x100m_v1_5c_trades.csv,strategy_artifacts/liquidity_displacement_USTEC_x100m_v1_5c_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTEC_x100m_v1_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTEC_x100m_v1_trades.csv,strategy_artifacts/liquidity_displacement_USTEC_x100m_v1_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTECm_25_oos_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTECm_25_oos_trades.csv,strategy_artifacts/liquidity_displacement_USTECm_25_oos_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTECm_v1_3c_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTECm_v1_3c_trades.csv,strategy_artifacts/liquidity_displacement_USTECm_v1_3c_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTECm_v1_5c_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTECm_v1_5c_trades.csv,strategy_artifacts/liquidity_displacement_USTECm_v1_5c_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_USTECm_v1_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_USTECm_v1_trades.csv,strategy_artifacts/liquidity_displacement_USTECm_v1_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_XAUUSDm_33_oos_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_XAUUSDm_33_oos_trades.csv,strategy_artifacts/liquidity_displacement_XAUUSDm_33_oos_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_XAUUSDm_entry_25pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_XAUUSDm_entry_25pct_trades.csv,strategy_artifacts/liquidity_displacement_XAUUSDm_entry_25pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_XAUUSDm_entry_33pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_XAUUSDm_entry_33pct_trades.csv,strategy_artifacts/liquidity_displacement_XAUUSDm_entry_33pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_XAUUSDm_entry_50pct_trades.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_XAUUSDm_entry_50pct_trades.csv,strategy_artifacts/liquidity_displacement_XAUUSDm_entry_50pct_trades.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_btc25_manifest.json,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_btc25_manifest.json,strategy_artifacts/liquidity_displacement_btc25_manifest.json,0,strategy artifact / manifest / summary
+liquidity_displacement_btc25_summary.md,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_btc25_summary.md,strategy_artifacts/liquidity_displacement_btc25_summary.md,0,strategy artifact / manifest / summary
+liquidity_displacement_btc25_sweep_overlap_audit.json,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_btc25_sweep_overlap_audit.json,strategy_artifacts/liquidity_displacement_btc25_sweep_overlap_audit.json,0,strategy artifact / manifest / summary
+liquidity_displacement_btc25_sweep_overlap_audit.md,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_btc25_sweep_overlap_audit.md,strategy_artifacts/liquidity_displacement_btc25_sweep_overlap_audit.md,0,strategy artifact / manifest / summary
+liquidity_displacement_btc25_sweep_overlap_audit.py,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_btc25_sweep_overlap_audit.py,research/liquidity_displacement/btc25_sweep_overlap_audit.py,0,strategy artifact / manifest / summary
+liquidity_displacement_btc25_sweep_overlap_candidates.csv,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_btc25_sweep_overlap_candidates.csv,strategy_artifacts/liquidity_displacement_btc25_sweep_overlap_candidates.csv,0,strategy artifact / manifest / summary
+liquidity_displacement_btc_results.json,LEGACY,0,trading-platform,liquidity_displacement_btc_results.json,research/legacy/liquidity_displacement_btc_results.json,0,root-level historical research study or output
+liquidity_displacement_btc_summary.md,LEGACY,0,trading-platform,liquidity_displacement_btc_summary.md,research/legacy/liquidity_displacement_btc_summary.md,0,root-level historical research study or output
+liquidity_displacement_btc_trades.csv,LEGACY,0,trading-platform,liquidity_displacement_btc_trades.csv,research/legacy/liquidity_displacement_btc_trades.csv,0,root-level historical research study or output
+liquidity_displacement_btc_validate.py,LEGACY,0,trading-platform,liquidity_displacement_btc_validate.py,research/legacy/liquidity_displacement_btc_validate.py,0,root-level historical research study or output
+liquidity_displacement_entry_depth_results.json,LEGACY,0,trading-platform,liquidity_displacement_entry_depth_results.json,research/legacy/liquidity_displacement_entry_depth_results.json,0,root-level historical research study or output
+liquidity_displacement_entry_depth_summary.md,LEGACY,0,trading-platform,liquidity_displacement_entry_depth_summary.md,research/legacy/liquidity_displacement_entry_depth_summary.md,0,root-level historical research study or output
+liquidity_displacement_entry_depth_validate.py,LEGACY,0,trading-platform,liquidity_displacement_entry_depth_validate.py,research/legacy/liquidity_displacement_entry_depth_validate.py,0,root-level historical research study or output
+liquidity_displacement_entry_forward.py,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_entry_forward.py,src/trading_platform/strategies/liquidity_displacement/entry_variant_runner.py,1,
+liquidity_displacement_forward.py,TRADING_PLATFORM,1,trading-platform,liquidity_displacement_forward.py,src/trading_platform/strategies/liquidity_displacement/forward_runner.py,1,spawns mt5_read_once.py under Wine (bypasses bridge protocol)
+liquidity_displacement_forward_manifest.json,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_forward_manifest.json,strategy_artifacts/liquidity_displacement_forward_manifest.json,0,strategy artifact / manifest / summary
+liquidity_displacement_forward_summary.md,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_forward_summary.md,strategy_artifacts/liquidity_displacement_forward_summary.md,0,strategy artifact / manifest / summary
+liquidity_displacement_multi_results.json,LEGACY,0,trading-platform,liquidity_displacement_multi_results.json,research/legacy/liquidity_displacement_multi_results.json,0,root-level historical research study or output
+liquidity_displacement_multi_results_5c.json,LEGACY,0,trading-platform,liquidity_displacement_multi_results_5c.json,research/legacy/liquidity_displacement_multi_results_5c.json,0,root-level historical research study or output
+liquidity_displacement_multi_summary.md,LEGACY,0,trading-platform,liquidity_displacement_multi_summary.md,research/legacy/liquidity_displacement_multi_summary.md,0,root-level historical research study or output
+liquidity_displacement_multi_summary_5c.md,LEGACY,0,trading-platform,liquidity_displacement_multi_summary_5c.md,research/legacy/liquidity_displacement_multi_summary_5c.md,0,root-level historical research study or output
+liquidity_displacement_multi_validate.py,LEGACY,0,trading-platform,liquidity_displacement_multi_validate.py,research/legacy/liquidity_displacement_multi_validate.py,0,root-level historical research study or output
+liquidity_displacement_oos_results.json,LEGACY,0,trading-platform,liquidity_displacement_oos_results.json,research/legacy/liquidity_displacement_oos_results.json,0,root-level historical research study or output
+liquidity_displacement_oos_summary.md,LEGACY,0,trading-platform,liquidity_displacement_oos_summary.md,research/legacy/liquidity_displacement_oos_summary.md,0,root-level historical research study or output
+liquidity_displacement_oos_validate.py,LEGACY,0,trading-platform,liquidity_displacement_oos_validate.py,research/legacy/liquidity_displacement_oos_validate.py,0,root-level historical research study or output
+liquidity_displacement_results.json,LEGACY,0,trading-platform,liquidity_displacement_results.json,research/legacy/liquidity_displacement_results.json,0,root-level historical research study or output
+liquidity_displacement_summary.md,LEGACY,0,trading-platform,liquidity_displacement_summary.md,research/legacy/liquidity_displacement_summary.md,0,root-level historical research study or output
+liquidity_displacement_trades.csv,LEGACY,0,trading-platform,liquidity_displacement_trades.csv,research/legacy/liquidity_displacement_trades.csv,0,root-level historical research study or output
+liquidity_displacement_usdjpy25_manifest.json,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_usdjpy25_manifest.json,strategy_artifacts/liquidity_displacement_usdjpy25_manifest.json,0,strategy artifact / manifest / summary
+liquidity_displacement_usdjpy25_summary.md,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_usdjpy25_summary.md,strategy_artifacts/liquidity_displacement_usdjpy25_summary.md,0,strategy artifact / manifest / summary
+liquidity_displacement_ustec25_results.json,LEGACY,0,trading-platform,liquidity_displacement_ustec25_results.json,research/legacy/liquidity_displacement_ustec25_results.json,0,root-level historical research study or output
+liquidity_displacement_ustec25_summary.md,LEGACY,0,trading-platform,liquidity_displacement_ustec25_summary.md,research/legacy/liquidity_displacement_ustec25_summary.md,0,root-level historical research study or output
+liquidity_displacement_ustec25_validate.py,LEGACY,0,trading-platform,liquidity_displacement_ustec25_validate.py,research/legacy/liquidity_displacement_ustec25_validate.py,0,root-level historical research study or output
+liquidity_displacement_ustec_v1_results.json,LEGACY,0,trading-platform,liquidity_displacement_ustec_v1_results.json,research/legacy/liquidity_displacement_ustec_v1_results.json,0,root-level historical research study or output
+liquidity_displacement_v1_variant_a.py,LEGACY,0,trading-platform,liquidity_displacement_v1_variant_a.py,research/legacy/liquidity_displacement_v1_variant_a.py,0,root-level historical research study or output
+liquidity_displacement_v1_variant_a_manifest.json,LEGACY,0,trading-platform,liquidity_displacement_v1_variant_a_manifest.json,research/legacy/liquidity_displacement_v1_variant_a_manifest.json,0,root-level historical research study or output
+liquidity_displacement_v1_variant_a_results.json,LEGACY,0,trading-platform,liquidity_displacement_v1_variant_a_results.json,research/legacy/liquidity_displacement_v1_variant_a_results.json,0,root-level historical research study or output
+liquidity_displacement_v1_variant_a_summary.md,LEGACY,0,trading-platform,liquidity_displacement_v1_variant_a_summary.md,research/legacy/liquidity_displacement_v1_variant_a_summary.md,0,root-level historical research study or output
+liquidity_displacement_v1_variant_a_trades.csv,LEGACY,0,trading-platform,liquidity_displacement_v1_variant_a_trades.csv,research/legacy/liquidity_displacement_v1_variant_a_trades.csv,0,root-level historical research study or output
+liquidity_displacement_v1_variant_a_validate.py,LEGACY,0,trading-platform,liquidity_displacement_v1_variant_a_validate.py,research/legacy/liquidity_displacement_v1_variant_a_validate.py,0,root-level historical research study or output
+liquidity_displacement_validate.py,LEGACY,0,trading-platform,liquidity_displacement_validate.py,research/legacy/liquidity_displacement_validate.py,0,root-level historical research study or output
+liquidity_displacement_xau33_manifest.json,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_xau33_manifest.json,strategy_artifacts/liquidity_displacement_xau33_manifest.json,0,strategy artifact / manifest / summary
+liquidity_displacement_xau33_summary.md,TRADING_PLATFORM,0,trading-platform,liquidity_displacement_xau33_summary.md,strategy_artifacts/liquidity_displacement_xau33_summary.md,0,strategy artifact / manifest / summary
+live_execution_consumer.py,TRADING_PLATFORM,1,trading-platform,live_execution_consumer.py,src/trading_platform/execution/live_execution_consumer.py (then split; see 05_CONSUMER_EXTRACTION.md),1,raw MCP write call for management intents; direct provider wiring; execution/risk/ownership is platform
+micro_scalp.py,LEGACY,0,trading-platform,micro_scalp.py,research/legacy/micro_scalp.py,0,root-level historical research study or output
+micro_scalp_audit.py,LEGACY,0,trading-platform,micro_scalp_audit.py,research/legacy/micro_scalp_audit.py,0,root-level historical research study or output
+micro_scalp_audit_results.json,LEGACY,0,trading-platform,micro_scalp_audit_results.json,research/legacy/micro_scalp_audit_results.json,0,root-level historical research study or output
+micro_scalp_audit_summary.md,LEGACY,0,trading-platform,micro_scalp_audit_summary.md,research/legacy/micro_scalp_audit_summary.md,0,root-level historical research study or output
+micro_scalp_canonical_setups.csv,LEGACY,0,trading-platform,micro_scalp_canonical_setups.csv,research/legacy/micro_scalp_canonical_setups.csv,0,root-level historical research study or output
+micro_scalp_edge.py,LEGACY,0,trading-platform,micro_scalp_edge.py,research/legacy/micro_scalp_edge.py,0,root-level historical research study or output
+micro_scalp_edge_results.json,LEGACY,0,trading-platform,micro_scalp_edge_results.json,research/legacy/micro_scalp_edge_results.json,0,root-level historical research study or output
+micro_scalp_edge_summary.md,LEGACY,0,trading-platform,micro_scalp_edge_summary.md,research/legacy/micro_scalp_edge_summary.md,0,root-level historical research study or output
+micro_scalp_edge_trades.csv,LEGACY,0,trading-platform,micro_scalp_edge_trades.csv,research/legacy/micro_scalp_edge_trades.csv,0,root-level historical research study or output
+micro_scalp_filter.py,LEGACY,0,trading-platform,micro_scalp_filter.py,research/legacy/micro_scalp_filter.py,0,root-level historical research study or output
+micro_scalp_filter_results.json,LEGACY,0,trading-platform,micro_scalp_filter_results.json,research/legacy/micro_scalp_filter_results.json,0,root-level historical research study or output
+micro_scalp_filter_summary.md,LEGACY,0,trading-platform,micro_scalp_filter_summary.md,research/legacy/micro_scalp_filter_summary.md,0,root-level historical research study or output
+micro_scalp_results.json,LEGACY,0,trading-platform,micro_scalp_results.json,research/legacy/micro_scalp_results.json,0,root-level historical research study or output
+micro_scalp_summary.md,LEGACY,0,trading-platform,micro_scalp_summary.md,research/legacy/micro_scalp_summary.md,0,root-level historical research study or output
+micro_scalp_trades.csv,LEGACY,0,trading-platform,micro_scalp_trades.csv,research/legacy/micro_scalp_trades.csv,0,root-level historical research study or output
+micro_scalp_validate.py,LEGACY,0,trading-platform,micro_scalp_validate.py,research/legacy/micro_scalp_validate.py,0,root-level historical research study or output
+mt5_read_once.py,MT5_BRIDGE,1,mt5-native-bridge,mt5_read_once.py,tools/mt5_read_once.py,1,direct MetaTrader5 python read invoked by a platform runner via subprocess
+orchestration/__init__.py,TRADING_PLATFORM,0,trading-platform,orchestration/__init__.py,src/trading_platform/orchestration/__init__.py,0,
+orchestration/adapters/__init__.py,TRADING_PLATFORM,0,trading-platform,orchestration/adapters/__init__.py,src/trading_platform/orchestration/adapters/__init__.py,0,
+orchestration/adapters/base.py,TRADING_PLATFORM,0,trading-platform,orchestration/adapters/base.py,src/trading_platform/orchestration/adapters/base.py,0,
+orchestration/adapters/context_structure_retrace.py,TRADING_PLATFORM,0,trading-platform,orchestration/adapters/context_structure_retrace.py,src/trading_platform/orchestration/adapters/context_structure_retrace.py,1,
+orchestration/adapters/liquidity_displacement.py,TRADING_PLATFORM,0,trading-platform,orchestration/adapters/liquidity_displacement.py,src/trading_platform/orchestration/adapters/liquidity_displacement.py,1,
+orchestration/brokers/__init__.py,TRADING_PLATFORM,0,trading-platform,orchestration/brokers/__init__.py,src/trading_platform/orchestration/brokers/__init__.py,0,
+orchestration/brokers/mt5_shadow.py,TRADING_PLATFORM,1,trading-platform,orchestration/brokers/mt5_shadow.py,src/trading_platform/orchestration/brokers/mt5_shadow.py,1,"wire client + platform shaping (account_context_id, canonical_symbol, freshness)"
+orchestration/config.py,TRADING_PLATFORM,1,trading-platform,orchestration/config.py,src/trading_platform/orchestration/config.py,1,defaults hard-code bridge endpoints
+orchestration/config/liquidity_variant_registration_plan.json,TRADING_PLATFORM,0,trading-platform,orchestration/config/liquidity_variant_registration_plan.json,src/trading_platform/orchestration/config/liquidity_variant_registration_plan.json,0,
+orchestration/config/platform.json,TRADING_PLATFORM,0,trading-platform,orchestration/config/platform.json,src/trading_platform/orchestration/config/platform.json,0,
+orchestration/config/risk_policy.json,TRADING_PLATFORM,0,trading-platform,orchestration/config/risk_policy.json,src/trading_platform/orchestration/config/risk_policy.json,0,
+orchestration/config/tradeability_policy.json,TRADING_PLATFORM,0,trading-platform,orchestration/config/tradeability_policy.json,src/trading_platform/orchestration/config/tradeability_policy.json,0,
+orchestration/gateway.py,TRADING_PLATFORM,0,trading-platform,orchestration/gateway.py,src/trading_platform/orchestration/gateway.py,0,
+orchestration/liquidity_instances.py,TRADING_PLATFORM,0,trading-platform,orchestration/liquidity_instances.py,src/trading_platform/orchestration/liquidity_instances.py,1,
+orchestration/models.py,TRADING_PLATFORM,0,trading-platform,orchestration/models.py,src/trading_platform/orchestration/models.py,1,
+orchestration/registry.py,TRADING_PLATFORM,0,trading-platform,orchestration/registry.py,src/trading_platform/orchestration/registry.py,1,
+orchestration/replay_guard.py,TRADING_PLATFORM,0,trading-platform,orchestration/replay_guard.py,src/trading_platform/orchestration/replay_guard.py,1,
+orchestration/risk.py,TRADING_PLATFORM,0,trading-platform,orchestration/risk.py,src/trading_platform/orchestration/risk.py,1,
+orchestration/storage.py,TRADING_PLATFORM,0,trading-platform,orchestration/storage.py,src/trading_platform/orchestration/storage.py,1,
+orchestration/tradeability.py,TRADING_PLATFORM,0,trading-platform,orchestration/tradeability.py,src/trading_platform/orchestration/tradeability.py,1,
+paper_engine.py,TRADING_PLATFORM,0,trading-platform,paper_engine.py,src/trading_platform/strategies/common/paper_engine.py,1,
+paper_runner.py,TRADING_PLATFORM,1,trading-platform,paper_runner.py,src/trading_platform/contracts/mt5_bridge/legacy_call_bridge.py (call_bridge only; CLI -> research/legacy/),1,call_bridge() is the de-facto shared MCP client imported by 2 live runners + research; the CLI itself is legacy
+postgres/__init__.py,TRADING_PLATFORM,0,trading-platform,postgres/__init__.py,src/trading_platform/persistence/__init__.py,0,
+postgres/config.py,TRADING_PLATFORM,0,trading-platform,postgres/config.py,src/trading_platform/persistence/config.py,0,
+postgres/db.py,TRADING_PLATFORM,0,trading-platform,postgres/db.py,src/trading_platform/persistence/db.py,0,
+postgres/import_phase6.py,MIGRATION_TOOL,0,trading-platform,postgres/import_phase6.py,tools/migration/postgres/import_phase6.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+postgres/migrate.py,TRADING_PLATFORM,0,trading-platform,postgres/migrate.py,src/trading_platform/persistence/migrate.py,0,
+postgres/migrations/001_foundation.sql,TRADING_PLATFORM,0,trading-platform,postgres/migrations/001_foundation.sql,src/trading_platform/persistence/migrations/001_foundation.sql,0,
+postgres/migrations/002_phase6.sql,TRADING_PLATFORM,0,trading-platform,postgres/migrations/002_phase6.sql,src/trading_platform/persistence/migrations/002_phase6.sql,0,
+postgres/migrations/003_future_contracts.sql,TRADING_PLATFORM,0,trading-platform,postgres/migrations/003_future_contracts.sql,src/trading_platform/persistence/migrations/003_future_contracts.sql,0,
+postgres/migrations/004_identity_and_lifecycle.sql,TRADING_PLATFORM,0,trading-platform,postgres/migrations/004_identity_and_lifecycle.sql,src/trading_platform/persistence/migrations/004_identity_and_lifecycle.sql,0,
+postgres/migrations/005_working_set_boundary.sql,TRADING_PLATFORM,0,trading-platform,postgres/migrations/005_working_set_boundary.sql,src/trading_platform/persistence/migrations/005_working_set_boundary.sql,0,
+postgres/migrations/006_canonical_operational_views.sql,TRADING_PLATFORM,0,trading-platform,postgres/migrations/006_canonical_operational_views.sql,src/trading_platform/persistence/migrations/006_canonical_operational_views.sql,0,
+postgres/migrations/007_position_authority_compatibility.sql,TRADING_PLATFORM,0,trading-platform,postgres/migrations/007_position_authority_compatibility.sql,src/trading_platform/persistence/migrations/007_position_authority_compatibility.sql,0,
+postgres/phase6.py,MIGRATION_TOOL,0,trading-platform,postgres/phase6.py,tools/migration/postgres/phase6.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+postgres/preflight.py,MIGRATION_TOOL,0,trading-platform,postgres/preflight.py,tools/migration/postgres/preflight.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+postgres/validate_phase6.py,MIGRATION_TOOL,0,trading-platform,postgres/validate_phase6.py,tools/migration/postgres/validate_phase6.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+postgres/working_set.py,MIGRATION_TOOL,0,trading-platform,postgres/working_set.py,tools/migration/postgres/working_set.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+prior_rally_bullish_engulfing_results.json,LEGACY,0,trading-platform,prior_rally_bullish_engulfing_results.json,research/legacy/prior_rally_bullish_engulfing_results.json,0,root-level historical research study or output
+prior_rally_bullish_engulfing_samples.csv,LEGACY,0,trading-platform,prior_rally_bullish_engulfing_samples.csv,research/legacy/prior_rally_bullish_engulfing_samples.csv,0,root-level historical research study or output
+prior_rally_bullish_engulfing_study.py,LEGACY,0,trading-platform,prior_rally_bullish_engulfing_study.py,research/legacy/prior_rally_bullish_engulfing_study.py,0,root-level historical research study or output
+prior_rally_bullish_engulfing_summary.md,LEGACY,0,trading-platform,prior_rally_bullish_engulfing_summary.md,research/legacy/prior_rally_bullish_engulfing_summary.md,0,root-level historical research study or output
+project_status.json,LEGACY,0,trading-platform,project_status.json,research/legacy/project_status.json,0,superseded / unreferenced by any live process
+raw_sequence_candidates.csv,LEGACY,0,trading-platform,raw_sequence_candidates.csv,research/legacy/raw_sequence_candidates.csv,0,root-level historical research study or output
+raw_sequence_discovery.py,LEGACY,0,trading-platform,raw_sequence_discovery.py,research/legacy/raw_sequence_discovery.py,0,root-level historical research study or output
+raw_sequence_discovery_results.json,LEGACY,0,trading-platform,raw_sequence_discovery_results.json,research/legacy/raw_sequence_discovery_results.json,0,root-level historical research study or output
+raw_sequence_discovery_summary.md,LEGACY,0,trading-platform,raw_sequence_discovery_summary.md,research/legacy/raw_sequence_discovery_summary.md,0,root-level historical research study or output
+requirements-postgres.txt,MIGRATION_TOOL,0,trading-platform,requirements-postgres.txt,tools/migration/requirements-postgres.txt,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+research/README.md,TRADING_PLATFORM,0,trading-platform,research/README.md,research/README.md,0,
+research/__init__.py,TRADING_PLATFORM,0,trading-platform,research/__init__.py,research/__init__.py,0,
+research/audit_liquidity_reclaim_continuation_economic_cost_20260917.py,TRADING_PLATFORM,0,trading-platform,research/audit_liquidity_reclaim_continuation_economic_cost_20260917.py,research/audit_liquidity_reclaim_continuation_economic_cost_20260917.py,0,
+research/clean_lopo_liquidity_reclaim_continuation_20260917.py,TRADING_PLATFORM,0,trading-platform,research/clean_lopo_liquidity_reclaim_continuation_20260917.py,research/clean_lopo_liquidity_reclaim_continuation_20260917.py,0,
+research/context_structure_retrace_phase3/__init__.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase3/__init__.py,research/context_structure_retrace_phase3/__init__.py,0,
+research/context_structure_retrace_phase3/context_structure_retrace_phase3_candidates.csv,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase3/context_structure_retrace_phase3_candidates.csv,research/context_structure_retrace_phase3/context_structure_retrace_phase3_candidates.csv,0,
+research/context_structure_retrace_phase3/context_structure_retrace_phase3_results.json,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase3/context_structure_retrace_phase3_results.json,research/context_structure_retrace_phase3/context_structure_retrace_phase3_results.json,0,
+research/context_structure_retrace_phase3/context_structure_retrace_phase3_summary.md,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase3/context_structure_retrace_phase3_summary.md,research/context_structure_retrace_phase3/context_structure_retrace_phase3_summary.md,0,
+research/context_structure_retrace_phase3/phase3.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase3/phase3.py,research/context_structure_retrace_phase3/phase3.py,0,
+research/context_structure_retrace_phase3/test_phase3.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase3/test_phase3.py,research/context_structure_retrace_phase3/test_phase3.py,0,
+research/context_structure_retrace_phase4/__init__.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase4/__init__.py,research/context_structure_retrace_phase4/__init__.py,0,
+research/context_structure_retrace_phase4/context_structure_retrace_phase4_positions.csv,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase4/context_structure_retrace_phase4_positions.csv,research/context_structure_retrace_phase4/context_structure_retrace_phase4_positions.csv,0,
+research/context_structure_retrace_phase4/context_structure_retrace_phase4_results.json,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase4/context_structure_retrace_phase4_results.json,research/context_structure_retrace_phase4/context_structure_retrace_phase4_results.json,0,
+research/context_structure_retrace_phase4/context_structure_retrace_phase4_summary.md,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase4/context_structure_retrace_phase4_summary.md,research/context_structure_retrace_phase4/context_structure_retrace_phase4_summary.md,0,
+research/context_structure_retrace_phase4/phase4.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase4/phase4.py,research/context_structure_retrace_phase4/phase4.py,0,
+research/context_structure_retrace_phase4/test_phase4.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase4/test_phase4.py,research/context_structure_retrace_phase4/test_phase4.py,0,
+research/context_structure_retrace_phase5/__init__.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/__init__.py,research/context_structure_retrace_phase5/__init__.py,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5_results.json,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5_results.json,research/context_structure_retrace_phase5/context_structure_retrace_phase5_results.json,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5_review_cases.csv,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5_review_cases.csv,research/context_structure_retrace_phase5/context_structure_retrace_phase5_review_cases.csv,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5_summary.md,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5_summary.md,research/context_structure_retrace_phase5/context_structure_retrace_phase5_summary.md,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5b_human_review.html,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_human_review.html,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_human_review.html,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5b_metadata.json,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_metadata.json,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_metadata.json,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_1.svg,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_1.svg,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_1.svg,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_2.svg,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_2.svg,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_2.svg,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_3.svg,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_3.svg,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_preview_3.svg,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5b_summary.md,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_summary.md,research/context_structure_retrace_phase5/context_structure_retrace_phase5b_summary.md,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5c_positions.csv,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5c_positions.csv,research/context_structure_retrace_phase5/context_structure_retrace_phase5c_positions.csv,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5c_results.json,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5c_results.json,research/context_structure_retrace_phase5/context_structure_retrace_phase5c_results.json,0,
+research/context_structure_retrace_phase5/context_structure_retrace_phase5c_summary.md,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/context_structure_retrace_phase5c_summary.md,research/context_structure_retrace_phase5/context_structure_retrace_phase5c_summary.md,0,
+research/context_structure_retrace_phase5/phase5.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/phase5.py,research/context_structure_retrace_phase5/phase5.py,0,
+research/context_structure_retrace_phase5/phase5b.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/phase5b.py,research/context_structure_retrace_phase5/phase5b.py,0,
+research/context_structure_retrace_phase5/phase5c.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/phase5c.py,research/context_structure_retrace_phase5/phase5c.py,0,
+research/context_structure_retrace_phase5/test_phase5.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/test_phase5.py,research/context_structure_retrace_phase5/test_phase5.py,0,
+research/context_structure_retrace_phase5/test_phase5b.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/test_phase5b.py,research/context_structure_retrace_phase5/test_phase5b.py,0,
+research/context_structure_retrace_phase5/test_phase5c.py,TRADING_PLATFORM,0,trading-platform,research/context_structure_retrace_phase5/test_phase5c.py,research/context_structure_retrace_phase5/test_phase5c.py,0,
+research/continue_liquidity_exit_management_paths.py,TRADING_PLATFORM,0,trading-platform,research/continue_liquidity_exit_management_paths.py,research/continue_liquidity_exit_management_paths.py,0,
+research/fetch_fx_universe_snapshot_20260917.py,TRADING_PLATFORM,1,trading-platform,research/fetch_fx_universe_snapshot_20260917.py,research/fetch_fx_universe_snapshot_20260917.py,0,imports MetaTrader5 directly (Wine); should read through the bridge
+research/fetch_usdjpy_snapshot_20260917.py,TRADING_PLATFORM,1,trading-platform,research/fetch_usdjpy_snapshot_20260917.py,research/fetch_usdjpy_snapshot_20260917.py,0,imports MetaTrader5 directly (Wine); should read through the bridge
+research/liquidity_displacement_normalization/README.md,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/README.md,research/liquidity_displacement_normalization/README.md,0,
+research/liquidity_displacement_normalization/__init__.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/__init__.py,research/liquidity_displacement_normalization/__init__.py,0,
+research/liquidity_displacement_normalization/liquidity_displacement_normalization_observations.csv,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/liquidity_displacement_normalization_observations.csv,research/liquidity_displacement_normalization/liquidity_displacement_normalization_observations.csv,0,
+research/liquidity_displacement_normalization/liquidity_displacement_normalization_results.json,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/liquidity_displacement_normalization_results.json,research/liquidity_displacement_normalization/liquidity_displacement_normalization_results.json,0,
+research/liquidity_displacement_normalization/liquidity_displacement_normalization_summary.md,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/liquidity_displacement_normalization_summary.md,research/liquidity_displacement_normalization/liquidity_displacement_normalization_summary.md,0,
+research/liquidity_displacement_normalization/normalization.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/normalization.py,research/liquidity_displacement_normalization/normalization.py,0,
+research/liquidity_displacement_normalization/replay.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/replay.py,research/liquidity_displacement_normalization/replay.py,0,
+research/liquidity_displacement_normalization/test_normalization.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_displacement_normalization/test_normalization.py,research/liquidity_displacement_normalization/test_normalization.py,0,
+research/liquidity_exit_management_study.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_exit_management_study.py,research/liquidity_exit_management_study.py,0,
+research/liquidity_reclaim_continuation_pair_agnostic_20260917.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_reclaim_continuation_pair_agnostic_20260917.py,research/liquidity_reclaim_continuation_pair_agnostic_20260917.py,0,
+research/liquidity_reclaim_continuation_pair_agnostic_spec_export_20260917.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_reclaim_continuation_pair_agnostic_spec_export_20260917.py,research/liquidity_reclaim_continuation_pair_agnostic_spec_export_20260917.py,0,
+research/liquidity_reclaim_continuation_research_20260917.py,TRADING_PLATFORM,0,trading-platform,research/liquidity_reclaim_continuation_research_20260917.py,research/liquidity_reclaim_continuation_research_20260917.py,0,
+research/multitimeframe_liquidity_sniper/README.md,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/README.md,research/multitimeframe_liquidity_sniper/README.md,0,
+research/multitimeframe_liquidity_sniper/__init__.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/__init__.py,research/multitimeframe_liquidity_sniper/__init__.py,0,
+research/multitimeframe_liquidity_sniper/config.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/config.py,research/multitimeframe_liquidity_sniper/config.py,0,
+research/multitimeframe_liquidity_sniper/dataset.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/dataset.py,research/multitimeframe_liquidity_sniper/dataset.py,0,
+research/multitimeframe_liquidity_sniper/engine.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/engine.py,research/multitimeframe_liquidity_sniper/engine.py,0,
+research/multitimeframe_liquidity_sniper/entry.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/entry.py,research/multitimeframe_liquidity_sniper/entry.py,0,
+research/multitimeframe_liquidity_sniper/expand_historical_dataset.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/expand_historical_dataset.py,research/multitimeframe_liquidity_sniper/expand_historical_dataset.py,0,
+research/multitimeframe_liquidity_sniper/fetch_dataset.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/fetch_dataset.py,research/multitimeframe_liquidity_sniper/fetch_dataset.py,0,
+research/multitimeframe_liquidity_sniper/freeze_research_design.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/freeze_research_design.py,research/multitimeframe_liquidity_sniper/freeze_research_design.py,0,
+research/multitimeframe_liquidity_sniper/manifest.json,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/manifest.json,research/multitimeframe_liquidity_sniper/manifest.json,0,
+research/multitimeframe_liquidity_sniper/neutral.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/neutral.py,research/multitimeframe_liquidity_sniper/neutral.py,0,
+research/multitimeframe_liquidity_sniper/paged_export.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/paged_export.py,research/multitimeframe_liquidity_sniper/paged_export.py,0,
+research/multitimeframe_liquidity_sniper/paging.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/paging.py,research/multitimeframe_liquidity_sniper/paging.py,0,
+research/multitimeframe_liquidity_sniper/replay.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/replay.py,research/multitimeframe_liquidity_sniper/replay.py,0,
+research/multitimeframe_liquidity_sniper/resumable_export.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/resumable_export.py,research/multitimeframe_liquidity_sniper/resumable_export.py,0,
+research/multitimeframe_liquidity_sniper/run_bounded_validation.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/run_bounded_validation.py,research/multitimeframe_liquidity_sniper/run_bounded_validation.py,0,
+research/multitimeframe_liquidity_sniper/run_expanded_neutral.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/run_expanded_neutral.py,research/multitimeframe_liquidity_sniper/run_expanded_neutral.py,0,
+research/multitimeframe_liquidity_sniper/sep10_trace.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/sep10_trace.py,research/multitimeframe_liquidity_sniper/sep10_trace.py,0,
+research/multitimeframe_liquidity_sniper/state_machine.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/state_machine.py,research/multitimeframe_liquidity_sniper/state_machine.py,0,
+research/multitimeframe_liquidity_sniper/symbol_mapping.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/symbol_mapping.py,research/multitimeframe_liquidity_sniper/symbol_mapping.py,0,
+research/multitimeframe_liquidity_sniper/test_entry.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/test_entry.py,research/multitimeframe_liquidity_sniper/test_entry.py,0,
+research/multitimeframe_liquidity_sniper/test_paged_export.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/test_paged_export.py,research/multitimeframe_liquidity_sniper/test_paged_export.py,0,
+research/multitimeframe_liquidity_sniper/test_paging.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/test_paging.py,research/multitimeframe_liquidity_sniper/test_paging.py,0,
+research/multitimeframe_liquidity_sniper/test_resumable_export.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/test_resumable_export.py,research/multitimeframe_liquidity_sniper/test_resumable_export.py,0,
+research/multitimeframe_liquidity_sniper/test_state_machine.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/test_state_machine.py,research/multitimeframe_liquidity_sniper/test_state_machine.py,0,
+research/multitimeframe_liquidity_sniper/validation.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/validation.py,research/multitimeframe_liquidity_sniper/validation.py,0,
+research/multitimeframe_liquidity_sniper/write_historical_readiness.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/write_historical_readiness.py,research/multitimeframe_liquidity_sniper/write_historical_readiness.py,0,
+research/multitimeframe_liquidity_sniper/write_paged_readiness.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/write_paged_readiness.py,research/multitimeframe_liquidity_sniper/write_paged_readiness.py,0,
+research/multitimeframe_liquidity_sniper/write_validation_summary.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_liquidity_sniper/write_validation_summary.py,research/multitimeframe_liquidity_sniper/write_validation_summary.py,0,
+research/multitimeframe_structure_sniper/README.md,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/README.md,research/multitimeframe_structure_sniper/README.md,0,
+research/multitimeframe_structure_sniper/__init__.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/__init__.py,research/multitimeframe_structure_sniper/__init__.py,0,
+research/multitimeframe_structure_sniper/audit_attrition.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/audit_attrition.py,research/multitimeframe_structure_sniper/audit_attrition.py,0,
+research/multitimeframe_structure_sniper/build_data_readiness.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/build_data_readiness.py,research/multitimeframe_structure_sniper/build_data_readiness.py,0,
+research/multitimeframe_structure_sniper/engine.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/engine.py,research/multitimeframe_structure_sniper/engine.py,0,
+research/multitimeframe_structure_sniper/event_coverage.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/event_coverage.py,research/multitimeframe_structure_sniper/event_coverage.py,0,
+research/multitimeframe_structure_sniper/events.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/events.py,research/multitimeframe_structure_sniper/events.py,0,
+research/multitimeframe_structure_sniper/external_cases.jsonl,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/external_cases.jsonl,research/multitimeframe_structure_sniper/external_cases.jsonl,0,
+research/multitimeframe_structure_sniper/ledger.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/ledger.py,research/multitimeframe_structure_sniper/ledger.py,0,
+research/multitimeframe_structure_sniper/scenario_coverage.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/scenario_coverage.py,research/multitimeframe_structure_sniper/scenario_coverage.py,0,
+research/multitimeframe_structure_sniper/stage_a_research.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/stage_a_research.py,research/multitimeframe_structure_sniper/stage_a_research.py,0,
+research/multitimeframe_structure_sniper/test_structure_sniper.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/test_structure_sniper.py,research/multitimeframe_structure_sniper/test_structure_sniper.py,0,
+research/multitimeframe_structure_sniper/validate_neutral.py,TRADING_PLATFORM,0,trading-platform,research/multitimeframe_structure_sniper/validate_neutral.py,research/multitimeframe_structure_sniper/validate_neutral.py,0,
+research/report_liquidity_reclaim_continuation_validation_20260917.py,TRADING_PLATFORM,0,trading-platform,research/report_liquidity_reclaim_continuation_validation_20260917.py,research/report_liquidity_reclaim_continuation_validation_20260917.py,0,
+research/test_frozen_entry_semantics_20260917.py,TRADING_PLATFORM,0,trading-platform,research/test_frozen_entry_semantics_20260917.py,research/test_frozen_entry_semantics_20260917.py,0,
+research/test_usdjpy_sequential_mss.py,TRADING_PLATFORM,0,trading-platform,research/test_usdjpy_sequential_mss.py,research/test_usdjpy_sequential_mss.py,0,
+research/usdjpy_15pct_hypothesis_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_15pct_hypothesis_20260917.py,research/usdjpy_15pct_hypothesis_20260917.py,0,
+research/usdjpy_authoritative_ledger_recovery_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_authoritative_ledger_recovery_20260917.py,research/usdjpy_authoritative_ledger_recovery_20260917.py,0,
+research/usdjpy_delayed_reclaim_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_delayed_reclaim_20260917.py,research/usdjpy_delayed_reclaim_20260917.py,0,
+research/usdjpy_entry_pipeline_audit_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_entry_pipeline_audit_20260917.py,research/usdjpy_entry_pipeline_audit_20260917.py,0,
+research/usdjpy_mss_window_grid_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_mss_window_grid_20260917.py,research/usdjpy_mss_window_grid_20260917.py,0,
+research/usdjpy_reclaim_audit_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_reclaim_audit_20260917.py,research/usdjpy_reclaim_audit_20260917.py,0,
+research/usdjpy_sequential_mss_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_sequential_mss_20260917.py,research/usdjpy_sequential_mss_20260917.py,0,
+research/usdjpy_v1_population_diagnostic_20260917.py,TRADING_PLATFORM,0,trading-platform,research/usdjpy_v1_population_diagnostic_20260917.py,research/usdjpy_v1_population_diagnostic_20260917.py,0,
+research/validate_liquidity_reclaim_continuation_frozen_20260917.py,TRADING_PLATFORM,0,trading-platform,research/validate_liquidity_reclaim_continuation_frozen_20260917.py,research/validate_liquidity_reclaim_continuation_frozen_20260917.py,0,
+scripts/backup_runtime.sh,TRADING_PLATFORM,0,trading-platform,scripts/backup_runtime.sh,ops/backup_runtime.sh,0,
+scripts/mt5_stack.sh,MT5_BRIDGE,1,mt5-native-bridge,scripts/mt5_stack.sh,ops/mt5_stack.sh (bridge half) ; platform half -> trading-platform ops/stack.sh,0,supervises MT5 terminals+bridges AND platform services
+scripts/mt5_stack_services.json,MT5_BRIDGE,1,mt5-native-bridge,scripts/mt5_stack_services.json,ops/bridge_services.json ; platform half -> trading-platform ops/platform_services.json,0,registry lists MT5/bridge services AND platform services
+scripts/start_mt5_research_22347.sh,MT5_BRIDGE,0,mt5-native-bridge,scripts/start_mt5_research_22347.sh,ops/start_research_terminal.sh,0,
+scripts/stop_mt5_research_22347.sh,MT5_BRIDGE,0,mt5-native-bridge,scripts/stop_mt5_research_22347.sh,ops/stop_research_terminal.sh,0,
+scripts/watch_btc25_live_canary.py,TRADING_PLATFORM,0,trading-platform,scripts/watch_btc25_live_canary.py,ops/watch_btc25_live_canary.py,1,
+scripts/watch_liquidity_live_all.py,TRADING_PLATFORM,0,trading-platform,scripts/watch_liquidity_live_all.py,ops/watch_liquidity_live_all.py,1,
+signal_orchestrator.py,TRADING_PLATFORM,0,trading-platform,signal_orchestrator.py,src/trading_platform/orchestration/signal_orchestrator.py,1,
+simple_sr_candle_engulfing_results.json,LEGACY,0,trading-platform,simple_sr_candle_engulfing_results.json,research/legacy/simple_sr_candle_engulfing_results.json,0,root-level historical research study or output
+simple_sr_candle_engulfing_summary.md,LEGACY,0,trading-platform,simple_sr_candle_engulfing_summary.md,research/legacy/simple_sr_candle_engulfing_summary.md,0,root-level historical research study or output
+simple_sr_candle_engulfing_trades.csv,LEGACY,0,trading-platform,simple_sr_candle_engulfing_trades.csv,research/legacy/simple_sr_candle_engulfing_trades.csv,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_confirmed_avoid_sr_results.json,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_confirmed_avoid_sr_results.json,research/legacy/simple_sr_candle_m15_engulfing_confirmed_avoid_sr_results.json,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_confirmed_avoid_sr_summary.md,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_confirmed_avoid_sr_summary.md,research/legacy/simple_sr_candle_m15_engulfing_confirmed_avoid_sr_summary.md,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_confirmed_avoid_sr_trades.csv,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_confirmed_avoid_sr_trades.csv,research/legacy/simple_sr_candle_m15_engulfing_confirmed_avoid_sr_trades.csv,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_confirmed_results.json,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_confirmed_results.json,research/legacy/simple_sr_candle_m15_engulfing_confirmed_results.json,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_confirmed_summary.md,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_confirmed_summary.md,research/legacy/simple_sr_candle_m15_engulfing_confirmed_summary.md,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_confirmed_trades.csv,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_confirmed_trades.csv,research/legacy/simple_sr_candle_m15_engulfing_confirmed_trades.csv,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_results.json,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_results.json,research/legacy/simple_sr_candle_m15_engulfing_results.json,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_sr_both_results.json,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_sr_both_results.json,research/legacy/simple_sr_candle_m15_engulfing_sr_both_results.json,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_sr_both_summary.md,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_sr_both_summary.md,research/legacy/simple_sr_candle_m15_engulfing_sr_both_summary.md,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_sr_both_trades.csv,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_sr_both_trades.csv,research/legacy/simple_sr_candle_m15_engulfing_sr_both_trades.csv,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_summary.md,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_summary.md,research/legacy/simple_sr_candle_m15_engulfing_summary.md,0,root-level historical research study or output
+simple_sr_candle_m15_engulfing_trades.csv,LEGACY,0,trading-platform,simple_sr_candle_m15_engulfing_trades.csv,research/legacy/simple_sr_candle_m15_engulfing_trades.csv,0,root-level historical research study or output
+simple_sr_candle_results.json,LEGACY,0,trading-platform,simple_sr_candle_results.json,research/legacy/simple_sr_candle_results.json,0,root-level historical research study or output
+simple_sr_candle_stars_results.json,LEGACY,0,trading-platform,simple_sr_candle_stars_results.json,research/legacy/simple_sr_candle_stars_results.json,0,root-level historical research study or output
+simple_sr_candle_stars_summary.md,LEGACY,0,trading-platform,simple_sr_candle_stars_summary.md,research/legacy/simple_sr_candle_stars_summary.md,0,root-level historical research study or output
+simple_sr_candle_stars_trades.csv,LEGACY,0,trading-platform,simple_sr_candle_stars_trades.csv,research/legacy/simple_sr_candle_stars_trades.csv,0,root-level historical research study or output
+simple_sr_candle_summary.md,LEGACY,0,trading-platform,simple_sr_candle_summary.md,research/legacy/simple_sr_candle_summary.md,0,root-level historical research study or output
+simple_sr_candle_trades.csv,LEGACY,0,trading-platform,simple_sr_candle_trades.csv,research/legacy/simple_sr_candle_trades.csv,0,root-level historical research study or output
+simple_sr_candle_validate.py,LEGACY,0,trading-platform,simple_sr_candle_validate.py,research/legacy/simple_sr_candle_validate.py,0,root-level historical research study or output
+strategies/BASELINE/README.md,TRADING_PLATFORM,0,trading-platform,strategies/BASELINE/README.md,docs/strategies/BASELINE/README.md,0,
+strategies/BASELINE/STATUS.md,TRADING_PLATFORM,0,trading-platform,strategies/BASELINE/STATUS.md,docs/strategies/BASELINE/STATUS.md,0,
+strategies/BASELINE/output/README.md,TRADING_PLATFORM,0,trading-platform,strategies/BASELINE/output/README.md,docs/strategies/BASELINE/output/README.md,0,
+strategies/CONTEXT_STRUCTURE_RETRACE_V1/README.md,TRADING_PLATFORM,0,trading-platform,strategies/CONTEXT_STRUCTURE_RETRACE_V1/README.md,docs/strategies/CONTEXT_STRUCTURE_RETRACE_V1/README.md,0,
+strategies/CONTEXT_STRUCTURE_RETRACE_V1/STATUS.md,TRADING_PLATFORM,0,trading-platform,strategies/CONTEXT_STRUCTURE_RETRACE_V1/STATUS.md,docs/strategies/CONTEXT_STRUCTURE_RETRACE_V1/STATUS.md,0,
+strategies/CONTEXT_STRUCTURE_RETRACE_V1/output/README.md,TRADING_PLATFORM,0,trading-platform,strategies/CONTEXT_STRUCTURE_RETRACE_V1/output/README.md,docs/strategies/CONTEXT_STRUCTURE_RETRACE_V1/output/README.md,0,
+strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/README.md,TRADING_PLATFORM,0,trading-platform,strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/README.md,docs/strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/README.md,0,
+strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/STATUS.md,TRADING_PLATFORM,0,trading-platform,strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/STATUS.md,docs/strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/STATUS.md,0,
+strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/output/README.md,TRADING_PLATFORM,0,trading-platform,strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/output/README.md,docs/strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/output/README.md,0,
+strategies/MICRO_SCALP/README.md,TRADING_PLATFORM,0,trading-platform,strategies/MICRO_SCALP/README.md,docs/strategies/MICRO_SCALP/README.md,0,
+strategies/MICRO_SCALP/STATUS.md,TRADING_PLATFORM,0,trading-platform,strategies/MICRO_SCALP/STATUS.md,docs/strategies/MICRO_SCALP/STATUS.md,0,
+strategies/MICRO_SCALP/output/README.md,TRADING_PLATFORM,0,trading-platform,strategies/MICRO_SCALP/output/README.md,docs/strategies/MICRO_SCALP/output/README.md,0,
+strategies/README.md,TRADING_PLATFORM,0,trading-platform,strategies/README.md,docs/strategies/README.md,0,
+strategies/SIMPLE_SR_CANDLE_V1/README.md,TRADING_PLATFORM,0,trading-platform,strategies/SIMPLE_SR_CANDLE_V1/README.md,docs/strategies/SIMPLE_SR_CANDLE_V1/README.md,0,
+strategies/SIMPLE_SR_CANDLE_V1/STATUS.md,TRADING_PLATFORM,0,trading-platform,strategies/SIMPLE_SR_CANDLE_V1/STATUS.md,docs/strategies/SIMPLE_SR_CANDLE_V1/STATUS.md,0,
+strategies/SIMPLE_SR_CANDLE_V1/output/README.md,TRADING_PLATFORM,0,trading-platform,strategies/SIMPLE_SR_CANDLE_V1/output/README.md,docs/strategies/SIMPLE_SR_CANDLE_V1/output/README.md,0,
+strategy_report_format.py,TRADING_PLATFORM,0,trading-platform,strategy_report_format.py,src/trading_platform/strategies/common/report_format.py,1,
+test_bridge.py,MT5_BRIDGE,0,mt5-native-bridge,test_bridge.py,tests/wire/test_bridge_wire.py,0,
+test_bridge_lifecycle.py,MT5_BRIDGE,1,mt5-native-bridge,test_bridge_lifecycle.py,tests/lifecycle/test_lifecycle.py,0,lifecycle tests (bridge) + GatewayTests (platform BrokerDataGateway/MT5ShadowProvider) in one module
+test_context_structure_retrace_forward.py,TRADING_PLATFORM,0,trading-platform,test_context_structure_retrace_forward.py,tests/strategies/context_structure_retrace/test_context_structure_retrace_forward.py,0,
+test_context_structure_retrace_phase1.py,TRADING_PLATFORM,0,trading-platform,test_context_structure_retrace_phase1.py,tests/strategies/context_structure_retrace/test_context_structure_retrace_phase1.py,0,
+test_context_structure_retrace_phase2.py,TRADING_PLATFORM,0,trading-platform,test_context_structure_retrace_phase2.py,tests/strategies/context_structure_retrace/test_context_structure_retrace_phase2.py,0,
+test_context_structure_retrace_phase7_observer.py,TRADING_PLATFORM,0,trading-platform,test_context_structure_retrace_phase7_observer.py,tests/strategies/context_structure_retrace/test_context_structure_retrace_phase7_observer.py,0,
+test_execution_consumer.py,TRADING_PLATFORM,0,trading-platform,test_execution_consumer.py,tests/execution/test_execution_consumer.py,0,
+test_liquidity_displacement_btc_validate.py,LEGACY,0,trading-platform,test_liquidity_displacement_btc_validate.py,research/legacy/test_liquidity_displacement_btc_validate.py,0,superseded / unreferenced by any live process
+test_liquidity_displacement_entry_depth_validate.py,LEGACY,0,trading-platform,test_liquidity_displacement_entry_depth_validate.py,research/legacy/test_liquidity_displacement_entry_depth_validate.py,0,superseded / unreferenced by any live process
+test_liquidity_displacement_entry_forward.py,TRADING_PLATFORM,0,trading-platform,test_liquidity_displacement_entry_forward.py,tests/strategies/liquidity_displacement/test_liquidity_displacement_entry_forward.py,0,
+test_liquidity_displacement_forward.py,TRADING_PLATFORM,0,trading-platform,test_liquidity_displacement_forward.py,tests/strategies/liquidity_displacement/test_liquidity_displacement_forward.py,0,
+test_liquidity_displacement_multi_validate.py,LEGACY,0,trading-platform,test_liquidity_displacement_multi_validate.py,research/legacy/test_liquidity_displacement_multi_validate.py,0,superseded / unreferenced by any live process
+test_liquidity_displacement_oos_validate.py,LEGACY,0,trading-platform,test_liquidity_displacement_oos_validate.py,research/legacy/test_liquidity_displacement_oos_validate.py,0,superseded / unreferenced by any live process
+test_liquidity_displacement_v1_variant_a.py,LEGACY,0,trading-platform,test_liquidity_displacement_v1_variant_a.py,research/legacy/test_liquidity_displacement_v1_variant_a.py,0,superseded / unreferenced by any live process
+test_paper_engine.py,TRADING_PLATFORM,0,trading-platform,test_paper_engine.py,tests/strategies/common/test_paper_engine.py,0,
+test_phase6_compact_state.py,MIGRATION_TOOL,0,trading-platform,test_phase6_compact_state.py,tools/migration/test_phase6_compact_state.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+test_phase6_provenance.py,TRADING_PLATFORM,0,trading-platform,test_phase6_provenance.py,tests/persistence/test_phase6_provenance.py,0,
+test_postgres_integration.py,TRADING_PLATFORM,0,trading-platform,test_postgres_integration.py,tests/persistence/test_postgres_integration.py,0,
+test_postgres_phase6.py,MIGRATION_TOOL,0,trading-platform,test_postgres_phase6.py,tools/migration/test_postgres_phase6.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+test_postgres_preflight.py,MIGRATION_TOOL,0,trading-platform,test_postgres_preflight.py,tools/migration/test_postgres_preflight.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+test_postgres_working_set.py,MIGRATION_TOOL,0,trading-platform,test_postgres_working_set.py,tools/migration/test_postgres_working_set.py,0,one-shot JSONL->PostgreSQL / research-host migration tooling
+test_signal_orchestrator.py,TRADING_PLATFORM,0,trading-platform,test_signal_orchestrator.py,tests/orchestration/test_signal_orchestrator.py,0,
+test_simple_sr_candle_validate.py,LEGACY,0,trading-platform,test_simple_sr_candle_validate.py,research/legacy/test_simple_sr_candle_validate.py,0,superseded / unreferenced by any live process
+test_symbol_snapshot.py,MT5_BRIDGE,1,mt5-native-bridge,test_symbol_snapshot.py,tests/wire/test_symbol_snapshot.py,0,bridge snapshot schema tests + platform context-runner snapshot-shape tests in one module
+test_trade_manager.py,TRADING_PLATFORM,0,trading-platform,test_trade_manager.py,tests/trade_manager/test_trade_manager.py,0,
+test_trade_manager_fanout.py,TRADING_PLATFORM,0,trading-platform,test_trade_manager_fanout.py,tests/trade_manager/test_trade_manager_fanout.py,0,
+test_trade_manager_observation.py,TRADING_PLATFORM,0,trading-platform,test_trade_manager_observation.py,tests/trade_manager/test_trade_manager_observation.py,0,
+test_trade_manager_phase2.py,TRADING_PLATFORM,0,trading-platform,test_trade_manager_phase2.py,tests/trade_manager/test_trade_manager_phase2.py,0,
+test_trade_manager_phase21.py,TRADING_PLATFORM,0,trading-platform,test_trade_manager_phase21.py,tests/trade_manager/test_trade_manager_phase21.py,0,
+tests/test_account_margin_mode.py,TRADING_PLATFORM,0,trading-platform,tests/test_account_margin_mode.py,tests/test_account_margin_mode.py,0,
+tests/test_control_api.py,TRADING_PLATFORM,0,trading-platform,tests/test_control_api.py,tests/test_control_api.py,0,
+tests/test_liquidity_instances.py,TRADING_PLATFORM,0,trading-platform,tests/test_liquidity_instances.py,tests/test_liquidity_instances.py,0,
+tests/test_mt5_stack.py,MT5_BRIDGE,1,mt5-native-bridge,tests/test_mt5_stack.py,tests/ops/test_bridge_stack.py (bridge half),0,tests the mixed stack supervisor
+tests/test_multitimeframe_liquidity_sniper.py,TRADING_PLATFORM,0,trading-platform,tests/test_multitimeframe_liquidity_sniper.py,tests/test_multitimeframe_liquidity_sniper.py,0,
+tests/test_risk_policy.py,TRADING_PLATFORM,0,trading-platform,tests/test_risk_policy.py,tests/test_risk_policy.py,0,
+tests/test_startup_replay_guard.py,TRADING_PLATFORM,0,trading-platform,tests/test_startup_replay_guard.py,tests/test_startup_replay_guard.py,0,
+tests/test_strategy_observability.py,TRADING_PLATFORM,0,trading-platform,tests/test_strategy_observability.py,tests/test_strategy_observability.py,0,
+tests/test_trade_manager_central.py,TRADING_PLATFORM,0,trading-platform,tests/test_trade_manager_central.py,tests/test_trade_manager_central.py,0,
+tests/test_tradeability.py,TRADING_PLATFORM,0,trading-platform,tests/test_tradeability.py,tests/test_tradeability.py,0,
+trade_manager/__init__.py,TRADING_PLATFORM,0,trading-platform,trade_manager/__init__.py,src/trading_platform/trade_manager/__init__.py,0,
+trade_manager/__main__.py,TRADING_PLATFORM,0,trading-platform,trade_manager/__main__.py,src/trading_platform/trade_manager/__main__.py,0,
+trade_manager/central.py,TRADING_PLATFORM,0,trading-platform,trade_manager/central.py,src/trading_platform/trade_manager/central.py,1,
+trade_manager/collector.py,TRADING_PLATFORM,0,trading-platform,trade_manager/collector.py,src/trading_platform/trade_manager/collector.py,0,
+trade_manager/counterfactual.py,TRADING_PLATFORM,0,trading-platform,trade_manager/counterfactual.py,src/trading_platform/trade_manager/counterfactual.py,1,
+trade_manager/discrepancy.py,TRADING_PLATFORM,0,trading-platform,trade_manager/discrepancy.py,src/trading_platform/trade_manager/discrepancy.py,0,
+trade_manager/engine.py,TRADING_PLATFORM,0,trading-platform,trade_manager/engine.py,src/trading_platform/trade_manager/engine.py,1,
+trade_manager/experiments.py,TRADING_PLATFORM,0,trading-platform,trade_manager/experiments.py,src/trading_platform/trade_manager/experiments.py,1,
+trade_manager/fanout.py,TRADING_PLATFORM,0,trading-platform,trade_manager/fanout.py,src/trading_platform/trade_manager/fanout.py,1,
+trade_manager/metrics.py,TRADING_PLATFORM,0,trading-platform,trade_manager/metrics.py,src/trading_platform/trade_manager/metrics.py,1,
+trade_manager/observation.py,TRADING_PLATFORM,0,trading-platform,trade_manager/observation.py,src/trading_platform/trade_manager/observation.py,1,
+trade_manager/observation_storage.py,TRADING_PLATFORM,0,trading-platform,trade_manager/observation_storage.py,src/trading_platform/trade_manager/observation_storage.py,1,
+trade_manager/phase2.py,TRADING_PLATFORM,0,trading-platform,trade_manager/phase2.py,src/trading_platform/trade_manager/phase2.py,1,
+trade_manager/policies.py,TRADING_PLATFORM,0,trading-platform,trade_manager/policies.py,src/trading_platform/trade_manager/policies.py,1,
+trade_manager/prospective.py,TRADING_PLATFORM,0,trading-platform,trade_manager/prospective.py,src/trading_platform/trade_manager/prospective.py,0,
+trade_manager/replay.py,TRADING_PLATFORM,0,trading-platform,trade_manager/replay.py,src/trading_platform/trade_manager/replay.py,0,
+trade_manager/reports/xauusd_ae53cb8a_discrepancy.json,TRADING_PLATFORM,0,trading-platform,trade_manager/reports/xauusd_ae53cb8a_discrepancy.json,src/trading_platform/trade_manager/reports/xauusd_ae53cb8a_discrepancy.json,0,
+trade_manager/reports/xauusd_ae53cb8a_discrepancy.txt,TRADING_PLATFORM,0,trading-platform,trade_manager/reports/xauusd_ae53cb8a_discrepancy.txt,src/trading_platform/trade_manager/reports/xauusd_ae53cb8a_discrepancy.txt,0,
+trade_manager/reports/xauusd_ae53cb8a_replay.json,TRADING_PLATFORM,0,trading-platform,trade_manager/reports/xauusd_ae53cb8a_replay.json,src/trading_platform/trade_manager/reports/xauusd_ae53cb8a_replay.json,0,
+trade_manager/reports/xauusd_ae53cb8a_replay.jsonl,TRADING_PLATFORM,0,trading-platform,trade_manager/reports/xauusd_ae53cb8a_replay.jsonl,src/trading_platform/trade_manager/reports/xauusd_ae53cb8a_replay.jsonl,0,
+trade_manager/reports/xauusd_ae53cb8a_replay.txt,TRADING_PLATFORM,0,trading-platform,trade_manager/reports/xauusd_ae53cb8a_replay.txt,src/trading_platform/trade_manager/reports/xauusd_ae53cb8a_replay.txt,0,
+trade_manager/semantics.py,TRADING_PLATFORM,0,trading-platform,trade_manager/semantics.py,src/trading_platform/trade_manager/semantics.py,1,
+trade_manager/state.py,TRADING_PLATFORM,0,trading-platform,trade_manager/state.py,src/trading_platform/trade_manager/state.py,1,
+trade_manager/storage.py,TRADING_PLATFORM,0,trading-platform,trade_manager/storage.py,src/trading_platform/trade_manager/storage.py,0,
+trade_manager/stream_consumer.py,TRADING_PLATFORM,0,trading-platform,trade_manager/stream_consumer.py,src/trading_platform/trade_manager/stream_consumer.py,1,
+trade_manager/trailing.py,TRADING_PLATFORM,0,trading-platform,trade_manager/trailing.py,src/trading_platform/trade_manager/trailing.py,1,
