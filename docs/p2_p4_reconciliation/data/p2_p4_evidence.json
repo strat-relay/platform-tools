@@ -1,0 +1,155 @@
+{
+  "checks": [
+    {
+      "claim": "the Evaluation hash of the SAME signal changes with source_reference (path:line), so evaluation_id is not stable across environments or chunking",
+      "evidence": "b6b576b6de / b11a0c68e2 / 9f9f174723",
+      "id": "R1",
+      "result": "PASS"
+    },
+    {
+      "claim": "AppendOnlyTailer numbers lines relative to the chunk read in that run (source_line restarts at 1), not the physical line",
+      "evidence": "run1=[1] run2(true 2,3)=[1, 2]",
+      "id": "R2",
+      "result": "PASS"
+    },
+    {
+      "claim": "a complete malformed line is consumed (offset advances) and is reported only in the in-memory TailerResult of that run",
+      "evidence": "first run malformed=1, next run malformed=0",
+      "id": "R3",
+      "result": "PASS"
+    },
+    {
+      "claim": "the canonical Evaluation payload (persisted as strategy.signals.payload) carries NO entry/stop/target/risk, no economic_position_id, no strategy_instance_id, no setup id, no signal_emitted_at",
+      "evidence": "Evaluation.to_dict keys=candidate_id,decision,decision_time,direction,evaluator_version,instrument,parameter_set_id,provenance,reason_codes,runtime_version,schema_version,strategy_id,strategy_version,trace,trace_fidelity",
+      "id": "R4",
+      "result": "PASS"
+    },
+    {
+      "claim": "the signal.entry.created.v1 payload contains only ids/hashes and source_reference (no instrument, direction, decision_time, geometry, strategy version, parameter set)",
+      "evidence": "['candidate_id', 'evaluation_hash', 'evaluation_id', 'signal_id', 'source_reference', 'trace_hash']",
+      "id": "R5",
+      "result": "PASS"
+    },
+    {
+      "claim": "the outbox event occurred_at is signal_emitted_at (discovery time) or signal_timestamp, never decision_time; both event types share aggregate_type 'signal' and aggregate_id signal_id",
+      "evidence": "LegacySignalTailer._ingest; ingest_signal",
+      "id": "R6",
+      "result": "PASS"
+    },
+    {
+      "claim": "strategy_versions is populated with strategy_version_id = the label (e.g. 'V1') and source_hash = a hash of the FIRST signal record; ON CONFLICT DO NOTHING",
+      "evidence": "ingest_signal strategy_versions insert",
+      "id": "R7",
+      "result": "PASS"
+    },
+    {
+      "claim": "both legacy adapters label the strategy_version 'V1' (Context and Liquidity), so strategy_version_id 'V1' is shared across strategies",
+      "evidence": "adapters",
+      "id": "R8",
+      "result": "PASS"
+    },
+    {
+      "claim": "StrategySignal has no parameter_set_id field, so P2 always records parameter_set_id=None; Liquidity parameters live in strategy_metadata (entry_fraction), which P2 drops",
+      "evidence": "models.py / signal.py / liquidity_instances.py",
+      "id": "R9",
+      "result": "PASS"
+    },
+    {
+      "claim": "decision_time strings are passed through without UTC normalisation (only datetime objects are normalised)",
+      "evidence": "migration.signal._utc",
+      "id": "R10",
+      "result": "PASS"
+    },
+    {
+      "claim": "signal_id is passed through verbatim from the legacy row (P2 never derives it)",
+      "evidence": "canonical_signal",
+      "id": "R11",
+      "result": "PASS"
+    },
+    {
+      "claim": "canonical_signal removes outcome/future fields from provenance and adds legacy_source_reference/legacy_source_hash/as_of inside the HASHED provenance",
+      "evidence": "canonical_signal",
+      "id": "R12",
+      "result": "PASS"
+    },
+    {
+      "claim": "migration/signal.py imports no execution, Trade Manager, bridge or orchestration module",
+      "evidence": "__future__, core.strategies.evaluation, dataclasses, datetime, hashlib, json, pathlib, postgres.db, postgres.foundation, tailer, typing",
+      "id": "R13",
+      "result": "PASS"
+    },
+    {
+      "claim": "outside docs/tests/migration/postgres, P2 changed exactly orchestration/storage.py (OD-01 repair) and test_signal_orchestrator.py",
+      "evidence": "['orchestration/storage.py', 'test_signal_orchestrator.py']",
+      "id": "R14",
+      "result": "PASS"
+    },
+    {
+      "claim": "frozen strategy files, the Phase 7 observer, the execution consumer and signal_orchestrator.py are byte-identical to the P2 start commit",
+      "evidence": "git diff --stat over frozen + execution + trade_manager",
+      "id": "R15",
+      "result": "PASS"
+    },
+    {
+      "claim": "OD-01 was repaired in P2: tradeability_decisions is now declared in OrchestrationStore.paths",
+      "evidence": "orchestration/storage.py",
+      "id": "R16",
+      "result": "PASS"
+    },
+    {
+      "claim": "JetStreamPublisher.publish sends the canonical envelope bytes with NO Nats-Msg-Id / headers, and validate_subject accepts only exact subjects from the V1.2 set (instrument-token subjects are refused)",
+      "evidence": "infrastructure/messaging/jetstream.py, contracts.validate_subject",
+      "id": "R17",
+      "result": "PASS"
+    },
+    {
+      "claim": "no outbox relay exists: mark_outbox_published is defined but never called by production code",
+      "evidence": "postgres/foundation.py:111:def mark_outbox_published(conn: Any, event_id: str) -> None:",
+      "id": "R18",
+      "result": "PASS"
+    },
+    {
+      "claim": "no trade.* or management subject exists yet in the V1.2 subject set",
+      "evidence": "['broker.state.updated.v1', 'execution.intent.created.v1', 'execution.result.recorded.v1', 'ownership.changed.v1', 'signal.entry.created.v1', 'strategy.candidate.detected.v1', 'strategy.promoted.v1', 'strategy.review.completed.v1', 'strategy.version.frozen.v1']",
+      "id": "R19",
+      "result": "PASS"
+    },
+    {
+      "claim": "migration.reconcile is a generic comparator; no code builds legacy/database record sets from signals.jsonl and the DB (P2 gate evidence is a synthetic fixture)",
+      "evidence": "migration/reconcile.py",
+      "id": "R20",
+      "result": "PASS"
+    },
+    {
+      "claim": "the flags SIGNAL_DB_PRIMARY_ENABLED / SIGNAL_JETSTREAM_PRIMARY_ENABLED do not exist in the repository",
+      "evidence": "git grep",
+      "id": "R21",
+      "result": "PASS"
+    },
+    {
+      "claim": "strategy.signals has PRIMARY KEY signal_id; strategy.evaluations is keyed by the evaluation hash with a UNIQUE canonical_hash; there is no uniqueness on (strategy, version, parameter set, instrument, decision_time, candidate)",
+      "evidence": "008/010 DDL",
+      "id": "R22",
+      "result": "PASS"
+    },
+    {
+      "claim": "lifecycle_state CHECK allows CANDIDATE_DETECTED, EVALUATED, REJECTED, ENTRY_SIGNAL_CREATED; ingest writes ENTRY_SIGNAL_CREATED for both candidate and signal",
+      "evidence": "010 DDL; ingest_signal",
+      "id": "R23",
+      "result": "PASS"
+    },
+    {
+      "claim": "ManagedTrade-relevant identity in the ingest is deterministic: candidate_id derives from (strategy_id, strategy_version, strategy_instance_id, source_event_id, entry_opportunity_id) and event ids are '<id>:candidate.detected' / '<id>:entry.created'",
+      "evidence": "canonical_signal; ingest_signal",
+      "id": "R24",
+      "result": "PASS"
+    },
+    {
+      "claim": "the V1.1 Evaluation type has no field for geometry or legacy refs (only provenance/metadata could carry them)",
+      "evidence": "candidate_id,decision,decision_time,direction,evaluator_version,instrument,parameter_set_id,provenance,reason_codes,runtime_version,schema_version,strategy_id,strategy_version,trace,trace_fidelity",
+      "id": "R25",
+      "result": "PASS"
+    }
+  ],
+  "p2_start": "17c09b2"
+}
