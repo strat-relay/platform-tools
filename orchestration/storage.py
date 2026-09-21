@@ -10,7 +10,7 @@ class OrchestrationStore:
     def __init__(self, root: Path):
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
-        self.paths = {name: root / f"{name}.jsonl" for name in ("events", "signals", "route_decisions", "sizing_decisions", "distribution_queue", "account_snapshots", "classification_corrections", "delivery_status")}
+        self.paths = {name: root / f"{name}.jsonl" for name in ("events", "signals", "route_decisions", "sizing_decisions", "tradeability_decisions", "distribution_queue", "account_snapshots", "classification_corrections", "delivery_status")}
         self.state_path = root / "state.json"
 
     def load_state(self) -> dict[str, Any]:

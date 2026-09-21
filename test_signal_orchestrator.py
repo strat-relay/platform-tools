@@ -27,6 +27,9 @@ class FakeProvider:
     def symbol_metadata(self, symbol):
         return {"broker_symbol": symbol, "tick_size": 1.0, "tick_value": 1.0, "volume_min": 0.01, "volume_max": 100.0, "volume_step": 0.01}
 
+    def quote(self, symbol):
+        return {"bid": 99.5, "ask": 100.5, "timestamp": "2026-09-16T00:00:00Z"}
+
 
 class OrchestratorTests(unittest.TestCase):
     def _startup_config(self, mode="SHADOW"):
@@ -84,6 +87,26 @@ class OrchestratorTests(unittest.TestCase):
             routes = store.rows("route_decisions")
             self.assertTrue(any(row["route_type"] == "REAL_EXECUTION_DISPOSITION" and row["status"] == "QUEUED" for row in routes))
             self.assertTrue(so.safety_audit()["pass"])
+
+    def test_od01_tradeability_stream_is_persisted_instead_of_false_missing_account_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = OrchestrationStore(Path(td))
+            cfg = self._startup_config("REAL_EXECUTION")
+            cfg["portfolios"][0]["strategy_ids"] = ["TEST"]
+            so.route_signal(store, signal(), cfg, FakeProvider(), "REAL_EXECUTION")
+            self.assertEqual(len(store.rows("tradeability_decisions")), 1)
+            self.assertFalse(any(row.get("error") == "'tradeability_decisions'" for row in store.rows("sizing_decisions")))
+
+    def test_legitimate_missing_account_data_is_still_skipped(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = OrchestrationStore(Path(td))
+            cfg = self._startup_config("REAL_EXECUTION")
+            cfg["portfolios"][0]["strategy_ids"] = ["TEST"]
+            class MissingAccount(FakeProvider):
+                def account_snapshot(self, account_id):
+                    raise RuntimeError("account snapshot unavailable")
+            so.route_signal(store, signal(), cfg, MissingAccount(), "REAL_EXECUTION")
+            self.assertEqual(store.rows("sizing_decisions")[0]["reason"], "MISSING_ACCOUNT_DATA")
 
     def test_signal_identity_is_deterministic(self):
         self.assertEqual(so.stable_id("SIG", {"a": 1}), so.stable_id("SIG", {"a": 1}))
