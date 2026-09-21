@@ -1,0 +1,161 @@
+{
+  "bridge_commit": "5d4b018857794da8bcf1a9161876c1dc6fe31f73",
+  "checks": [
+    {
+      "claim": "the Phase 7 observer publishes MARKET_OBSERVATION with bid=None and ask=None (it never calls mt5_quote)",
+      "evidence": "market_envelope(...) call in poll()",
+      "id": "M1",
+      "result": "PASS"
+    },
+    {
+      "claim": "the observer is the only production caller of market_envelope, position_event and SharedObservationPublisher",
+      "evidence": "context_structure_retrace_phase7_observer.py:35:SHARED_OBSERVATION_PUBLISHER = SharedObservationPublisher(); context_structure_retrace_phase7_observer.py:270:                envelope = market_envelope(row[\"symbol\"], obse",
+      "id": "M2",
+      "result": "PASS"
+    },
+    {
+      "claim": "the observer publishes lifecycle events of type POSITION_UPDATED only (never OPENED or CLOSED)",
+      "evidence": "['POSITION_UPDATED']",
+      "id": "M3",
+      "result": "PASS"
+    },
+    {
+      "claim": "the Trade Manager consumer discards every MARKET_OBSERVATION lacking bid or ask (MISSING_QUOTE)",
+      "evidence": "SharedStreamTradeManager.process_once",
+      "id": "M4",
+      "result": "PASS"
+    },
+    {
+      "claim": "the consumer reads an m1_history field that no publisher sets",
+      "evidence": "grep m1_history",
+      "id": "M5",
+      "result": "PASS"
+    },
+    {
+      "claim": "FanoutConsumer.read persists its checkpoint before returning rows, and process_once uses the default persist=True (at-most-once)",
+      "evidence": "fanout.py read(); stream_consumer.process_once",
+      "id": "M6",
+      "result": "PASS"
+    },
+    {
+      "claim": "each start() resets started_at to now; main() calls start() without an argument; _eligible() filters positions by started_at; positions live only in memory",
+      "evidence": "stream_consumer.py",
+      "id": "M7",
+      "result": "PASS"
+    },
+    {
+      "claim": "policy decisions are computed only when mode == REAL_MANAGEMENT; only non-HOLD decisions are persisted (as proposals); Phase2TradeManager has no state store here",
+      "evidence": "stream_consumer.process_once",
+      "id": "M8",
+      "result": "PASS"
+    },
+    {
+      "claim": "the only registered management policy has every action disabled (UNVALIDATED)",
+      "evidence": "policies.py",
+      "id": "M9",
+      "result": "PASS"
+    },
+    {
+      "claim": "TM version identity today is a label: no hash of code, parameters or resolution in policies.py / phase2.py",
+      "evidence": "policies.py, phase2.py",
+      "id": "M10",
+      "result": "PASS"
+    },
+    {
+      "claim": "three action vocabularies: engine (8), central proposals (4 broker-flavoured), executor-supported (CLOSE_POSITION, TRAIL_STOP only)",
+      "evidence": "engine=['ADD_POSITION', 'CLOSE_POSITION', 'HOLD', 'MOVE_BREAKEVEN', 'PROTECT_STOP', 'REDUCE_POSITION', 'REENTRY_ELIGIBLE', 'TRAIL_STOP'] central=['CLOSE_POSITION', 'MOVE_TO_BREAKEVEN', 'PARTIAL_CLOSE', 'TRAIL_STOP'] executor=['CLOSE_POSITION', 'TRAIL_STOP']",
+      "id": "M11",
+      "result": "PASS"
+    },
+    {
+      "claim": "no decision path consumes M1 bars, ATR, or staleness inputs the consumer could supply",
+      "evidence": "observation.py, stream_consumer.py",
+      "id": "M12",
+      "result": "PASS"
+    },
+    {
+      "claim": "position lifecycle events carry no MFE/MAE, so excursion state is not accumulated across observations in the stream consumer",
+      "evidence": "fanout.position_event fields",
+      "id": "M13",
+      "result": "PASS"
+    },
+    {
+      "claim": "EntrySignal (StrategySignal) carries economic_position_id, entry_opportunity_id, decision_time and geometry; both adapters emit it only after a reference fill; Liquidity has economic_position_id=None",
+      "evidence": "orchestration/models.py + adapters",
+      "id": "M14",
+      "result": "PASS"
+    },
+    {
+      "claim": "ownership rows record signal_id/intent_id/broker_position_id but no economic_position_id (the only join to a Phase 7 position is via signal_id)",
+      "evidence": "central.record_real_execution",
+      "id": "M15",
+      "result": "PASS"
+    },
+    {
+      "claim": "V1.2 has no trade.* / management subjects; the trade_management schema has only observation/decision/checkpoint stubs (no managed_trade, no tm_version)",
+      "evidence": "contracts.py, 003_future_contracts.sql",
+      "id": "M16",
+      "result": "PASS"
+    },
+    {
+      "claim": "provider-agnostic collectors exist in trade_manager (CausalObservationCollector, ProspectiveExperimentCollector) with injected position/market sources",
+      "evidence": "collector.py, prospective.py",
+      "id": "M17",
+      "result": "PASS"
+    },
+    {
+      "claim": "neither collector is instantiated by any production module",
+      "evidence": "no non-test users outside trade_manager/",
+      "id": "M18",
+      "result": "PASS"
+    },
+    {
+      "claim": "the orchestrator loop calls authorize_pending_proposals() (proposal sink is in the orchestrator process)",
+      "evidence": "signal_orchestrator.py",
+      "id": "M19",
+      "result": "PASS"
+    },
+    {
+      "claim": "TM paths are cwd-relative (observation stream, observations store, activation file)",
+      "evidence": "stream_consumer.py",
+      "id": "M20",
+      "result": "PASS"
+    },
+    {
+      "claim": "observation_id in the causal observer hashes (position, timestamp, bid, ask, m1_time, m5_time): deterministic, no publisher sequence",
+      "evidence": "observation.finalize_observation_id",
+      "id": "M21",
+      "result": "PASS"
+    },
+    {
+      "claim": "the stream envelope observation_id hashes source (incl. sequence=0 at creation) and the publisher assigns the real sequence afterwards",
+      "evidence": "fanout.py",
+      "id": "M22",
+      "result": "PASS"
+    },
+    {
+      "claim": "the stack registry (bridge 5d4b018) runs the Trade Manager as stream_consumer in REAL_MANAGEMENT mode and lists no Phase 7 observer and no collector service",
+      "evidence": "python3 -m trade_manager.stream_consumer start --mode REAL_MANAGEMENT --interval 15 --activation runtime/trade",
+      "id": "M23",
+      "result": "PASS"
+    },
+    {
+      "claim": "the bridge refuses REAL close and trailing writes (only the canonical order send is admitted for REAL_EXECUTION)",
+      "evidence": "{\"mt5_canonical_order_send\": \"ALLOWED\", \"mt5_close_position\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_trailing_stop\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\"}",
+      "id": "M24",
+      "result": "PASS"
+    },
+    {
+      "claim": "behaviour: at +5R with the default registry the Phase 2 Trade Manager returns HOLD / NO_MANAGEMENT_CHANGE (no management action exists today)",
+      "evidence": "{\"action\": \"HOLD\", \"reasons\": [\"NO_MANAGEMENT_CHANGE\"], \"current_R\": 5.0, \"policy\": \"CONTEXT_V1_MANAGEMENT_EXPERIMENT_V1\", \"proposal_identity\": \"ae53cb8a7e76f0a82f19\", \"authorized\": false, \"authorize_",
+      "id": "M25",
+      "result": "PASS"
+    },
+    {
+      "claim": "behaviour: a forced non-HOLD decision becomes a proposal whose position_identity is the economic_position_id, and authorize() rejects it POSITION_NOT_FOUND",
+      "evidence": "{\"action\": \"HOLD\", \"reasons\": [\"NO_MANAGEMENT_CHANGE\"], \"current_R\": 5.0, \"policy\": \"CONTEXT_V1_MANAGEMENT_EXPERIMENT_V1\", \"proposal_identity\": \"ae53cb8a7e76f0a82f19\", \"authorized\": false, \"authorize_",
+      "id": "M26",
+      "result": "PASS"
+    }
+  ]
+}
