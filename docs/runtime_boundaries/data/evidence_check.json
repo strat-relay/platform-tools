@@ -1,0 +1,227 @@
+{
+  "bridge_commit": "5d4b018857794da8bcf1a9161876c1dc6fe31f73",
+  "checks": [
+    {
+      "claim": "the bridge never uses idempotency_key for de-duplication (lifecycle has no reference; enqueue_tool only copies it into the command dict)",
+      "evidence": "lifecycle.py mentions=0; enqueue_tool lines=['\"idempotency_key\": args.get(\"idempotency_key\", \"\"),']",
+      "id": "B1",
+      "result": "PASS"
+    },
+    {
+      "claim": "the EA never receives idempotency_key or request_fingerprint (poll line for canonical send)",
+      "evidence": "canonical branch of GET /poll builds fields from canonical_fields + canonical_request_text only",
+      "id": "B2",
+      "result": "PASS"
+    },
+    {
+      "claim": "the bridge performs no caller authentication (mode is a self-declared header)",
+      "evidence": "auth-related words found in server.py: []",
+      "id": "B3",
+      "result": "PASS"
+    },
+    {
+      "claim": "on the execution listener REAL_EXECUTION is allowed ONLY for mt5_canonical_order_send; REAL close/trailing are refused",
+      "evidence": "{\"mt5_canonical_order_send|DEMO_EXECUTION\": \"DEMO_EXECUTION_TOOL_NOT_ENABLED\", \"mt5_canonical_order_send|None\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_canonical_order_send|REAL_EXECUTION\": \"ALLOWED\", \"mt5_canonical_order_send|REAL_SMOKE_TEST\": \"ALLOWED\", \"mt5_close_position|DEMO_EXECUTION\": \"DEMO_EXECUTION_TOOL_NOT_ENABLED\", \"mt5_close_position|None\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_close_position|REAL_EXECUTION\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_close_position|REAL_SMOKE_TEST\": \"ALLOWED\", \"mt5_market_order|DEMO_EXECUTION\": \"ALLOWED\", \"mt5_market_order|None\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_market_order|REAL_EXECUTION\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_market_order|REAL_SMOKE_TEST\": \"SMOKE_TEST_TOOL_NOT_ENABLED\", \"mt5_trailing_stop|DEMO_EXECUTION\": \"DEMO_EXECUTION_TOOL_NOT_ENABLED\", \"mt5_trailing_stop|None\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_trailing_stop|REAL_EXECUTION\": \"EXPLICIT_DEMO_OR_SMOKE_MODE_REQUIRED\", \"mt5_trailing_stop|REAL_SMOKE_TEST\": \"SMOKE_TEST_TOOL_NOT_ENABLED\"}",
+      "id": "B4",
+      "result": "PASS"
+    },
+    {
+      "claim": "on waiter timeout mt5_canonical_order_send takes the terminal lifecycle.timeout() path (not caller_timeout, which is reserved for five legacy write tools)",
+      "evidence": "caller_timeout tuple: \"mt5_market_order\", \"mt5_pending_order\", \"mt5_close_position\",                     \"mt5_cancel_pending_order\", \"mt5_trailing_stop\"",
+      "id": "B5",
+      "result": "PASS"
+    },
+    {
+      "claim": "dispatch() is the single cancellation point: only QUEUED requests dispatch; expiry is checked there; no fence/generation check exists",
+      "evidence": "RequestLifecycle.dispatch (lifecycle.py): status QUEUED -> DISPATCHED under lifecycle.lock",
+      "id": "B6",
+      "result": "PASS"
+    },
+    {
+      "claim": "no bridge status/lookup endpoint exists for a request or idempotency key (only /health, /poll, /result, /mcp)",
+      "evidence": "paths handled: ['/health', '/mcp', '/poll', '/result/']",
+      "id": "B7",
+      "result": "PASS"
+    },
+    {
+      "claim": "EA position/order/history reads do NOT expose comment, magic, order or position identifiers (so a send tag cannot be read back)",
+      "evidence": "Positions/Orders/History JSON field sets inspected",
+      "id": "B8",
+      "result": "PASS"
+    },
+    {
+      "claim": "EA polls at most once per MinimumPollMilliseconds (default 5000) and WebRequest timeout defaults to 35000 ms",
+      "evidence": "EA inputs",
+      "id": "B9",
+      "result": "PASS"
+    },
+    {
+      "claim": "a bridge restart orphans (does not resurrect) non-terminal requests; the in-memory queue is not rebuilt",
+      "evidence": "RequestLifecycle._load_existing_events docstring/behaviour",
+      "id": "B10",
+      "result": "PASS"
+    },
+    {
+      "claim": "the production execution path does not use contracts.mt5_bridge.Mt5ExecutionClient (only Mt5ReadClient in paper_runner)",
+      "evidence": "live_execution_consumer.py:37:from contracts.mt5_bridge.canonical_request import (canonical_request_fingerprint,; paper_runner.py:7:from contracts.mt5_bridge import Mt5ReadClient",
+      "id": "P1",
+      "result": "PASS"
+    },
+    {
+      "claim": "in process_intents the broker submit happens BEFORE the terminal execution_decisions append (no durable pre-send record)",
+      "evidence": "source order inside process_intents",
+      "id": "P2",
+      "result": "PASS"
+    },
+    {
+      "claim": "idempotency key is stable_id('REALORDER', {execution_intent_id, account_context_id}) - per intent, not per attempt",
+      "evidence": "live_execution_consumer.process_intents",
+      "id": "P3",
+      "result": "PASS"
+    },
+    {
+      "claim": "canonical sends set X-Bridge-Max-Age-Ms=5000 and use a 10 s client timeout; only TimeoutError maps to SUBMISSION_ACK_UNCERTAIN",
+      "evidence": "execution/demo_broker.py",
+      "id": "P4",
+      "result": "PASS"
+    },
+    {
+      "claim": "any exception during submit is recorded as DRY_RUN_REJECTED with broker_write_blocked=True (uncertain outcomes are recorded as rejections)",
+      "evidence": "live_execution_consumer inner except",
+      "id": "P5",
+      "result": "PASS"
+    },
+    {
+      "claim": "management close/trail bypass the adapter: raw urlopen with X-Execution-Mode REAL_EXECUTION, no idempotency key, no max-age",
+      "evidence": "live_execution_consumer.py:169:                        with urlopen(request, timeout=30) as response:",
+      "id": "P6",
+      "result": "PASS"
+    },
+    {
+      "claim": "the ownership ledger is written only by the execution consumer",
+      "evidence": "live_execution_consumer.py:178:                                ownership.record_management_result(owner[\"ownership_id\"], state=\"CLOSED\", current_volume=0.0); live_execution_consumer.py:874:                                ownership.record_real_execution(intent, broker_result)",
+      "id": "P7",
+      "result": "PASS"
+    },
+    {
+      "claim": "broker_state.json is refreshed by the execution consumer loop",
+      "evidence": "live_execution_consumer.py:1957:                    broker_state.refresh_from_provider(provider_adapter(cfg), cfg.get(\"account_id\") or REAL_SMOKE_ACCOUNT); trade_manager/central.py:175:    def refresh",
+      "id": "P8",
+      "result": "PASS"
+    },
+    {
+      "claim": "OD-01: 'tradeability_decisions' has exactly one writer, no reader, and is not a declared OrchestrationStore stream",
+      "evidence": "signal_orchestrator.py:214:            store.append(\"tradeability_decisions\", tradeability_row,",
+      "id": "P9",
+      "result": "PASS"
+    },
+    {
+      "claim": "OD-02: 'real_execution_resume_generations' has no reference anywhere in the current tree",
+      "evidence": "git grep over all tracked files",
+      "id": "P10",
+      "result": "PASS"
+    },
+    {
+      "claim": "REAL intents are created from signals + own risk policy + resume gate; create_intents' REAL branch never reads sizing_decisions",
+      "evidence": "live_execution_consumer.create_intents comment + branch",
+      "id": "P11",
+      "result": "PASS"
+    },
+    {
+      "claim": "live_execution_resume_generation (orchestration state) is only READ (control_api); no production writer",
+      "evidence": "control_api/app.py:363:        orchestration_generation = orchestration.get(\"live_execution_resume_generation\")",
+      "id": "P12",
+      "result": "PASS"
+    },
+    {
+      "claim": "foundation: acquire_ownership() is compare-and-increment with no expiry test; no function validates a generation on a write path",
+      "evidence": "008_stratrelay_foundation.sql",
+      "id": "P13",
+      "result": "PASS"
+    },
+    {
+      "claim": "foundation: execution.intents.status has no CHECK/state machine and there is no fence/generation column on intents or results",
+      "evidence": "008 execution.intents",
+      "id": "P14",
+      "result": "PASS"
+    },
+    {
+      "claim": "schema overlap: 003 defines execution.execution_intents + execution.broker_attempts while 008 defines execution.intents",
+      "evidence": "003 vs 008",
+      "id": "P15",
+      "result": "PASS"
+    },
+    {
+      "claim": "Context freeze guard fingerprints five decision functions only; persistence helpers are outside it",
+      "evidence": "\"_geometry\", \"make_setup\", \"_fill\", \"_process_bar\", \"process_symbol\"",
+      "id": "P16",
+      "result": "PASS"
+    },
+    {
+      "claim": "Context frozen decision functions reach persistence ONLY through module-global append_event/_persist_setup (no direct file API) - a seam outside the fingerprint",
+      "evidence": "{\"_fill\": [\"append_event\"], \"_geometry\": [], \"_process_bar\": [\"append_event\"], \"make_setup\": [], \"process_symbol\": [\"_persist_setup\", \"append_event\"]}",
+      "id": "P23",
+      "result": "PASS"
+    },
+    {
+      "claim": "the four Liquidity instances already reuse the unmodified base runner by reassigning its module-level IO constants (STATE, EVENTS, DAILY, SUMMARY, MANIFEST, PIDFILE, HEARTBEAT, STOP)",
+      "evidence": "liquidity_displacement_entry_forward.py:62-71",
+      "id": "P24",
+      "result": "PASS"
+    },
+    {
+      "claim": "Context append_event embeds behaviour (recovery tagging, identity dedupe, counters) before the file write, so a wrapper must sink bytes below it rather than replace it",
+      "evidence": "append_event body",
+      "id": "P25",
+      "result": "PASS"
+    },
+    {
+      "claim": "the Context decision-code fingerprint (recomputed with ast, equal to FROZEN_DECISION_CODE_HASH at HEAD) is identical at the initial commit and after four later edits to the same file",
+      "evidence": "{\"65f527b\": \"70dba71d28fe\", \"80e558e\": \"70dba71d28fe\", \"868f36f\": \"70dba71d28fe\", \"c6482c3\": \"70dba71d28fe\", \"edff21b\": \"70dba71d28fe\"} vs 70dba71d28fe",
+      "id": "P26",
+      "result": "PASS"
+    },
+    {
+      "claim": "the shared observation stream that the Trade Manager consumes has exactly one publisher in the repository: the Phase 7 observer (module-level SharedObservationPublisher)",
+      "evidence": "context_structure_retrace_phase7_observer.py:35:SHARED_OBSERVATION_PUBLISHER = SharedObservationPublisher()",
+      "id": "P27",
+      "result": "PASS"
+    },
+    {
+      "claim": "Context assert_frozen documents that persistence may evolve without changing V1 decisions",
+      "evidence": "assert_frozen comment",
+      "id": "P17",
+      "result": "PASS"
+    },
+    {
+      "claim": "Liquidity runner_sha256 is recorded in manifests but never compared (single occurrence); enforcement is source_hash of liquidity_displacement.py only",
+      "evidence": "liquidity_displacement_entry_forward.py:87:            \"runner_sha256\": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),",
+      "id": "P18",
+      "result": "PASS"
+    },
+    {
+      "claim": "OD-03: Phase 7 observer reads the legacy full state file the runner declares immutable after cutover",
+      "evidence": "phase7 PHASE6_STATE vs runner comment",
+      "id": "P19",
+      "result": "PASS"
+    },
+    {
+      "claim": "Evaluation.evaluation_hash covers provenance and runtime_version (so wrapper identity placed there changes the hash)",
+      "evidence": "core/strategies/evaluation/models.py",
+      "id": "P20",
+      "result": "PASS"
+    },
+    {
+      "claim": "platform.json configures execution_mode REAL_EXECUTION; demo_* keys exist (code support, not deployment evidence)",
+      "evidence": "orchestration/config/platform.json",
+      "id": "P21",
+      "result": "PASS"
+    },
+    {
+      "claim": "OD-01 reproduction: route_signal with a quote-capable provider yields SKIPPED / MISSING_ACCOUNT_DATA / error 'tradeability_decisions'",
+      "evidence": "[{\"decision\": \"SKIPPED\", \"reason\": \"MISSING_ACCOUNT_DATA\", \"error\": \"'tradeability_decisions'\"}]",
+      "id": "P22",
+      "result": "PASS"
+    }
+  ]
+}
