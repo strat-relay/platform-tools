@@ -1,0 +1,2 @@
+# Optional local/test dependency for the JetStream adapter.
+nats-py>=2.9,<3
