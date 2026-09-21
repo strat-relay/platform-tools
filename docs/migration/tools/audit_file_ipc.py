@@ -30,6 +30,7 @@ from pathlib import Path
 
 ROOT = Path.cwd()
 OUT = ROOT / "docs" / "migration" / "data"
+UNRESOLVED_REPORT = OUT / "unresolved_file_sites.json"
 
 PRODUCTION_GLOBS = [
     "signal_orchestrator.py", "live_execution_consumer.py", "platform_runtime.py",
@@ -183,6 +184,12 @@ def main() -> int:
         "fsync_call_sites": sorted(f"{r['module']}:{r['line']}" for r in rows if r["op"] == "FSYNC"),
         "by_op": dict(Counter(r["op"] for r in rows)),
     }
+    unresolved = [r for r in rows if r["classification"] == "UNRESOLVED"]
+    UNRESOLVED_REPORT.write_text(json.dumps({
+        "schema_version": "file-ipc-unresolved.v1",
+        "count": len(unresolved),
+        "sites": [{**r, "likely_role": "unknown", "required_runtime_evidence": "trace the receiver and runtime path before migration"} for r in unresolved],
+    }, indent=2, sort_keys=True) + "\n")
     if mode == "inventory":
         with (OUT / "io_call_sites.csv").open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=fields); w.writeheader(); w.writerows(sorted(rows, key=lambda r: (r["module"], r["line"])))
