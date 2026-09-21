@@ -1,0 +1,255 @@
+module,line,function,op,receiver,resolved_target,classification
+context_structure_retrace_compact_state.py,149,load_json,READ,path,,UNRESOLVED
+context_structure_retrace_compact_state.py,156,write_compact,READ,source_path,,UNRESOLVED
+context_structure_retrace_compact_state.py,160,write_compact,READ,output_path,,UNRESOLVED
+context_structure_retrace_compact_state.py,264,write_two_symbol_cohort,READ,path,,UNRESOLVED
+context_structure_retrace_forward.py,58,atomic_json,WRITE,tmp,,UNRESOLVED
+context_structure_retrace_forward.py,59,atomic_json,REPLACE,os,,UNRESOLVED
+context_structure_retrace_forward.py,70,digest_files,READ,p,,UNRESOLVED
+context_structure_retrace_forward.py,131,load_state,EXISTS,STATE,ROOT / 'context_structure_retrace_forward_state_compact.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,133,load_state,READ,STATE,ROOT / 'context_structure_retrace_forward_state_compact.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,170,_event_already_written,EXISTS,EVENTS,ROOT / 'context_structure_retrace_forward.jsonl',IPC_CANDIDATE
+context_structure_retrace_forward.py,176,_event_already_written,READ,EVENTS,ROOT / 'context_structure_retrace_forward.jsonl',IPC_CANDIDATE
+context_structure_retrace_forward.py,200,append_event,READ,EVENTS,ROOT / 'context_structure_retrace_forward.jsonl',IPC_CANDIDATE
+context_structure_retrace_forward.py,216,acquire_lock,EXISTS,PID,ROOT / 'context_structure_retrace_forward.pid',IPC_CANDIDATE
+context_structure_retrace_forward.py,218,acquire_lock,READ,PID,ROOT / 'context_structure_retrace_forward.pid',IPC_CANDIDATE
+context_structure_retrace_forward.py,222,acquire_lock,UNLINK,PID,ROOT / 'context_structure_retrace_forward.pid',IPC_CANDIDATE
+context_structure_retrace_forward.py,224,acquire_lock,UNLINK,PID,ROOT / 'context_structure_retrace_forward.pid',IPC_CANDIDATE
+context_structure_retrace_forward.py,229,release_lock,UNLINK,PID,ROOT / 'context_structure_retrace_forward.pid',IPC_CANDIDATE
+context_structure_retrace_forward.py,241,freeze,EXISTS,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,242,freeze,READ,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,251,assert_frozen,EXISTS,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,252,assert_frozen,READ,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,637,status,EXISTS,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,637,status,READ,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,638,status,EXISTS,PID,ROOT / 'context_structure_retrace_forward.pid',IPC_CANDIDATE
+context_structure_retrace_forward.py,638,status,READ,PID,ROOT / 'context_structure_retrace_forward.pid',IPC_CANDIDATE
+context_structure_retrace_forward.py,642,_read_events,EXISTS,EVENTS,ROOT / 'context_structure_retrace_forward.jsonl',IPC_CANDIDATE
+context_structure_retrace_forward.py,645,_read_events,READ,EVENTS,ROOT / 'context_structure_retrace_forward.jsonl',IPC_CANDIDATE
+context_structure_retrace_forward.py,730,report_data,EXISTS,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,730,report_data,READ,MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,797,report_data,EXISTS,HEARTBEAT,ROOT / 'context_structure_retrace_forward.heartbeat.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,797,report_data,READ,HEARTBEAT,ROOT / 'context_structure_retrace_forward.heartbeat.json',IPC_CANDIDATE
+context_structure_retrace_forward.py,878,build_standard_report,EXISTS,STOP_FILE,Path('/tmp/context-structure-retrace-v1-paper.stop'),IPC_CANDIDATE
+context_structure_retrace_forward.py,1028,run,UNLINK,STOP_FILE,Path('/tmp/context-structure-retrace-v1-paper.stop'),IPC_CANDIDATE
+context_structure_retrace_forward.py,1035,run,EXISTS,STOP_FILE,Path('/tmp/context-structure-retrace-v1-paper.stop'),IPC_CANDIDATE
+context_structure_retrace_forward.py,1039,run,EXISTS,STOP_FILE,Path('/tmp/context-structure-retrace-v1-paper.stop'),IPC_CANDIDATE
+context_structure_retrace_forward.py,1042,run,WRITE,SUMMARY,ROOT / 'context_structure_retrace_forward_summary.md',UNRESOLVED
+context_structure_retrace_forward.py,1047,stop,WRITE,STOP_FILE,Path('/tmp/context-structure-retrace-v1-paper.stop'),IPC_CANDIDATE
+context_structure_retrace_forward.py,1051,order_isolation_audit,READ,ROOT / 'context_structure_retrace_forward.py',,UNRESOLVED
+context_structure_retrace_phase7_observer.py,60,atomic_json,WRITE,tmp,,UNRESOLVED
+context_structure_retrace_phase7_observer.py,61,atomic_json,REPLACE,os,,UNRESOLVED
+context_structure_retrace_phase7_observer.py,65,phase7_source_hash,READ,Path(__file__),,UNRESOLVED
+context_structure_retrace_phase7_observer.py,69,phase6_identity,READ,PHASE6_MANIFEST,ROOT / 'context_structure_retrace_forward_manifest.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,104,load_state,EXISTS,PHASE7_STATE,ROOT / 'context_structure_retrace_phase7_state.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,105,load_state,READ,PHASE7_STATE,ROOT / 'context_structure_retrace_phase7_state.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,106,load_state,READ,PHASE7_MANIFEST,ROOT / 'context_structure_retrace_phase7_manifest.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,114,append_event,READ,PHASE7_EVENTS,ROOT / 'context_structure_retrace_phase7.jsonl',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,124,v1_positions,READ,PHASE6_STATE,ROOT / 'context_structure_retrace_forward_state.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,297,freeze,EXISTS,PHASE7_MANIFEST,ROOT / 'context_structure_retrace_phase7_manifest.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,298,freeze,READ,PHASE7_MANIFEST,ROOT / 'context_structure_retrace_phase7_manifest.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,309,acquire_lock,EXISTS,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,311,acquire_lock,READ,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,313,acquire_lock,UNLINK,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,320,release_lock,UNLINK,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,324,order_isolation_audit,READ,Path(__file__),,UNRESOLVED
+context_structure_retrace_phase7_observer.py,342,report_data,READ,PHASE7_MANIFEST,ROOT / 'context_structure_retrace_phase7_manifest.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,368,build_shadow_report,EXISTS,PHASE7_HEARTBEAT,ROOT / 'context_structure_retrace_phase7.heartbeat.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,368,build_shadow_report,READ,PHASE7_HEARTBEAT,ROOT / 'context_structure_retrace_phase7.heartbeat.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,369,build_shadow_report,EXISTS,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,369,build_shadow_report,READ,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,423,run,EXISTS,PHASE7_MANIFEST,ROOT / 'context_structure_retrace_phase7_manifest.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,433,run,UNLINK,PHASE7_STOP,Path('/tmp/context-structure-retrace-phase7.stop'),IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,435,run,EXISTS,PHASE7_STOP,Path('/tmp/context-structure-retrace-phase7.stop'),IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,456,main,EXISTS,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,456,main,READ,PHASE7_PID,ROOT / 'context_structure_retrace_phase7.pid',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,457,main,EXISTS,PHASE7_HEARTBEAT,ROOT / 'context_structure_retrace_phase7.heartbeat.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,457,main,READ,PHASE7_HEARTBEAT,ROOT / 'context_structure_retrace_phase7.heartbeat.json',IPC_CANDIDATE
+context_structure_retrace_phase7_observer.py,459,main,WRITE,PHASE7_STOP,Path('/tmp/context-structure-retrace-phase7.stop'),IPC_CANDIDATE
+control_api/app.py,46,_read_json,READ,path,,UNRESOLVED
+control_api/app.py,61,_read_jsonl,READ,path,,UNRESOLVED
+control_api/app.py,524,_read_text,READ,path,,UNRESOLVED
+control_api/observability.py,37,_load_state_from,READ,path,,UNRESOLVED
+control_api/observability.py,54,_read_jsonl_from,READ,path,,UNRESOLVED
+control_api/observability.py,66,_event_rows_from,READ,path,,UNRESOLVED
+execution/demo.py,50,load_state,READ,path,,UNRESOLVED
+execution/demo.py,56,save_state,WRITE,tmp,,UNRESOLVED
+execution/demo.py,57,save_state,REPLACE,tmp,,UNRESOLVED
+execution/risk_policy.py,66,load_risk_policy,READ,policy_path,,ALLOWED_CONFIG_READ
+execution/storage.py,20,ExecutionStore.rows,READ,path,,IPC_CANDIDATE
+execution/storage.py,27,ExecutionStore.append,READ,self.paths[stream],,IPC_CANDIDATE
+execution/storage.py,33,ExecutionStore.state,READ,self.paths['state'],,IPC_CANDIDATE
+execution/storage.py,37,ExecutionStore.save_state,WRITE,tmp,,IPC_CANDIDATE
+execution/storage.py,38,ExecutionStore.save_state,REPLACE,os,,IPC_CANDIDATE
+liquidity_displacement_entry_forward.py,87,configure.manifest_variant,READ,Path(__file__),,UNRESOLVED
+liquidity_displacement_forward.py,15,source_hash,READ,ROOT / 'liquidity_displacement.py',,UNRESOLVED
+liquidity_displacement_forward.py,18,load_state,EXISTS,STATE,ROOT / 'liquidity_displacement_forward_state.json',IPC_CANDIDATE
+liquidity_displacement_forward.py,18,load_state,READ,STATE,ROOT / 'liquidity_displacement_forward_state.json',IPC_CANDIDATE
+liquidity_displacement_forward.py,25,atomic_write,FSYNC,os,,DURABILITY_CALL
+liquidity_displacement_forward.py,26,atomic_write,REPLACE,os,,UNRESOLVED
+liquidity_displacement_forward.py,28,atomic_write,UNLINK,os,,UNRESOLVED
+liquidity_displacement_forward.py,31,read_json,READ,Path(path),,UNRESOLVED
+liquidity_displacement_forward.py,44,acquire_lock,EXISTS,PIDFILE,ROOT / 'liquidity_displacement_forward.pid',IPC_CANDIDATE
+liquidity_displacement_forward.py,44,acquire_lock,UNLINK,PIDFILE,ROOT / 'liquidity_displacement_forward.pid',IPC_CANDIDATE
+liquidity_displacement_forward.py,49,release_lock,UNLINK,PIDFILE,ROOT / 'liquidity_displacement_forward.pid',IPC_CANDIDATE
+liquidity_displacement_forward.py,56,event,READ,EVENTS,ROOT / 'liquidity_displacement_forward.jsonl',IPC_CANDIDATE
+liquidity_displacement_forward.py,167,read_daily_records,EXISTS,DAILY,ROOT / 'liquidity_displacement_daily.jsonl',IPC_CANDIDATE
+liquidity_displacement_forward.py,169,read_daily_records,READ,DAILY,ROOT / 'liquidity_displacement_daily.jsonl',IPC_CANDIDATE
+liquidity_displacement_forward.py,176,persist_daily,READ,DAILY,ROOT / 'liquidity_displacement_daily.jsonl',IPC_CANDIDATE
+liquidity_displacement_forward.py,181,health,EXISTS,STOP,Path('/tmp/liquidity-displacement-paper.stop'),IPC_CANDIDATE
+liquidity_displacement_forward.py,200,render_trades,REPLACE,PAPER_TITLE,'LIQUIDITY_DISPLACEMENT_SCALP_V1 — FORWARD PAPER',UNRESOLVED
+liquidity_displacement_forward.py,215,event_rows,EXISTS,EVENTS,ROOT / 'liquidity_displacement_forward.jsonl',IPC_CANDIDATE
+liquidity_displacement_forward.py,217,event_rows,READ,EVENTS,ROOT / 'liquidity_displacement_forward.jsonl',IPC_CANDIDATE
+liquidity_displacement_forward.py,244,watch_snapshot,EXISTS,STOP,Path('/tmp/liquidity-displacement-paper.stop'),IPC_CANDIDATE
+liquidity_displacement_forward.py,331,write_summary,WRITE,SUMMARY,ROOT / 'liquidity_displacement_forward_summary.md',UNRESOLVED
+liquidity_displacement_forward.py,542,main,EXISTS,STOP,Path('/tmp/liquidity-displacement-paper.stop'),IPC_CANDIDATE
+liquidity_displacement_forward.py,542,main,UNLINK,STOP,Path('/tmp/liquidity-displacement-paper.stop'),IPC_CANDIDATE
+liquidity_displacement_forward.py,544,main,EXISTS,MANIFEST,ROOT / 'liquidity_displacement_forward_manifest.json',IPC_CANDIDATE
+liquidity_displacement_forward.py,544,main,WRITE,MANIFEST,ROOT / 'liquidity_displacement_forward_manifest.json',IPC_CANDIDATE
+liquidity_displacement_forward.py,552,main,EXISTS,STOP,Path('/tmp/liquidity-displacement-paper.stop'),IPC_CANDIDATE
+live_execution_consumer.py,70,_smoke_event,READ,SMOKE_EVENTS,SMOKE_RUNTIME / 'events.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,122,source_records.read,READ,path,,UNRESOLVED
+live_execution_consumer.py,133,process_management_intents,EXISTS,INTENTS_PATH,,IPC_CANDIDATE
+live_execution_consumer.py,183,process_management_intents,READ,results_path,,UNRESOLVED
+live_execution_consumer.py,195,live_output_state,READ,path,,UNRESOLVED
+live_execution_consumer.py,210,execution_state_consistency.read,READ,path,,UNRESOLVED
+live_execution_consumer.py,299,execution_safety_audit,EXISTS,REAL_TRADES,RUNTIME / 'real_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,299,execution_safety_audit,READ,REAL_TRADES,RUNTIME / 'real_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,354,establish_execution_resume_cutoff,WRITE,tmp,,UNRESOLVED
+live_execution_consumer.py,355,establish_execution_resume_cutoff,REPLACE,os,,UNRESOLVED
+live_execution_consumer.py,880,process_intents,READ,trades_path,,UNRESOLVED
+live_execution_consumer.py,931,safety_audit,READ,path,,UNRESOLVED
+live_execution_consumer.py,1066,demo_status,EXISTS,DEMO_TRADES,RUNTIME / 'demo_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,1067,demo_status,READ,DEMO_TRADES,RUNTIME / 'demo_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,1094,real_status,EXISTS,REAL_TRADES,RUNTIME / 'real_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,1094,real_status,READ,REAL_TRADES,RUNTIME / 'real_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,1155,real_monitor_snapshot,EXISTS,REAL_TRADES,RUNTIME / 'real_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,1156,real_monitor_snapshot,READ,REAL_TRADES,RUNTIME / 'real_trades.jsonl',IPC_CANDIDATE
+live_execution_consumer.py,1670,run_real_smoke_test,EXISTS,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1671,run_real_smoke_test,READ,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1678,run_real_smoke_test,WRITE,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1713,run_real_smoke_test,READ,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1720,run_real_smoke_test,WRITE,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1734,run_real_smoke_test,READ,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1739,run_real_smoke_test,WRITE,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1753,run_real_smoke_test,WRITE,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1767,run_real_smoke_test,EXISTS,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1769,run_real_smoke_test,READ,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1774,run_real_smoke_test,WRITE,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1777,run_real_smoke_test,EXISTS,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1779,run_real_smoke_test,READ,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1791,run_real_smoke_test,EXISTS,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1793,run_real_smoke_test,READ,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1808,_smoke_request_evidence,READ,path,,UNRESOLVED
+live_execution_consumer.py,1822,real_smoke_resolve,EXISTS,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1825,real_smoke_resolve,READ,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1888,real_smoke_resolve,WRITE,SMOKE_STATE,SMOKE_RUNTIME / 'smoke_state.json',IPC_CANDIDATE
+live_execution_consumer.py,1917,trades_report,READ,path,,UNRESOLVED
+live_execution_consumer.py,1923,run,EXISTS,PID,RUNTIME / 'pid',IPC_CANDIDATE
+live_execution_consumer.py,1924,run,READ,PID,RUNTIME / 'pid',IPC_CANDIDATE
+live_execution_consumer.py,1925,run,UNLINK,PID,RUNTIME / 'pid',IPC_CANDIDATE
+live_execution_consumer.py,1943,run,WRITE,PID,RUNTIME / 'pid',IPC_CANDIDATE
+live_execution_consumer.py,1944,run,UNLINK,STOP,Path('/tmp/live-execution-consumer-dry-run.stop'),IPC_CANDIDATE
+live_execution_consumer.py,1952,run,EXISTS,STOP,Path('/tmp/live-execution-consumer-dry-run.stop'),IPC_CANDIDATE
+live_execution_consumer.py,1962,run,WRITE,HEARTBEAT,RUNTIME / 'heartbeat.json',IPC_CANDIDATE
+live_execution_consumer.py,1965,run,UNLINK,PID,RUNTIME / 'pid',IPC_CANDIDATE
+live_execution_consumer.py,1977,main,WRITE,STOP,Path('/tmp/live-execution-consumer-dry-run.stop'),IPC_CANDIDATE
+live_execution_consumer.py,1998,main,EXISTS,HEARTBEAT,RUNTIME / 'heartbeat.json',IPC_CANDIDATE
+live_execution_consumer.py,1998,main,READ,HEARTBEAT,RUNTIME / 'heartbeat.json',IPC_CANDIDATE
+live_execution_consumer.py,1999,main,EXISTS,PID,RUNTIME / 'pid',IPC_CANDIDATE
+live_execution_consumer.py,1999,main,READ,PID,RUNTIME / 'pid',IPC_CANDIDATE
+orchestration/adapters/context_structure_retrace.py,32,ContextStructureRetraceAdapter.discover_new_signals,READ,self.state_path,,UNRESOLVED
+orchestration/adapters/liquidity_displacement.py,38,LiquidityDisplacementAdapter.discover_new_signals,READ,self.state_path,,UNRESOLVED
+orchestration/config.py,58,load_config,EXISTS,CONFIG_PATH,ROOT / 'orchestration' / 'config' / 'platform.json',ALLOWED_CONFIG_READ
+orchestration/config.py,60,load_config,READ,CONFIG_PATH,ROOT / 'orchestration' / 'config' / 'platform.json',ALLOWED_CONFIG_READ
+orchestration/liquidity_instances.py,149,LiquidityInstanceAdapter.load_state,READ,self.state_path,,UNRESOLVED
+orchestration/liquidity_instances.py,165,LiquidityInstanceAdapter._live_baseline,READ,self.baseline_path,,UNRESOLVED
+orchestration/replay_guard.py,57,_atomic_json,WRITE,tmp,,IPC_CANDIDATE
+orchestration/replay_guard.py,58,_atomic_json,REPLACE,os,,IPC_CANDIDATE
+orchestration/replay_guard.py,64,load_epoch,READ,path,,IPC_CANDIDATE
+orchestration/storage.py,19,OrchestrationStore.load_state,READ,self.state_path,,IPC_CANDIDATE
+orchestration/storage.py,23,OrchestrationStore.save_state,WRITE,tmp,,IPC_CANDIDATE
+orchestration/storage.py,24,OrchestrationStore.save_state,REPLACE,os,,IPC_CANDIDATE
+orchestration/storage.py,29,OrchestrationStore.append,READ,path,,IPC_CANDIDATE
+orchestration/storage.py,35,OrchestrationStore.append,READ,path,,IPC_CANDIDATE
+orchestration/storage.py,43,OrchestrationStore.rows,READ,path,,IPC_CANDIDATE
+orchestration/tradeability.py,50,load_policy,READ,path,,UNRESOLVED
+scripts/watch_btc25_live_canary.py,72,read_json,READ,path,,UNRESOLVED
+scripts/watch_btc25_live_canary.py,83,read_pid,READ,path,,UNRESOLVED
+scripts/watch_btc25_live_canary.py,112,jsonl,READ,path,,UNRESOLVED
+scripts/watch_btc25_live_canary.py,307,persist,FSYNC,os,,DURABILITY_CALL
+scripts/watch_btc25_live_canary.py,308,persist,REPLACE,os,,UNRESOLVED
+scripts/watch_btc25_live_canary.py,311,persist,UNLINK,os,,UNRESOLVED
+scripts/watch_liquidity_live_all.py,74,read,READ,path,,UNRESOLVED
+scripts/watch_liquidity_live_all.py,82,lines,READ,path,,UNRESOLVED
+scripts/watch_liquidity_live_all.py,274,persist,FSYNC,os,,DURABILITY_CALL
+scripts/watch_liquidity_live_all.py,275,persist,REPLACE,os,,UNRESOLVED
+scripts/watch_liquidity_live_all.py,278,persist,UNLINK,os,,UNRESOLVED
+signal_orchestrator.py,58,source_hash,READ,path,,UNRESOLVED
+signal_orchestrator.py,94,atomic,WRITE,tmp,,UNRESOLVED
+signal_orchestrator.py,95,atomic,REPLACE,os,,UNRESOLVED
+signal_orchestrator.py,99,identity,READ,ROOT / 'context_structure_retrace_forward_manifest.json',,IPC_CANDIDATE
+signal_orchestrator.py,107,manifest,EXISTS,MANIFEST,RUNTIME / 'manifest.json',IPC_CANDIDATE
+signal_orchestrator.py,108,manifest,READ,MANIFEST,RUNTIME / 'manifest.json',IPC_CANDIDATE
+signal_orchestrator.py,334,safety_audit,READ,path,,UNRESOLVED
+signal_orchestrator.py,341,safety_audit,READ,path,,UNRESOLVED
+signal_orchestrator.py,380,startup_audit,EXISTS,runtime / 'manifest.json',,IPC_CANDIDATE
+signal_orchestrator.py,380,startup_audit,READ,runtime / 'manifest.json',,IPC_CANDIDATE
+signal_orchestrator.py,382,startup_audit,READ,real_state_path,,UNRESOLVED
+signal_orchestrator.py,384,startup_audit,READ,resume_path,,UNRESOLVED
+signal_orchestrator.py,406,live_audit,READ,real_state_path,,UNRESOLVED
+signal_orchestrator.py,559,acquire_lock,EXISTS,PID,RUNTIME / 'pid',IPC_CANDIDATE
+signal_orchestrator.py,560,acquire_lock,READ,PID,RUNTIME / 'pid',IPC_CANDIDATE
+signal_orchestrator.py,561,acquire_lock,UNLINK,PID,RUNTIME / 'pid',IPC_CANDIDATE
+signal_orchestrator.py,573,run,UNLINK,stop_path,,UNRESOLVED
+signal_orchestrator.py,595,run,UNLINK,PID,RUNTIME / 'pid',IPC_CANDIDATE
+signal_orchestrator.py,629,main,WRITE,STOP,Path('/tmp/signal-orchestrator-shadow.stop'),IPC_CANDIDATE
+signal_orchestrator.py,630,main,WRITE,REAL_STOP,Path('/tmp/signal-orchestrator-real.stop'),IPC_CANDIDATE
+signal_orchestrator.py,633,main,EXISTS,PID,RUNTIME / 'pid',IPC_CANDIDATE
+signal_orchestrator.py,633,main,READ,PID,RUNTIME / 'pid',IPC_CANDIDATE
+signal_orchestrator.py,634,main,EXISTS,HEARTBEAT,RUNTIME / 'heartbeat.json',IPC_CANDIDATE
+signal_orchestrator.py,634,main,READ,HEARTBEAT,RUNTIME / 'heartbeat.json',IPC_CANDIDATE
+trade_manager/central.py,56,append_unique,READ,path,,IPC_CANDIDATE
+trade_manager/central.py,63,append_unique,READ,path,,IPC_CANDIDATE
+trade_manager/central.py,72,rows,READ,path,,IPC_CANDIDATE
+trade_manager/central.py,154,BrokerStateStream.save,WRITE,tmp,,IPC_CANDIDATE
+trade_manager/central.py,154,BrokerStateStream.save,REPLACE,tmp,,IPC_CANDIDATE
+trade_manager/central.py,161,BrokerStateStream.load,READ,self.path,,IPC_CANDIDATE
+trade_manager/discrepancy.py,17,audit,READ,PHASE6_STATE,ROOT / 'context_structure_retrace_forward_state.json',ALLOWED_OFFLINE
+trade_manager/discrepancy.py,18,audit,READ,PHASE7_STATE,ROOT / 'context_structure_retrace_phase7_state.json',ALLOWED_OFFLINE
+trade_manager/discrepancy.py,46,audit,WRITE,REPORT_JSON,ROOT / 'trade_manager/reports/xauusd_ae53cb8a_discrepancy.json',ALLOWED_OFFLINE
+trade_manager/discrepancy.py,47,audit,WRITE,REPORT_TEXT,ROOT / 'trade_manager/reports/xauusd_ae53cb8a_discrepancy.txt',ALLOWED_OFFLINE
+trade_manager/fanout.py,73,SharedObservationPublisher.__init__,READ,self.state_path,,IPC_CANDIDATE
+trade_manager/fanout.py,80,SharedObservationPublisher.__init__,READ,self.events_path,,IPC_CANDIDATE
+trade_manager/fanout.py,103,SharedObservationPublisher.publish,READ,self.events_path,,IPC_CANDIDATE
+trade_manager/fanout.py,122,SharedObservationPublisher.rotate,REPLACE,os,,IPC_CANDIDATE
+trade_manager/fanout.py,125,SharedObservationPublisher._save_state,WRITE,self.state_path,,IPC_CANDIDATE
+trade_manager/fanout.py,128,SharedObservationPublisher._save_state,WRITE,self.health_path,,IPC_CANDIDATE
+trade_manager/fanout.py,138,FanoutConsumer.__init__,EXISTS,self.checkpoint_path,,IPC_CANDIDATE
+trade_manager/fanout.py,138,FanoutConsumer.__init__,READ,self.checkpoint_path,,IPC_CANDIDATE
+trade_manager/fanout.py,143,FanoutConsumer.read,EXISTS,self.root / 'events.jsonl',,IPC_CANDIDATE
+trade_manager/fanout.py,145,FanoutConsumer.read,READ,self.root / 'events.jsonl',,IPC_CANDIDATE
+trade_manager/fanout.py,155,FanoutConsumer.read,WRITE,self.checkpoint_path,,IPC_CANDIDATE
+trade_manager/fanout.py,160,FanoutConsumer.health,EXISTS,self.root / 'publisher_health.json',,IPC_CANDIDATE
+trade_manager/fanout.py,160,FanoutConsumer.health,READ,self.root / 'publisher_health.json',,IPC_CANDIDATE
+trade_manager/observation_storage.py,15,JsonlStream.__init__,READ,self.path,,IPC_CANDIDATE
+trade_manager/observation_storage.py,28,JsonlStream.append,READ,self.path,,IPC_CANDIDATE
+trade_manager/observation_storage.py,38,JsonlStream.records,READ,self.path,,IPC_CANDIDATE
+trade_manager/prospective.py,20,ProspectiveActivation.activate,READ,self.path,,IPC_CANDIDATE
+trade_manager/prospective.py,25,ProspectiveActivation.activate,WRITE,self.path,,IPC_CANDIDATE
+trade_manager/prospective.py,29,ProspectiveActivation.load,READ,self.path,,IPC_CANDIDATE
+trade_manager/prospective.py,65,ProspectiveExperimentCollector.write_dashboard,WRITE,Path(path),,IPC_CANDIDATE
+trade_manager/replay.py,18,load_fixture,READ,STATE,ROOT / 'context_structure_retrace_phase7_state.json',ALLOWED_OFFLINE
+trade_manager/replay.py,62,replay,WRITE,REPORT,ROOT / 'trade_manager' / 'reports' / 'xauusd_ae53cb8a_replay.json',ALLOWED_OFFLINE
+trade_manager/replay.py,63,replay,WRITE,JSONL_REPORT,ROOT / 'trade_manager' / 'reports' / 'xauusd_ae53cb8a_replay.jsonl',ALLOWED_OFFLINE
+trade_manager/replay.py,82,replay,WRITE,TEXT_REPORT,ROOT / 'trade_manager' / 'reports' / 'xauusd_ae53cb8a_replay.txt',ALLOWED_OFFLINE
+trade_manager/state.py,46,ManagementStateStore.__init__,READ,self.path,,IPC_CANDIDATE
+trade_manager/state.py,52,ManagementStateStore.update,READ,self.path,,IPC_CANDIDATE
+trade_manager/storage.py,14,AdvisoryLedger.append,READ,self.path,,IPC_CANDIDATE
+trade_manager/storage.py,20,AdvisoryLedger.read,READ,self.path,,IPC_CANDIDATE
+trade_manager/stream_consumer.py,41,SharedStreamTradeManager.__init__,READ,self.state_path,,UNRESOLVED
+trade_manager/stream_consumer.py,46,SharedStreamTradeManager.start,WRITE,self.state_path,,UNRESOLVED
+trade_manager/stream_consumer.py,70,SharedStreamTradeManager._write_health,EXISTS,PROPOSALS_PATH.parent,,IPC_CANDIDATE
+trade_manager/stream_consumer.py,71,SharedStreamTradeManager._write_health,WRITE,self.health_path,,UNRESOLVED
+trade_manager/stream_consumer.py,141,SharedStreamTradeManager.status,EXISTS,PROPOSALS_PATH.parent,,IPC_CANDIDATE
+trade_manager/stream_consumer.py,155,main,READ,activation_path,,UNRESOLVED
