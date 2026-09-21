@@ -1,0 +1,1 @@
+"""Canonical strategy evaluation domain."""
