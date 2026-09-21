@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from migration.gates import CutoverGate, GateEvidence, evaluate_gate
+from migration.gates import CutoverGate, GateEvidence, evaluate_gate, evaluate_signal_gates
 from migration.modes import EventTransportMode, LegacyProjectionMode, RuntimeModes, StateAuthorityMode
 from migration.observability import migration_status
 from migration.projector import CompatibilityProjector
@@ -77,6 +77,9 @@ class MigrationSubstrateTests(unittest.TestCase):
         status = migration_status(modes=RuntimeModes(StateAuthorityMode.DB_SHADOW, EventTransportMode.JETSTREAM_SHADOW), phase="P1", gate_status=approved, reconciliation={"summary": {"MATCH": 2}}, unresolved_sites=3, health={"outbox_unpublished": 1}, schema_version="009")
         self.assertEqual(status["postgres_schema_version"], "009")
         self.assertEqual(status["mismatch_count"], 0)
+        gates = evaluate_signal_gates(reconciliation_clean=True, mismatch_count=0, ingested_records=1, malformed_records=0, shadow_consumed=1, duplicate_effects=0, evidence_references=("test",))
+        self.assertEqual(gates["SHADOW_WRITE_READY"]["status"], "PASS")
+        self.assertEqual(gates["DB_AUTHORITY_READY"]["status"], "NOT_EVALUATED")
 
 
 if __name__ == "__main__":
