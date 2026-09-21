@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import os
 from pathlib import Path
 
 from migration.signal import canonical_signal
 from migration.signal_shadow import SignalShadowConsumer
 from migration.tailer import AppendOnlyTailer
+from migration.flags import SignalAuthorityFlags
 
 
 class SignalMigrationTests(unittest.TestCase):
@@ -25,10 +27,34 @@ class SignalMigrationTests(unittest.TestCase):
         signal = canonical_signal(self.raw(), source_reference="events.jsonl:1")
         self.assertEqual(signal.evaluation.strategy_id, "STRAT")
         self.assertEqual(signal.evaluation.trace_fidelity.value, "L1")
-        self.assertEqual(signal.evaluation.provenance["legacy_source_reference"], "events.jsonl:1")
+        self.assertEqual(signal.source_reference["source_reference"], "events.jsonl:1")
         self.assertNotIn("outcome", signal.evaluation.provenance)
         self.assertEqual(signal.canonical_hash, signal.evaluation.evaluation_hash)
         self.assertEqual(signal.canonical_hash, canonical_signal(self.raw(), source_reference="events.jsonl:1").canonical_hash)
+
+    def test_identity_excludes_source_location_and_ingest_only_fields(self):
+        first = canonical_signal(self.raw(), source_reference={"source_id": "a", "source_offset": 1})
+        second = canonical_signal({**self.raw(), "as_of": "2026-09-22T00:00:00Z"}, source_reference={"source_id": "b", "source_offset": 999})
+        self.assertEqual(first.evaluation.evaluation_hash, second.evaluation.evaluation_hash)
+        self.assertEqual(first.entry_signal_hash, second.entry_signal_hash)
+
+    def test_decision_time_is_normalized_and_epoch_rejected(self):
+        self.assertEqual(canonical_signal({**self.raw(), "decision_time": "2026-09-21T02:00:00-02:00"}).evaluation.decision_time, "2026-09-21T04:00:00.000000Z")
+        with self.assertRaises(ValueError):
+            canonical_signal({**self.raw(), "decision_time": 1758412800})
+
+    def test_authority_flags_default_closed_and_validate_dependencies(self):
+        old_db, old_js = os.environ.pop("SIGNAL_DB_PRIMARY_ENABLED", None), os.environ.pop("SIGNAL_JETSTREAM_PRIMARY_ENABLED", None)
+        try:
+            self.assertEqual(SignalAuthorityFlags.from_env(), SignalAuthorityFlags())
+            with self.assertRaises(RuntimeError):
+                SignalAuthorityFlags(True, False).validate(db_available=False)
+            os.environ["SIGNAL_JETSTREAM_PRIMARY_ENABLED"] = "true"
+            with self.assertRaises(ValueError):
+                SignalAuthorityFlags.from_env()
+        finally:
+            if old_db is not None: os.environ["SIGNAL_DB_PRIMARY_ENABLED"] = old_db
+            if old_js is not None: os.environ["SIGNAL_JETSTREAM_PRIMARY_ENABLED"] = old_js
 
     def test_s0_tailer_restart_partial_malformed_and_rotation(self):
         with tempfile.TemporaryDirectory() as td:

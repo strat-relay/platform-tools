@@ -44,9 +44,10 @@ class JetStreamPublisher:
     def __init__(self, client: JetStreamClient):
         self.client = client
 
-    async def publish(self, envelope: EventEnvelope) -> Any:
+    async def publish(self, envelope: EventEnvelope, *, headers: Mapping[str, str] | None = None) -> Any:
         validate_subject(envelope.event_type)
-        return await self.client.publish(envelope.event_type, envelope.canonical_bytes())
+        publish_headers = {"Nats-Msg-Id": envelope.event_id, **(headers or {})}
+        return await self.client.publish(envelope.event_type, envelope.canonical_bytes(), headers=publish_headers)
 
 
 class JetStreamConsumer:

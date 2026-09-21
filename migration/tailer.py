@@ -16,8 +16,9 @@ class TailerResult:
 
 
 class AppendOnlyTailer:
-    def __init__(self, source: Path, checkpoint: Path, *, ingest: Callable[[dict[str, Any]], None] | None = None):
-        self.source, self.checkpoint, self.ingest = source, checkpoint, ingest
+    def __init__(self, source: Path, checkpoint: Path, *, ingest: Callable[[dict[str, Any]], None] | None = None,
+                 quarantine: Callable[[dict[str, Any]], None] | None = None):
+        self.source, self.checkpoint, self.ingest, self.quarantine = source, checkpoint, ingest, quarantine
 
     def run_once(self) -> TailerResult:
         state = json.loads(self.checkpoint.read_text()) if self.checkpoint.exists() else {}
@@ -30,14 +31,20 @@ class AppendOnlyTailer:
         if last_newline < 0: return TailerResult([], [], rotated, offset)
         chunk, new_offset = complete[:last_newline + 1], offset + last_newline + 1
         records, malformed = [], []
-        for line_no, raw in enumerate(chunk.splitlines(), 1):
+        physical_line = data[:offset].count(b"\n") + 1
+        cursor = offset
+        for line_no, raw in enumerate(chunk.splitlines(), physical_line):
+            source_offset = cursor
+            cursor += len(raw) + 1
             try:
                 record = json.loads(raw.decode("utf-8")); record.setdefault("source_path", str(self.source))
-                record.setdefault("source_line", line_no); record.setdefault("canonical_hash", hashlib.sha256(raw).hexdigest())
+                record.setdefault("source_line", line_no); record.setdefault("source_offset", source_offset); record.setdefault("canonical_hash", hashlib.sha256(raw).hexdigest())
                 records.append(record)
                 if self.ingest: self.ingest(record)
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                malformed.append({"line": line_no, "error": str(exc), "raw": raw.decode("utf-8", "replace")})
+                item = {"line": line_no, "source_offset": source_offset, "error": str(exc), "raw": raw.decode("utf-8", "replace"), "raw_sha256": hashlib.sha256(raw).hexdigest()}
+                malformed.append(item)
+                if self.quarantine: self.quarantine(item)
         self.checkpoint.parent.mkdir(parents=True, exist_ok=True)
         self.checkpoint.write_text(json.dumps({"offset": new_offset, "sha256": hashlib.sha256(data[:new_offset]).hexdigest(), "source": str(self.source)}, sort_keys=True), encoding="utf-8")
         return TailerResult(records, malformed, rotated, new_offset)

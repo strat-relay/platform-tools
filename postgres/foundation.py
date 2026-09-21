@@ -12,7 +12,8 @@ from typing import Any, Mapping
 
 from core.strategies.evaluation import Evaluation, ReasonCode, canonical_bytes, default_reason_codes
 
-DATABASE_SCHEMA_VERSION = "010"
+DATABASE_SCHEMA_VERSION = "011"
+_UNSET = object()
 
 
 def _json(value: Any) -> str:
@@ -27,7 +28,7 @@ def _reason_rows(evaluation: Evaluation) -> list[ReasonCode]:
     return rows
 
 
-def persist_evaluation(conn: Any, evaluation: Evaluation) -> str:
+def persist_evaluation(conn: Any, evaluation: Evaluation, *, strategy_version_id: str | None | object = _UNSET) -> str:
     """Persist an immutable evaluation and its trace; caller commits."""
     evaluation_id = evaluation.evaluation_hash
     with conn.cursor() as cur:
@@ -35,13 +36,14 @@ def persist_evaluation(conn: Any, evaluation: Evaluation) -> str:
             cur.execute("""INSERT INTO platform.reason_codes(code, version, category, description, terminal)
                           VALUES (%s,%s,%s,%s,%s) ON CONFLICT (code, version) DO NOTHING""",
                         (reason.code, reason.version, reason.category, reason.description, reason.terminal))
+        version_fk = evaluation.strategy_version if strategy_version_id is _UNSET else strategy_version_id
         cur.execute("""INSERT INTO strategy.evaluations
             (evaluation_id, strategy_id, strategy_version_id, parameter_set_id, instrument, direction,
              decision_time, candidate_id, decision, trace_fidelity, runtime_version, evaluator_version,
              provenance, canonical_payload, canonical_hash)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s)
             ON CONFLICT (evaluation_id) DO NOTHING""",
-                    (evaluation_id, evaluation.strategy_id, evaluation.strategy_version,
+                    (evaluation_id, evaluation.strategy_id, version_fk,
                      evaluation.parameter_set_id, evaluation.instrument, evaluation.direction,
                      evaluation.decision_time, evaluation.candidate_id, evaluation.decision.value,
                      evaluation.trace_fidelity.value, evaluation.runtime_version, evaluation.evaluator_version,

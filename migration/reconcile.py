@@ -14,6 +14,9 @@ class ReconciliationStatus(str, Enum):
     TERMINAL_STATE_MISMATCH = "TERMINAL_STATE_MISMATCH"
     GENERATION_MISMATCH = "GENERATION_MISMATCH"
     UNRESOLVED = "UNRESOLVED"
+    EXPECTED_LAG = "EXPECTED_LAG"
+    KNOWN_LEGACY_ANOMALY = "KNOWN_LEGACY_ANOMALY"
+    MALFORMED_LEGACY_LINE = "MALFORMED_LEGACY_LINE"
 
 
 @dataclass(frozen=True)
@@ -33,13 +36,16 @@ def reconcile(legacy: Iterable[Mapping[str, Any]], database: Iterable[Mapping[st
         a, b = left.get(identity), right.get(identity)
         if a is None: status, detail = ReconciliationStatus.MISSING_LEGACY, "database row has no legacy record"
         elif b is None: status, detail = ReconciliationStatus.MISSING_DATABASE, "legacy record has no database row"
+        elif a.get("version") is not None and b.get("version") is not None and a["version"] != b["version"]:
+            status, detail = ReconciliationStatus.VERSION_MISMATCH, "strategy versions differ"
         elif a.get("hash") is not None and b.get("hash") is not None and a["hash"] != b["hash"]:
             status, detail = ReconciliationStatus.HASH_MISMATCH, "canonical hashes differ"
         elif any(a.get(field) is not None and b.get(field) is not None and a.get(field) != b.get(field)
-                 for field in ("strategy_id", "instrument", "direction", "decision_time", "decision")):
+                 for field in ("strategy_id", "strategy_ref", "version", "parameter_set_ref", "strategy_instance_id",
+                               "instrument", "direction", "decision_time", "signal_emitted_at", "decision", "entry_type",
+                               "entry_price", "stop_price", "target_price", "risk_distance", "target_distance", "target_r",
+                               "economic_position_id", "entry_opportunity_id", "setup_id", "source_event_id", "terminal_state")):
             status, detail = ReconciliationStatus.HASH_MISMATCH, "canonical signal semantic fields differ"
-        elif a.get("version") is not None and b.get("version") is not None and a["version"] != b["version"]:
-            status, detail = ReconciliationStatus.VERSION_MISMATCH, "aggregate versions differ"
         elif a.get("terminal_state") is not None and b.get("terminal_state") is not None and a["terminal_state"] != b["terminal_state"]:
             status, detail = ReconciliationStatus.TERMINAL_STATE_MISMATCH, "terminal states differ"
         elif a.get("generation") is not None and b.get("generation") is not None and a["generation"] != b["generation"]:
