@@ -1,0 +1,14 @@
+{
+  "family": "MULTITIMEFRAME_LIQUIDITY_SNIPER_RESEARCH",
+  "status": "RESEARCH_ONLY",
+  "execution_timeframe": "M5",
+  "context_timeframes": ["H4", "H1", "M15"],
+  "m5_independent_trade_allowed": false,
+  "broker_writes": false,
+  "production_runner_imports": false,
+  "controls": ["CONTROL_A_M5_ONLY", "CONTROL_B_M15", "CONTROL_C_M15_H1", "CONTROL_D_H4_H1_M15"],
+  "populations": ["HTF_CONTINUATION", "HTF_REVERSAL_TRANSITION"],
+  "pairs": ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD", "AUDUSD", "NZDUSD", "EURJPY", "GBPJPY", "EURGBP", "AUDJPY", "CADJPY", "CHFJPY", "GBPAUD", "GBPCAD"],
+  "method": ["DISCOVERY", "SELECTION", "FINAL_UNTOUCHED_TEST", "WALK_FORWARD", "EQUAL_PAIR_WEIGHTING", "LEAVE_ONE_PAIR_OUT"],
+  "cost_invariant": "spread_timestamp == fill_timestamp; otherwise FILL_COST_UNAVAILABLE"
+}

@@ -1,0 +1,39 @@
+{
+  "protocol_version": "2025-06-18",
+  "tools": [
+    "mt5_terminal_info",
+    "mt5_account_info",
+    "mt5_symbols",
+    "mt5_symbol_info",
+    "mt5_quote",
+    "mt5_rates",
+    "mt5_rates_range",
+    "mt5_symbol_snapshot",
+    "mt5_positions",
+    "mt5_orders",
+    "mt5_history",
+    "mt5_order_check",
+    "mt5_canonical_order_send",
+    "mt5_market_order",
+    "mt5_pending_order",
+    "mt5_cancel_pending_order",
+    "mt5_close_position",
+    "mt5_trailing_stop"
+  ],
+  "profiles": {
+    "research": [
+      "mt5_terminal_info",
+      "mt5_account_info",
+      "mt5_symbols",
+      "mt5_symbol_info",
+      "mt5_quote",
+      "mt5_rates",
+      "mt5_rates_range",
+      "mt5_symbol_snapshot",
+      "mt5_positions",
+      "mt5_orders",
+      "mt5_history"
+    ],
+    "execution": "all"
+  }
+}

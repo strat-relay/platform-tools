@@ -1,0 +1,58 @@
+{
+  "code_hash": "f931fe449d1bee78fde768374ad7ce88ded3f19f9afdf349e9acb47602772a0f",
+  "configuration": {
+    "commission": "UNKNOWN_UNRESOLVED",
+    "execution_timeframe": "M15",
+    "higher_context": [
+      "H1",
+      "H4"
+    ],
+    "lower_context": [
+      "M5"
+    ],
+    "no_remaining_target": "target behind or at executable entry is non-tradable",
+    "reentry": "INTERACT -> LEAVE_ZONE -> COMPLETED_LOWER_TF_CLOSE_OUTSIDE -> RETURN -> THESIS_VALID -> TARGET_NOT_COMPLETED; target completion returns are RETURN_AFTER_SETUP_TARGET_COMPLETED",
+    "retracement": "DEPTH_ONLY at 20% of originating setup range; other mechanisms recorded when observed",
+    "scale_in": "DISABLED; potential scale-in is logged only",
+    "setup_events": [
+      "BULLISH_ENGULFING",
+      "BEARISH_ENGULFING",
+      "MORNING_STAR",
+      "EVENING_STAR",
+      "BULLISH_REJECTION_WICK",
+      "BEARISH_REJECTION_WICK"
+    ],
+    "slippage": "SHADOW_SENSITIVITY_ONLY",
+    "stop": "ORIGINATING_SETUP_EXTREME with minimal causal volatility/spread safety buffer",
+    "strategy_version": "CONTEXT_STRUCTURE_RETRACE_V1",
+    "symbols": [
+      "XAUUSDm",
+      "BTCUSDm",
+      "USDJPYm",
+      "EURUSDm"
+    ],
+    "target": "STRUCTURE_CAPPED_EXTENSION; setup extreme plus 0.50*setup range, capped only by directionally valid opposing structure",
+    "time_exit": "NONE",
+    "two_leg_risk": {
+      "leg_a": 0.5,
+      "leg_b": 0.5,
+      "total": 1.0
+    }
+  },
+  "configuration_hash": "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e",
+  "data_status_after_freeze": "PROSPECTIVE_FORWARD_DATA",
+  "data_status_before_freeze": "EXPOSED_DEVELOPMENT_DATA",
+  "execution_isolation": {
+    "allowed_bridge_tools": [
+      "mt5_quote",
+      "mt5_rates",
+      "mt5_symbol_info"
+    ],
+    "broker_order_submission": false,
+    "mode": "PAPER_READ_ONLY"
+  },
+  "freeze_timestamp": "2026-09-16T05:00:08.854816+00:00",
+  "phase2_representation_hash": "923d0d2762b6b78515a96e96dba17e42e34818aa82c406dc9ebc6f43b1a54c41",
+  "schema_version": "context-structure-retrace-forward-v1-phase6-schema-1",
+  "strategy_version": "CONTEXT_STRUCTURE_RETRACE_V1"
+}

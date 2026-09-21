@@ -1,0 +1,54 @@
+name: mt5-native-bridge
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trading_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-trading_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment or .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres-tools
+    profiles: ["ops"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB:-trading_platform}
+      PGUSER: ${POSTGRES_USER:-trading_app}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment or .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "postgres.migrate"]
+
+  postgres-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres-tools
+    profiles: ["ops"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB:-trading_platform}
+      PGUSER: ${POSTGRES_USER:-trading_app}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment or .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "unittest", "-v", "test_postgres_integration"]
+
+volumes:
+  postgres_data:
+    name: mt5_native_bridge_postgres_data

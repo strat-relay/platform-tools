@@ -1,0 +1,21 @@
+{
+  "schema": "research-linux-copy-manifest-v1",
+  "status": "PREPARED_NOT_DEPLOYED",
+  "target": {"os": "Ubuntu/Debian Linux", "vcpu": 8, "memory_gb": 32, "ssd_gb": 250},
+  "mode": "OFFLINE_RESEARCH_ONLY",
+  "broker_writes": 0,
+  "copy": [
+    "research/",
+    "context_structure_retrace/",
+    "artifacts/research/multitimeframe_structure_sniper/paged_native_full/",
+    "artifacts/research/multitimeframe_liquidity_sniper/",
+    "selected artifacts/audits/ and root research CSV/JSON reports after checksum review"
+  ],
+  "exclude": [
+    "runtime/", "runtime/**", "launchd/", "*.plist", "*.env", "*.key", "*.pem",
+    "Wine prefixes", "MT5 installation", "*.ex5", "live orchestration queues",
+    "live execution state", "broker credentials", "production JSONL/state/heartbeat/log files"
+  ],
+  "hash_policy": "SHA-256 every copied file; record source path, byte size, and hash",
+  "deployment": "not performed"
+}

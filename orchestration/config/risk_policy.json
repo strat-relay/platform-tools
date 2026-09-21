@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "portfolio": {
+    "virtual_equity_usd": 200.0
+  },
+  "defaults": {
+    "risk_percent_per_position": 3.0
+  },
+  "strategies": {
+    "CONTEXT_STRUCTURE_RETRACE_V1": {
+      "risk_percent_per_position": 3.0
+    },
+    "LIQUIDITY_DISPLACEMENT_SCALP_V1": {
+      "risk_percent_per_position": 3.0
+    },
+    "LIQUIDITY_DISPLACEMENT_SCALP_XAUUSD_33_V1": {
+      "risk_percent_per_position": 3.0
+    },
+    "LIQUIDITY_DISPLACEMENT_SCALP_BTCUSD_25_V1": {
+      "risk_percent_per_position": 3.0
+    },
+    "LIQUIDITY_DISPLACEMENT_SCALP_USDJPY_25_V1": {
+      "risk_percent_per_position": 3.0
+    }
+  }
+}

@@ -1,0 +1,14 @@
+# Cloudflare Tunnel config for the Trading Control API.
+# Copy to ~/.cloudflared/config.yml (or pass with --config) and fill in the IDs.
+#
+#   cloudflared tunnel login
+#   cloudflared tunnel create stratrelay-control-api
+#   cloudflared tunnel route dns stratrelay-control-api api.stratrelay.app
+#   cloudflared tunnel run stratrelay-control-api
+tunnel: <TUNNEL_ID>
+credentials-file: /Users/caleb/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: api.stratrelay.app
+    service: http://127.0.0.1:22349
+  - service: http_status:404

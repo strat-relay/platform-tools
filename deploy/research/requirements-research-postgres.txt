@@ -1,0 +1,3 @@
+# Optional offline PostgreSQL import/validation tooling.
+-r requirements-research.txt
+psycopg[binary]==3.2.9

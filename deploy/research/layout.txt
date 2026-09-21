@@ -1,0 +1,7 @@
+/srv/mt5-research/
+  app/                 reviewed source snapshot only
+  data/                copied historical datasets, read-only inputs
+  artifacts/           generated research outputs
+  manifests/           copy and checksum manifests
+  logs/                offline job logs
+  venv/                VM-local virtual environment, never copied back

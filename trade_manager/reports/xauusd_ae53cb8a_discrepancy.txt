@@ -1,0 +1,13 @@
+XAUUSDm PHASE 1.5 DISCREPANCY REPORT
+
+Economic position: ae53cb8a7e76f0a82f19
+Same lifecycle: True
+Timezone mismatch: false
+Phase 6: bid-side M5 OHLC; SHORT stop test was bid high >= stop.
+Phase 7: shadow adverse excursion used ask-high = bid-high + bar spread; checkpoint close used close + spread.
+Phase 6 status: OPEN
+Phase 6 MAE price: 4.592799999999443
+Phase 7 shadow MAE R: 5.09561202840072
+The 4315.020 / 4323.024 values are short-side executable checkpoint closes, not candle highs.
+Phase 7 did not evaluate or mutate persisted stop/target status; it copied Phase 6 status.
+Conclusion: historical state is inconsistent as an execution-state claim, but must remain immutable.

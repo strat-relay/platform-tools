@@ -1,0 +1,22 @@
+[
+  {
+    "request": {
+      "schema_version": 1,
+      "action": 1,
+      "magic": 0,
+      "symbol": "TESTUSD",
+      "volume": 0.01,
+      "price": 100.0,
+      "sl": 99.0,
+      "tp": 102.0,
+      "deviation": 50,
+      "type": 0,
+      "type_filling": 1,
+      "type_time": 0,
+      "expiration": 0,
+      "comment": "STAGE0"
+    },
+    "canonical_request_text": "schema_version=1;action=1;magic=0;symbol=TESTUSD;volume=0.0100000000;price=100.0000000000;sl=99.0000000000;tp=102.0000000000;deviation=50;type=0;type_filling=1;type_time=0;expiration=0;comment=STAGE0",
+    "request_fingerprint": "3cff65ac283fc6ce9a52faf73005862c13855df536e7b570e43b545137646667"
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "policy_id": "INTERIM_PRODUCTION_SAFETY_POLICY",
+  "policy_version": "interim-effective-rr-v1",
+  "minimum_effective_rr": 0.25,
+  "scope": "centralized_orchestrator_execution_eligibility",
+  "reason": "Existing evidence identifies sub-0.25R trades as economically unsupported after spread; this is a conservative safety floor, not an optimized strategy threshold."
+}

@@ -1,0 +1,9 @@
+# Copy to a VM-local environment file; do not commit secrets.
+RESEARCH_MODE=OFFLINE
+BROKER_WRITES=0
+MT5_EXECUTION_ONLY=0
+RESEARCH_BRIDGE_URL=
+TRADING_POSTGRES_DSN=
+RESEARCH_DATA_ROOT=/srv/mt5-research/data
+RESEARCH_ARTIFACT_ROOT=/srv/mt5-research/artifacts
+PYTHONUNBUFFERED=1

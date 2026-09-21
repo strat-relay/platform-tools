@@ -1,0 +1,29 @@
+TRADE MANAGER PHASE 1 — ADVISORY/SHADOW REPLAY
+
+Fixture: ae53cb8a7e76f0a82f19
+XAUUSDm SHORT
+Entry: 4311.1262  Stop: 4315.9472  Target: 4302.6089
+
+Timeline (causal persisted checkpoints only):
+2026-09-17T07:00:00+00:00 | price=4312.1430 | R=-0.2109 | MFE=0.0R | MAE=0.21091184941972285R | EMA200=n/a | action=HOLD | reasons=NO_MANAGEMENT_CHANGE
+2026-09-17T07:05:00+00:00 | price=4315.0200 | R=-0.8077 | MFE=0.0R | MAE=0.8076795429493985R | EMA200=n/a | action=HOLD | reasons=NO_MANAGEMENT_CHANGE
+2026-09-17T07:10:00+00:00 | price=4323.0240 | R=-2.4679 | MFE=0.0R | MAE=2.4679258477845707R | EMA200=n/a | action=HOLD | reasons=NO_MANAGEMENT_CHANGE
+2026-09-17T07:25:00+00:00 | price=4329.3330 | R=-3.7766 | MFE=0.0R | MAE=3.776583261228543R | EMA200=n/a | action=HOLD | reasons=NO_MANAGEMENT_CHANGE
+2026-09-17T07:55:00+00:00 | price=4327.2520 | R=-3.3449 | MFE=0.0R | MAE=3.776583261228543R | EMA200=n/a | action=HOLD | reasons=NO_MANAGEMENT_CHANGE
+2026-09-17T08:25:00+00:00 | price=4316.3000 | R=-1.0732 | MFE=0.0R | MAE=3.776583261228543R | EMA200=n/a | action=HOLD | reasons=NO_MANAGEMENT_CHANGE
+2026-09-17T08:55:00+00:00 | price=4311.7020 | R=-0.1194 | MFE=0.0R | MAE=3.776583261228543R | EMA200=n/a | action=HOLD | reasons=NO_MANAGEMENT_CHANGE
+
+Frozen V1: OPEN; no exit/management action recorded.
+Trade Manager: HOLD at every replay checkpoint; advisory only.
+
+Evidence limitations:
+- CAUSAL_CANDLE_STREAM_NOT_PERSISTED
+- INTRACANDLE_REJECTION_NOT_DETERMINABLE
+- M5_200_EMA_NOT_PERSISTED
+- MFE_MAE_AT_CHECKPOINT_NOT_PERSISTED
+
+Persisted threshold evidence: +0.25R first recorded at 07:00, but only as an aggregate threshold event.
+It does not provide a causal candle/EMA rejection or a timestamped stop proposal.
+Earliest legitimate protection point: NOT DETERMINABLE from persisted evidence.
+No causal M5 candle/EMA stream or timestamped intrabar rejection evidence is available.
+Broker writes: 0

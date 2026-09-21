@@ -1,0 +1,24 @@
+{
+  "configuration_hash": "46b4dae8b6bba40d732f974eb3e916b726bb74b49181671313327bcac7b1ed94",
+  "execution_isolation": {
+    "allowed_bridge_tools": [
+      "mt5_quote",
+      "mt5_rates",
+      "mt5_symbol_info"
+    ],
+    "broker_write": false,
+    "mode": "PASSIVE_READ_ONLY"
+  },
+  "freeze_timestamp": "2026-09-16T11:08:15.511301+00:00",
+  "observation_horizon_minutes": 180,
+  "observer_version": "CONTEXT_STRUCTURE_RETRACE_V1_PHASE7_OBSERVER",
+  "phase6_identity": {
+    "config_hash": "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e",
+    "decision_fingerprint": "70dba71d28fe8a5c09f9033b80eeb4c27a733c6c342537e03c631f41e2a1cdda",
+    "freeze_timestamp": "2026-09-16T05:00:08.854816+00:00",
+    "phase2_hash": "923d0d2762b6b78515a96e96dba17e42e34818aa82c406dc9ebc6f43b1a54c41",
+    "source_hash": "f931fe449d1bee78fde768374ad7ce88ded3f19f9afdf349e9acb47602772a0f"
+  },
+  "schema": "context-structure-retrace-phase7-v1",
+  "source_hash": "0c4516d51aa740755f6d31e434b8afa437fe1315c527f890751eeb5511000247"
+}
