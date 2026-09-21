@@ -23,9 +23,9 @@ SUBJECTS = frozenset({
 
 STREAMS = {
     "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal.")))),
-                     "storage": "file", "retention": "limits", "max_age": "30d"},
+                     "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
     "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.")))),
-                   "storage": "file", "retention": "limits", "max_age": "30d"},
+                   "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
 }
 
 
