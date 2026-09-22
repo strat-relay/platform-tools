@@ -10,7 +10,5 @@ if [[ -z "$POD" ]]; then
 fi
 echo "WORKER_STATUS"
 kubectl --kubeconfig "$KUBECONFIG" -n "$NAMESPACE" exec "$POD" -c worker -- cat /data/status.json
-echo "BOOTSTRAP_PROOF"
-kubectl --kubeconfig "$KUBECONFIG" -n "$NAMESPACE" exec "$POD" -c worker -- cat /data/bootstrap-proof.json
 echo "EVIDENCE_WINDOW_MARKER"
 kubectl --kubeconfig "$KUBECONFIG" -n "$NAMESPACE" exec "$POD" -c worker -- cat /data/evidence-window.json

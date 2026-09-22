@@ -42,6 +42,7 @@ RAW = {"signal_id": "SIG_x", "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1", "str
        "source_event_id": "phase6:economic_position:e1", "entry_opportunity_id": "o1", "economic_position_id": "e1", "setup_id": "s1",
        "symbol": "XAUUSDm", "canonical_symbol": "XAUUSD", "direction": "LONG", "entry_type": "MARKET_PAPER_OBSERVATION",
        "entry_price": 100.0, "stop_price": 99.0, "target_price": 103.0, "risk_distance": 1.0,
+       "entry_mechanisms": ["DEPTH_ONLY"],
        "created_at": "2026-09-21T10:00:05+00:00", "signal_timestamp": "2026-09-21T10:00:00+00:00",
        "decision_time": "2026-09-21T10:00:00+00:00", "signal_emitted_at": "2026-09-21T10:00:05+00:00",
        "provenance": {"classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL", "gap_recovery": False}}
@@ -76,9 +77,12 @@ def checks() -> None:
     blob = json.dumps(d)
     check("R4", "the canonical Evaluation payload (persisted as strategy.signals.payload) carries NO entry/stop/target/risk, no economic_position_id, no strategy_instance_id, no setup id, no signal_emitted_at",
           not any(k in blob for k in ("entry_price", "stop_price", "target_price", "risk_distance", "economic_position_id", "strategy_instance_id", "setup_id", "signal_emitted_at")), "Evaluation.to_dict keys=" + ",".join(sorted(d)))
-    keys = set(re.findall(r'"(\w+)":', re.search(r"event_payload = json.dumps\(\{(.*?)\}, sort_keys", sig, re.S).group(1)))
-    check("R5", "the signal.entry.created.v1 payload contains only ids/hashes and source_reference (no instrument, direction, decision_time, geometry, strategy version, parameter set)",
-          keys == {"signal_id", "candidate_id", "evaluation_id", "evaluation_hash", "trace_hash", "source_reference"}, str(sorted(keys)))
+    event_keys = re.search(r'event_data = \{k: f\[k\] for k in \((.*?)\)\}', sig, re.S)
+    keys = set(re.findall(r'"(\w+)"', event_keys.group(1))) if event_keys else set()
+    check("R5", "the signal.entry.created.v1 payload carries canonical identity, instrument/direction/times and the relational mechanism collection as a JSON array",
+          keys == {"signal_id", "candidate_id", "evaluation_id", "evaluation_hash", "trace_hash", "entry_signal_hash", "strategy_ref", "strategy_id", "instrument", "direction", "decision_time", "signal_emitted_at"}
+          and 'event_data["entry_mechanisms"] = list(f["entry_mechanisms"])' in sig
+          and 'json.dumps(event_data, sort_keys=True, separators=(",", ":"))' in sig, str(sorted(keys)))
     check("R6", "the outbox event occurred_at is signal_emitted_at (discovery time) or signal_timestamp, never decision_time; both event types share aggregate_type 'signal' and aggregate_id signal_id",
           'occurred_at=raw.get("signal_emitted_at") or raw.get("signal_timestamp")' in sig and '"signal", signal.signal_id' in sig, "LegacySignalTailer._ingest; ingest_signal")
     check("R7", "strategy_versions is populated with strategy_version_id = the label (e.g. 'V1') and source_hash = a hash of the FIRST signal record; ON CONFLICT DO NOTHING",

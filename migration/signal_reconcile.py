@@ -29,30 +29,40 @@ def reconciliation_delta() -> timedelta:
 
 def reconcile_legacy_signals(conn: Any, source_path: Path, *, run_id: str | None = None,
                              source_id: str | None = None, delta: timedelta | None = None,
-                             as_of: datetime | None = None) -> dict[str, Any]:
-    """Read a legacy JSONL source and compare canonical rows by signal identity."""
+                             as_of: datetime | None = None, cutoff_offset: int | None = None,
+                             consumer_name: str = "p2-signal-shadow-cutoff-v1") -> dict[str, Any]:
+    """Compare only records at/after the explicit runtime cutoff when supplied."""
     run_id = run_id or f"signal-reconcile-{uuid.uuid4()}"
     legacy, malformed = [], []
     for offset, raw_line in _lines(source_path):
+        if cutoff_offset is not None and offset < cutoff_offset:
+            continue
         try:
             raw = json.loads(raw_line)
             signal = canonical_signal(raw, source_reference={"source_id": source_id or str(source_path), "source_offset": offset})
             legacy.append({**signal.fields, "id": signal.signal_id, "hash": signal.entry_signal_hash, "version": signal.fields["strategy_version"]})
         except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
             malformed.append({"identity": f"{source_id or source_path}:{offset}", "status": ReconciliationStatus.MALFORMED_LEGACY_LINE.value, "detail": str(exc)})
+    where = ""
+    params: tuple[Any, ...] = ()
+    if cutoff_offset is not None:
+        where = "WHERE e.source_id=%s AND e.source_offset >= %s"
+        params = (source_id or str(source_path), cutoff_offset)
     with conn.cursor() as cur:
         cur.execute("""SELECT e.signal_id,e.entry_signal_hash,e.strategy_id,e.strategy_version,e.strategy_ref,e.parameter_set_ref,
             e.strategy_instance_id,e.instrument,e.direction,e.decision_time,e.signal_emitted_at,e.entry_type,e.entry_price,
             e.stop_price,e.target_price,e.risk_distance,e.target_distance,e.target_r,e.economic_position_id,
             e.entry_opportunity_id,e.setup_id,e.source_event_id,e.terminal_state,o.publish_status,i.status,
-            co.publish_status,ci.status
+            co.publish_status,ci.status,
+            COALESCE((SELECT array_agg(m.mechanism ORDER BY m.position)
+                FROM strategy.entry_signal_mechanisms m WHERE m.entry_signal_id=e.signal_id),ARRAY[]::text[])
             FROM strategy.entry_signals e
             LEFT JOIN platform.outbox_events o ON o.event_id=e.signal_id || ':entry.created'
-            LEFT JOIN platform.inbox_events i ON i.event_id=o.event_id AND i.consumer_name='p2-signal-shadow'
+            LEFT JOIN platform.inbox_events i ON i.event_id=o.event_id AND i.consumer_name=%s
             LEFT JOIN platform.outbox_events co ON co.event_id=e.candidate_id || ':candidate.detected'
-            LEFT JOIN platform.inbox_events ci ON ci.event_id=co.event_id AND ci.consumer_name='p2-signal-shadow'
-            """)
-        database = [{"id": r[0], "hash": r[1], "strategy_id": r[2], "version": r[3], "strategy_ref": r[4], "parameter_set_ref": r[5], "strategy_instance_id": r[6], "instrument": r[7], "direction": r[8], "decision_time": r[9].astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"), "signal_emitted_at": r[10].astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z") if r[10] else None, "entry_type": r[11], "entry_price": float(r[12]) if r[12] is not None else None, "stop_price": float(r[13]) if r[13] is not None else None, "target_price": float(r[14]) if r[14] is not None else None, "risk_distance": float(r[15]) if r[15] is not None else None, "target_distance": float(r[16]) if r[16] is not None else None, "target_r": float(r[17]) if r[17] is not None else None, "economic_position_id": r[18], "entry_opportunity_id": r[19], "setup_id": r[20], "source_event_id": r[21], "terminal_state": r[22], "_outbox_status": r[23], "_inbox_status": r[24], "_candidate_outbox_status": r[25], "_candidate_inbox_status": r[26]} for r in cur.fetchall()]
+            LEFT JOIN platform.inbox_events ci ON ci.event_id=co.event_id AND ci.consumer_name=%s
+            """ + (" " + where if where else ""), (consumer_name, consumer_name, *params))
+        database = [{"id": r[0], "hash": r[1], "strategy_id": r[2], "version": r[3], "strategy_ref": r[4], "parameter_set_ref": r[5], "strategy_instance_id": r[6], "instrument": r[7], "direction": r[8], "decision_time": r[9].astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"), "signal_emitted_at": r[10].astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z") if r[10] else None, "entry_type": r[11], "entry_price": float(r[12]) if r[12] is not None else None, "stop_price": float(r[13]) if r[13] is not None else None, "target_price": float(r[14]) if r[14] is not None else None, "risk_distance": float(r[15]) if r[15] is not None else None, "target_distance": float(r[16]) if r[16] is not None else None, "target_r": float(r[17]) if r[17] is not None else None, "economic_position_id": r[18], "entry_opportunity_id": r[19], "setup_id": r[20], "source_event_id": r[21], "terminal_state": r[22], "_outbox_status": r[23], "_inbox_status": r[24], "_candidate_outbox_status": r[25], "_candidate_inbox_status": r[26], "entry_mechanisms": tuple(r[27] or ())} for r in cur.fetchall()]
     result = reconcile(legacy, database, key="id", delta=delta if delta is not None else reconciliation_delta(), as_of=as_of)
     finding_by_id = {item["identity"]: item for item in result["findings"]}
     for row in database:

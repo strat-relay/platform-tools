@@ -85,6 +85,7 @@ def reconcile(legacy: Iterable[Mapping[str, Any]], database: Iterable[Mapping[st
         elif any(a.get(field) is not None and b.get(field) is not None and a.get(field) != b.get(field)
                  for field in ("strategy_id", "strategy_ref", "version", "parameter_set_ref", "strategy_instance_id",
                                "instrument", "direction", "decision_time", "signal_emitted_at", "decision", "entry_type",
+                               "entry_mechanisms",
                                "entry_price", "stop_price", "target_price", "risk_distance", "target_distance", "target_r",
                                "economic_position_id", "entry_opportunity_id", "setup_id", "source_event_id", "terminal_state")):
             status, detail = ReconciliationStatus.HASH_MISMATCH, "canonical signal semantic fields differ"

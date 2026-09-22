@@ -32,21 +32,27 @@ Kubernetes Secret at deployment and are not stored in this repository.
 
 ## Startup and evidence semantics
 
-Deployment runs the live-runtime read-only preflight first. The worker then
-applies repository migrations to an empty dedicated database through 011,
-creates a restricted application role, and performs a one-time historical
-bootstrap. Bootstrap events and the controlled JetStream dedupe/redelivery
-proof are classified `NON_LIVE_BOOTSTRAP_PLUMBING_PROOF`; they do not count as
-live signals or evidence-window observations.
+Deployment runs the live-runtime read-only preflight first. PostgreSQL
+migrations and the restricted application role are prepared independently.
+The historical bootstrap entrypoint is a no-op: it does not read the legacy
+JSONL, import runtime rows, publish historical events, or create an inbox
+consumer for old JetStream messages.
 
-Before the live process tails append activity, it catches up complete source
-records and waits for the outbox and durable inbox to drain. It then writes an
-immutable `/data/evidence-window.json` marker with the UTC start timestamp,
-source device/inode/size/hash and byte cursor, last prior signal id, runner
-image/generation/config provenance, P2-A1 and worker commits, migration list,
-JetStream configuration identity, and both false authority flags. Records
-before the boundary remain `BOOTSTRAP`; appended records are `LIVE`. Replayed
-records after source rotation are explicitly `ROTATION_RECOVERY`.
+At first live-worker initialization, the worker persists an immutable
+`/data/evidence-window.json` cutoff using the then-current complete EOF. The
+marker records source device/inode/size/hash and byte cursor, cutoff UTC/ID,
+last complete pre-cutoff signal metadata, runner/orchestrator provenance,
+image/commit, migration list, JetStream configuration identity, and both
+false authority flags. It writes the checkpoint at that boundary before
+tailing. Restarts resume the durable checkpoint and never resample EOF; source
+rotation/prefix replacement fails closed rather than replaying from byte zero.
+Only records at/after the cutoff are labeled `P2_1_RUNTIME` and reconciled.
+Historical records, events, and the 81 pre-cutoff diagnostic quarantine rows
+are outside P2.1 evidence and are not imported.
+
+The durable JetStream consumer is cutoff-scoped and uses `DeliverPolicy.NEW`
+so historical stream messages do not populate the new inbox. Events generated
+by post-cutoff signals are processed normally.
 
 P2.1 is not complete at deployment. The approved evidence minimum remains at
 least 10 trading days including a weekend, 30 natural signals over at least 3
@@ -60,8 +66,8 @@ eligibility bound is introduced; OD-A7-4 remains open.
 ## Read-only inspection
 
 Run `scripts/p2_shadow/report.sh` to list only labeled shadow Kubernetes
-resources and print the persistent worker status, bootstrap proof, and
-immutable evidence marker. It does not change resources. Reconciliation
+resources and print persistent worker status and the immutable cutoff marker.
+It does not change resources. Reconciliation
 findings are retained in `platform.reconciliation_runs` and
 `platform.reconciliation_findings`; status includes the latest mismatch
 classes, source cursor, signal counts by evidence class, outbox state/retries,

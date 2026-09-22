@@ -59,6 +59,7 @@ def _signal(signal_id: str, **overrides):
         "direction": "LONG",
         "decision_time": "2026-09-20T12:00:00Z",
         "signal_emitted_at": "2026-09-20T12:00:01Z",
+        "entry_mechanism": ["DEPTH_ONLY"],
         "entry_price": 100,
         "stop_price": 99,
         "target_price": 102,
@@ -97,7 +98,7 @@ class P2A11TailerHardeningTests(unittest.TestCase):
             self.assertEqual(restarted.malformed, [])
             quarantine_rows = [args for sql, args in conn.statements if "signal_ingest_quarantine" in sql]
             self.assertEqual(len(quarantine_rows), 2)
-            self.assertTrue(all(f"{source}#device=" in args[0] and "#inode=" in args[0] for args in quarantine_rows))
+            self.assertTrue(all(args[0] == str(source) for args in quarantine_rows))
             self.assertEqual([args[1] for args in quarantine_rows], [len((json.dumps(rows[0]) + "\n").encode()),
                                                                     len((json.dumps(rows[0]) + "\n" + json.dumps(rows[1]) + "\n").encode())])
             self.assertTrue(all(args[4].startswith("CANONICAL_VALIDATION:") for args in quarantine_rows))
@@ -213,6 +214,13 @@ class P2A11ReconciliationDeltaTests(unittest.TestCase):
                   "signal_emitted_at": self.as_of - timedelta(days=3)}
         status, _ = self._status(record, [dict(record)])
         self.assertEqual(status, ReconciliationStatus.MATCH.value)
+
+    def test_entry_mechanism_collection_reconciles_membership_and_canonical_order(self):
+        base = {"id": "mechanism-signal", "entry_mechanisms": ("DEPTH_ONLY", "REJECTION_WICK")}
+        same_set = {**base, "entry_mechanisms": ("DEPTH_ONLY", "REJECTION_WICK")}
+        changed = {**base, "entry_mechanisms": ("DEPTH_ONLY", "LOWER_TF_ENGULFING")}
+        self.assertEqual(reconcile([base], [same_set])["findings"][0]["status"], ReconciliationStatus.MATCH.value)
+        self.assertEqual(reconcile([base], [changed])["findings"][0]["status"], ReconciliationStatus.HASH_MISMATCH.value)
 
     def test_delta_default_and_environment_override(self):
         self.assertEqual(DEFAULT_RECONCILIATION_DELTA, timedelta(seconds=32))

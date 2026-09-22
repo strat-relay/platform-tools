@@ -5,8 +5,10 @@ import tempfile
 import unittest
 import os
 from pathlib import Path
+from unittest.mock import patch
 
-from migration.signal import canonical_signal
+from migration.signal import canonical_signal, ingest_signal, load_entry_mechanisms
+from migration.tailer import QuarantinedRecordError
 from migration.signal_shadow import SignalShadowConsumer
 from migration.tailer import AppendOnlyTailer
 from migration.flags import SignalAuthorityFlags
@@ -19,6 +21,7 @@ class SignalMigrationTests(unittest.TestCase):
             "strategy_instance_id": "inst", "source_event_id": "event-1", "symbol": "XAUUSDm",
             "canonical_symbol": "XAUUSD", "broker_symbol_hint": "XAUUSDm", "direction": "LONG",
             "signal_timestamp": "2026-09-21T00:00:00Z", "created_at": "2026-09-21T00:00:01Z",
+            "entry_mechanisms": [],
             "entry_price": 100, "stop_price": 99, "target_price": 102,
             "provenance": {"source": "frozen", "outcome": "WIN", "as_of": "2026-09-21T00:00:00Z"},
         }
@@ -52,6 +55,94 @@ class SignalMigrationTests(unittest.TestCase):
         first = canonical_signal(self.raw())
         second = canonical_signal({**self.raw(), "target_price": 103})
         self.assertNotEqual(first.entry_signal_hash, second.entry_signal_hash)
+
+    def test_entry_mechanisms_are_strict_sorted_set_like_domain_data(self):
+        mechanisms = ("DEPTH_ONLY", "REJECTION_WICK", "LOWER_TF_ENGULFING", "MORNING_EVENING_STAR",
+                      "LIQUIDITY_RECLAIM", "COMPLETED_CANDLE_RETRACEMENT")
+        for mechanism in mechanisms:
+            with self.subTest(mechanism=mechanism):
+                signal = canonical_signal({**self.raw(), "entry_mechanisms": [mechanism]})
+                self.assertEqual(signal.fields["entry_mechanisms"], (mechanism,))
+        raw = {**self.raw(), "entry_mechanisms": ["DEPTH_ONLY", "REJECTION_WICK"]}
+        reversed_raw = {**raw, "entry_mechanisms": ["REJECTION_WICK", "DEPTH_ONLY"]}
+        signal = canonical_signal(raw, source_reference={"source_id": "a", "source_offset": 1})
+        same = canonical_signal(reversed_raw, source_reference={"source_id": "b", "source_offset": 90})
+        self.assertEqual(signal.fields["entry_mechanisms"], ("DEPTH_ONLY", "REJECTION_WICK"))
+        self.assertEqual(signal.entry_signal_hash, same.entry_signal_hash)
+        self.assertEqual(signal.canonical_hash, same.canonical_hash)
+        changed = canonical_signal({**raw, "entry_mechanisms": ["DEPTH_ONLY", "LOWER_TF_ENGULFING"]})
+        self.assertNotEqual(signal.entry_signal_hash, changed.entry_signal_hash)
+        self.assertEqual(signal.signal_id, changed.signal_id)
+        self.assertEqual(signal.candidate_id, changed.candidate_id)
+        self.assertEqual(signal.evaluation.evaluation_hash, changed.evaluation.evaluation_hash)
+        producer_raw = {key: value for key, value in self.raw().items() if key != "entry_mechanisms"}
+        producer_wire = canonical_signal({**producer_raw, "entry_mechanism": ["DEPTH_ONLY", "LOWER_TF_ENGULFING"]})
+        self.assertEqual(producer_wire.fields["entry_mechanisms"], ("DEPTH_ONLY", "LOWER_TF_ENGULFING"))
+        with self.assertRaises(QuarantinedRecordError):
+            canonical_signal({**self.raw(), "entry_mechanism": "DEPTH_ONLY"})
+
+    def test_mechanism_collection_empty_allowed_null_and_invalid_values_rejected(self):
+        self.assertEqual(canonical_signal({**self.raw(), "entry_mechanisms": []}).fields["entry_mechanisms"], ())
+        for bad in (None, "DEPTH_ONLY", ["DEPTH_ONLY", 4], ["DEPTH_ONLY", {}], ["DEPTH_ONLY", "DEPTH_ONLY"], [""]):
+            with self.subTest(bad=bad), self.assertRaises(QuarantinedRecordError):
+                canonical_signal({**self.raw(), "entry_mechanisms": bad})
+        with self.assertRaises(QuarantinedRecordError):
+            canonical_signal({k: v for k, v in self.raw().items() if k != "entry_mechanisms"})
+
+    def test_canonical_mechanism_serialization_is_stable_and_order_normalized(self):
+        import hashlib
+        from core.strategies.evaluation import canonical_bytes
+        first = canonical_signal({**self.raw(), "entry_mechanisms": ["DEPTH_ONLY", "REJECTION_WICK"]})
+        second = canonical_signal({**self.raw(), "entry_mechanisms": ["REJECTION_WICK", "DEPTH_ONLY"]})
+        payload1 = {"signal_id": first.signal_id, "entry_mechanisms": first.fields["entry_mechanisms"]}
+        payload2 = {"signal_id": second.signal_id, "entry_mechanisms": second.fields["entry_mechanisms"]}
+        self.assertEqual(canonical_bytes(payload1), canonical_bytes(payload2))
+        self.assertEqual(hashlib.sha256(canonical_bytes(payload1)).hexdigest(),
+                         hashlib.sha256(canonical_bytes(payload2)).hexdigest())
+
+    def test_parent_children_and_outbox_are_written_atomically_and_round_trip(self):
+        class Cursor:
+            def __init__(self, conn): self.conn, self.rowcount = conn, 1
+            def execute(self, sql, args=None):
+                if self.conn.fail_on_child and "entry_signal_mechanisms" in sql:
+                    raise RuntimeError("child insert failed")
+                self.conn.pending.append((sql, args))
+            def fetchall(self): return [("DEPTH_ONLY",), ("REJECTION_WICK",)]
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        class Conn:
+            def __init__(self, fail_on_child=False):
+                self.pending, self.committed, self.fail_on_child, self.rollbacks = [], [], fail_on_child, 0
+            def cursor(self): return Cursor(self)
+            def commit(self): self.committed.extend(self.pending); self.pending.clear()
+            def rollback(self): self.pending.clear(); self.rollbacks += 1
+        signal = canonical_signal({**self.raw(), "entry_mechanisms": ["DEPTH_ONLY", "REJECTION_WICK"]})
+        conn = Conn()
+        with patch("migration.signal.persist_evaluation", return_value=signal.evaluation.evaluation_hash):
+            self.assertTrue(ingest_signal(conn, signal))
+        child_rows = [args for sql, args in conn.committed if "INSERT INTO strategy.entry_signal_mechanisms" in sql]
+        self.assertEqual(child_rows, [("sig-1", "DEPTH_ONLY", 0), ("sig-1", "REJECTION_WICK", 1)])
+        parent_sql = next(sql for sql, _ in conn.committed if "INSERT INTO strategy.entry_signals" in sql)
+        self.assertNotIn("entry_mechanisms", parent_sql)
+        event_args = [args for sql, args in conn.committed if "INSERT INTO platform.outbox_events" in sql]
+        entry_event = next(args for args in event_args if args[1] == "signal.entry.created.v1")
+        self.assertEqual(json.loads(entry_event[4])["entry_mechanisms"], ["DEPTH_ONLY", "REJECTION_WICK"])
+        self.assertEqual(load_entry_mechanisms(conn, "sig-1"), ("DEPTH_ONLY", "REJECTION_WICK"))
+        failed = Conn(fail_on_child=True)
+        with patch("migration.signal.persist_evaluation", return_value=signal.evaluation.evaluation_hash):
+            with self.assertRaisesRegex(RuntimeError, "child insert failed"):
+                ingest_signal(failed, signal)
+        self.assertEqual(failed.committed, [])
+        self.assertEqual(failed.rollbacks, 1)
+
+    def test_relational_mechanism_migration_has_order_and_integrity_constraints(self):
+        migration = Path(__file__).resolve().parents[1] / "postgres/migrations/012_entry_mechanisms_relational.sql"
+        text = migration.read_text()
+        self.assertIn("CREATE TABLE strategy.entry_signal_mechanisms", text)
+        self.assertIn("REFERENCES strategy.entry_signals(signal_id) ON DELETE CASCADE", text)
+        self.assertIn("PRIMARY KEY (entry_signal_id, mechanism)", text)
+        self.assertIn("UNIQUE (entry_signal_id, position)", text)
+        self.assertIn("CHECK (position >= 0)", text)
 
     def test_decision_time_is_normalized_and_epoch_rejected(self):
         self.assertEqual(canonical_signal({**self.raw(), "decision_time": "2026-09-21T02:00:00-02:00"}).evaluation.decision_time, "2026-09-21T04:00:00.000000Z")

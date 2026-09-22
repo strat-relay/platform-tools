@@ -57,6 +57,28 @@ def _utc(value: Any) -> str:
 
 
 _PROVENANCE_ALLOWLIST = frozenset({"classification", "source_config_hash", "source_data_age", "source_market_data_timestamp", "source_process", "source_strategy_fingerprint", "gap_recovery", "orchestrator_freeze_timestamp"})
+_ENTRY_MECHANISM_FIELD = "entry_mechanisms"
+
+
+def _entry_mechanisms(raw: Mapping[str, Any]) -> tuple[str, ...]:
+    """Validate and canonicalize the producer's set-like mechanism collection."""
+    # Current StrategySignal.to_dict() still uses the singular wire key while
+    # carrying a tuple (JSON array). Map that exact producer contract into the
+    # plural canonical domain field; scalar values remain invalid.
+    if _ENTRY_MECHANISM_FIELD in raw and "entry_mechanism" in raw:
+        raise QuarantinedRecordError("provide only entry_mechanisms", failure_class="CANONICAL_VALIDATION")
+    if _ENTRY_MECHANISM_FIELD not in raw and "entry_mechanism" not in raw:
+        raise QuarantinedRecordError("entry_mechanisms is required", failure_class="CANONICAL_VALIDATION")
+    value = raw.get(_ENTRY_MECHANISM_FIELD, raw.get("entry_mechanism"))
+    if not isinstance(value, (list, tuple)):
+        raise QuarantinedRecordError("entry_mechanisms must be an array of text values", failure_class="CANONICAL_VALIDATION")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise QuarantinedRecordError("entry_mechanisms elements must be non-empty text", failure_class="CANONICAL_VALIDATION")
+    if len(set(value)) != len(value):
+        raise QuarantinedRecordError("entry_mechanisms must not contain duplicates", failure_class="CANONICAL_VALIDATION")
+    # ContextStructureRetrace emits sorted(set(...)); other active adapters
+    # emit singleton tuples. Mechanisms are membership facts, not a sequence.
+    return tuple(sorted(value))
 
 
 @dataclass(frozen=True)
@@ -133,8 +155,9 @@ def canonical_signal(raw: Mapping[str, Any], *, source_reference: str | Mapping[
         raise QuarantinedRecordError("provenance must be an object", failure_class="CANONICAL_VALIDATION")
     if raw.get("direction") is not None and not isinstance(raw.get("direction"), str):
         raise QuarantinedRecordError("direction must be text when present", failure_class="CANONICAL_VALIDATION")
-    for field in ("strategy_instance_id", "entry_type", "entry_mechanism", "economic_position_id", "entry_opportunity_id", "setup_id", "source_event_id"):
+    for field in ("strategy_instance_id", "entry_type", "economic_position_id", "entry_opportunity_id", "setup_id", "source_event_id"):
         _optional_text(raw, field)
+    entry_mechanisms = _entry_mechanisms(raw)
     strategy_metadata = dict(metadata_value)
     parameter_set_ref = raw.get("parameter_set_ref") or raw.get("parameter_set_id")
     if parameter_set_ref is not None and not isinstance(parameter_set_ref, str):
@@ -159,7 +182,7 @@ def canonical_signal(raw: Mapping[str, Any], *, source_reference: str | Mapping[
             signal_emitted_at = _utc(signal_emitted_at)
         except (TypeError, ValueError, OverflowError) as exc:
             raise QuarantinedRecordError(f"invalid signal_emitted_at: {exc}", failure_class="CANONICAL_VALIDATION") from exc
-    fields = {"signal_id": signal_id, "candidate_id": candidate_id, "evaluation_id": evaluation.evaluation_hash, "evaluation_hash": evaluation.evaluation_hash, "trace_hash": trace.trace_hash, "strategy_ref": f"{strategy_id}@{strategy_version}", "strategy_id": strategy_id, "strategy_version": strategy_version, "parameter_set_ref": parameter_set_ref, "parameter_set_status": parameter_status, "strategy_instance_id": raw.get("strategy_instance_id"), "instrument": instrument, "direction": raw.get("direction"), "decision_time": decision_time, "signal_emitted_at": signal_emitted_at, "entry_type": raw.get("entry_type"), "entry_price": raw.get("entry_price"), "entry_mechanism": raw.get("entry_mechanism"), "stop_price": raw.get("stop_price"), "risk_distance": raw.get("risk_distance"), "target_price": raw.get("target_price"), "target_distance": raw.get("target_distance"), "target_r": raw.get("target_r"), "economic_position_id": raw.get("economic_position_id"), "entry_opportunity_id": raw.get("entry_opportunity_id"), "setup_id": raw.get("setup_id"), "source_event_id": raw.get("source_event_id")}
+    fields = {"signal_id": signal_id, "candidate_id": candidate_id, "evaluation_id": evaluation.evaluation_hash, "evaluation_hash": evaluation.evaluation_hash, "trace_hash": trace.trace_hash, "strategy_ref": f"{strategy_id}@{strategy_version}", "strategy_id": strategy_id, "strategy_version": strategy_version, "parameter_set_ref": parameter_set_ref, "parameter_set_status": parameter_status, "strategy_instance_id": raw.get("strategy_instance_id"), "instrument": instrument, "direction": raw.get("direction"), "decision_time": decision_time, "signal_emitted_at": signal_emitted_at, "entry_type": raw.get("entry_type"), "entry_price": raw.get("entry_price"), "entry_mechanisms": entry_mechanisms, "stop_price": raw.get("stop_price"), "risk_distance": raw.get("risk_distance"), "target_price": raw.get("target_price"), "target_distance": raw.get("target_distance"), "target_r": raw.get("target_r"), "economic_position_id": raw.get("economic_position_id"), "entry_opportunity_id": raw.get("entry_opportunity_id"), "setup_id": raw.get("setup_id"), "source_event_id": raw.get("source_event_id")}
     semantic = {k: v for k, v in fields.items() if k not in {"evaluation_id", "evaluation_hash", "trace_hash"}}
     fields["entry_signal_hash"] = canonical_hash({**semantic, "strategy_metadata": strategy_metadata, "source_provenance": hashed_provenance})
     source_hash = str(raw.get("source_hash") or raw_hash)
@@ -171,39 +194,62 @@ def ingest_signal(conn: Any, signal: CanonicalSignal, *, occurred_at: str | None
     f = signal.fields
     with transaction(conn):
         with conn.cursor() as cur:
+            candidate_payload = {key: value for key, value in f.items() if key != "entry_mechanisms"}
             cur.execute("""INSERT INTO strategy.candidates (candidate_id,strategy_id,strategy_version_id,instrument,detected_at,status,source_event_id,payload,canonical_hash,lifecycle_state)
-                VALUES (%s,%s,NULL,%s,%s,'DETECTED',%s,%s::jsonb,%s,'ENTRY_SIGNAL_CREATED') ON CONFLICT (candidate_id) DO NOTHING""", (signal.candidate_id, f["strategy_id"], f["instrument"], f["decision_time"], f["source_event_id"], json.dumps(f, sort_keys=True), signal.canonical_hash))
+                VALUES (%s,%s,NULL,%s,%s,'DETECTED',%s,%s::jsonb,%s,'ENTRY_SIGNAL_CREATED') ON CONFLICT (candidate_id) DO NOTHING""", (signal.candidate_id, f["strategy_id"], f["instrument"], f["decision_time"], f["source_event_id"], json.dumps(candidate_payload, sort_keys=True), signal.canonical_hash))
         persist_evaluation(conn, signal.evaluation, strategy_version_id=None)
         with conn.cursor() as cur:
-            cur.execute("""INSERT INTO strategy.entry_signals (signal_id,candidate_id,evaluation_id,strategy_ref,strategy_id,strategy_version,parameter_set_ref,parameter_set_status,strategy_instance_id,instrument,direction,decision_time,signal_emitted_at,entry_type,entry_price,entry_mechanism,stop_price,risk_distance,target_price,target_distance,target_r,economic_position_id,entry_opportunity_id,setup_id,source_event_id,source_ref,source_provenance,runtime_provenance,evaluation_hash,trace_hash,terminal_state,strategy_metadata,entry_signal_hash)
-                VALUES (%(signal_id)s,%(candidate_id)s,%(evaluation_id)s,%(strategy_ref)s,%(strategy_id)s,%(strategy_version)s,%(parameter_set_ref)s,%(parameter_set_status)s,%(strategy_instance_id)s,%(instrument)s,%(direction)s,%(decision_time)s,%(signal_emitted_at)s,%(entry_type)s,%(entry_price)s,%(entry_mechanism)s,%(stop_price)s,%(risk_distance)s,%(target_price)s,%(target_distance)s,%(target_r)s,%(economic_position_id)s,%(entry_opportunity_id)s,%(setup_id)s,%(source_event_id)s,%(source_ref)s::jsonb,%(source_provenance)s::jsonb,%(runtime_provenance)s::jsonb,%(evaluation_hash)s,%(trace_hash)s,%(terminal_state)s,%(strategy_metadata)s::jsonb,%(entry_signal_hash)s) ON CONFLICT (signal_id) DO NOTHING""", {**f, "source_ref": json.dumps(signal.source_reference, sort_keys=True), "source_provenance": json.dumps(signal.source_provenance, sort_keys=True), "runtime_provenance": json.dumps({"runtime_version": signal.evaluation.runtime_version, "evaluator_version": signal.evaluation.evaluator_version}, sort_keys=True), "terminal_state": signal.terminal_state, "strategy_metadata": json.dumps(signal.strategy_metadata, sort_keys=True)})
+            cur.execute("""INSERT INTO strategy.entry_signals (signal_id,candidate_id,evaluation_id,strategy_ref,strategy_id,strategy_version,parameter_set_ref,parameter_set_status,strategy_instance_id,instrument,direction,decision_time,signal_emitted_at,entry_type,entry_price,stop_price,risk_distance,target_price,target_distance,target_r,economic_position_id,entry_opportunity_id,setup_id,source_event_id,source_id,source_offset,evidence_class,cutoff_id,source_provenance,evaluation_hash,trace_hash,terminal_state,strategy_metadata,entry_signal_hash)
+                VALUES (%(signal_id)s,%(candidate_id)s,%(evaluation_id)s,%(strategy_ref)s,%(strategy_id)s,%(strategy_version)s,%(parameter_set_ref)s,%(parameter_set_status)s,%(strategy_instance_id)s,%(instrument)s,%(direction)s,%(decision_time)s,%(signal_emitted_at)s,%(entry_type)s,%(entry_price)s,%(stop_price)s,%(risk_distance)s,%(target_price)s,%(target_distance)s,%(target_r)s,%(economic_position_id)s,%(entry_opportunity_id)s,%(setup_id)s,%(source_event_id)s,%(source_id)s,%(source_offset)s,%(evidence_class)s,%(cutoff_id)s,%(source_provenance)s::jsonb,%(evaluation_hash)s,%(trace_hash)s,%(terminal_state)s,%(strategy_metadata)s::jsonb,%(entry_signal_hash)s) ON CONFLICT (signal_id) DO NOTHING""", {**f, "source_id": signal.source_reference.get("source_id"), "source_offset": signal.source_reference.get("source_offset"), "evidence_class": signal.source_reference.get("evidence_class"), "cutoff_id": signal.source_reference.get("cutoff_id"), "source_provenance": json.dumps(signal.source_provenance, sort_keys=True), "terminal_state": signal.terminal_state, "strategy_metadata": json.dumps(signal.strategy_metadata, sort_keys=True)})
             cur.execute("""INSERT INTO strategy.signals (signal_id,evaluation_id,candidate_id,strategy_id,instrument,direction,signal_time,payload,canonical_hash,lifecycle_state)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,'ENTRY_SIGNAL_CREATED') ON CONFLICT (signal_id) DO NOTHING""", (signal.signal_id, f["evaluation_id"], signal.candidate_id, f["strategy_id"], f["instrument"], f["direction"], f["decision_time"], json.dumps(f, sort_keys=True), signal.entry_signal_hash))
-            event_payload = json.dumps({k: f[k] for k in ("signal_id", "candidate_id", "evaluation_id", "evaluation_hash", "trace_hash", "entry_signal_hash", "strategy_ref", "strategy_id", "instrument", "direction", "decision_time", "signal_emitted_at")}, sort_keys=True)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,'ENTRY_SIGNAL_CREATED') ON CONFLICT (signal_id) DO NOTHING""", (signal.signal_id, f["evaluation_id"], signal.candidate_id, f["strategy_id"], f["instrument"], f["direction"], f["decision_time"], json.dumps(candidate_payload, sort_keys=True), signal.entry_signal_hash))
+            for position, mechanism in enumerate(f["entry_mechanisms"]):
+                cur.execute("""INSERT INTO strategy.entry_signal_mechanisms
+                    (entry_signal_id, mechanism, position) VALUES (%s,%s,%s)
+                    ON CONFLICT DO NOTHING""", (signal.signal_id, mechanism, position))
+            event_data = {k: f[k] for k in ("signal_id", "candidate_id", "evaluation_id", "evaluation_hash", "trace_hash", "entry_signal_hash", "strategy_ref", "strategy_id", "instrument", "direction", "decision_time", "signal_emitted_at")}
+            event_data["entry_mechanisms"] = list(f["entry_mechanisms"])
+            event_payload = json.dumps(event_data, sort_keys=True, separators=(",", ":"))
             for event_id, event_type, aggregate_type, aggregate_id in ((f"{signal.candidate_id}:candidate.detected", "strategy.candidate.detected.v1", "candidate", signal.candidate_id), (f"{signal.signal_id}:entry.created", "signal.entry.created.v1", "signal", signal.signal_id)):
                 cur.execute("""INSERT INTO platform.outbox_events (event_id,event_type,aggregate_type,aggregate_id,aggregate_version,schema_version,payload,occurred_at) VALUES (%s,%s,%s,%s,1,'event-envelope.v1',%s::jsonb,%s) ON CONFLICT (event_id) DO NOTHING""", (event_id, event_type, aggregate_type, aggregate_id, event_payload, occurred_at))
     return True
 
 
+def load_entry_mechanisms(conn: Any, signal_id: str) -> tuple[str, ...]:
+    """Reconstruct the canonical order from normalized child rows."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT mechanism FROM strategy.entry_signal_mechanisms
+            WHERE entry_signal_id=%s ORDER BY position""", (signal_id,))
+        return tuple(row[0] for row in cur.fetchall())
+
+
 class LegacySignalTailer:
-    def __init__(self, source: Path, checkpoint: Path, conn: Any, *, evidence_class: str = "LIVE"):
+    def __init__(self, source: Path, checkpoint: Path, conn: Any, *, evidence_class: str = "LIVE",
+                 cutoff_offset: int | None = None, cutoff_id: str | None = None):
         self.conn, self.source = conn, source
         self.evidence_class = evidence_class
-        self.tailer = AppendOnlyTailer(source, checkpoint, ingest=self._ingest, quarantine=self._quarantine)
+        self.cutoff_offset = cutoff_offset
+        self.cutoff_id = cutoff_id
+        self.tailer = AppendOnlyTailer(source, checkpoint, ingest=self._ingest, quarantine=self._quarantine,
+                                       reject_rotation=cutoff_offset is not None)
         self.last_malformed: list[dict[str, Any]] = []
 
     def _ingest(self, raw: dict[str, Any]) -> None:
         evidence_class = "ROTATION_RECOVERY" if raw.get("_source_rotation_replay") else self.evidence_class
-        signal = canonical_signal(raw, source_reference={"source_id": str(self.source), "source_offset": raw.get("source_offset"), "evidence_class": evidence_class})
+        signal = canonical_signal(raw, source_reference={"source_id": str(self.source), "source_offset": raw.get("source_offset"), "evidence_class": evidence_class, "cutoff_id": self.cutoff_id})
         ingest_signal(self.conn, signal, occurred_at=raw.get("signal_emitted_at") or raw.get("created_at"))
 
     def _quarantine(self, item: dict[str, Any]) -> None:
         with transaction(self.conn):
             with self.conn.cursor() as cur:
-                source_id = f"{item.get('source_path', self.source)}#device={item.get('source_device')}#inode={item.get('source_inode')}"
+                source_id = str(self.source)
                 diagnostic = f"{item.get('failure_class', 'SOURCE_REJECTION')}: {item['error']}"
                 cur.execute("""INSERT INTO platform.signal_ingest_quarantine(source_id,source_offset,raw_sha256,raw_payload,error) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (source_id,source_offset,raw_sha256) DO NOTHING""", (source_id, item["source_offset"], item["raw_sha256"], item["raw"], diagnostic))
 
     def run_once(self) -> TailerResult:
+        if self.cutoff_offset is not None and self.tailer.checkpoint.exists():
+            state = json.loads(self.tailer.checkpoint.read_text(encoding="utf-8"))
+            if int(state.get("offset", -1)) < self.cutoff_offset:
+                raise RuntimeError("durable checkpoint is before the immutable P2 cutoff")
         result = self.tailer.run_once(); self.last_malformed = result.malformed
         return result

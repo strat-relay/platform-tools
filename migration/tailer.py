@@ -27,8 +27,10 @@ class QuarantinedRecordError(ValueError):
 
 class AppendOnlyTailer:
     def __init__(self, source: Path, checkpoint: Path, *, ingest: Callable[[dict[str, Any]], None] | None = None,
-                 quarantine: Callable[[dict[str, Any]], None] | None = None):
+                 quarantine: Callable[[dict[str, Any]], None] | None = None,
+                 reject_rotation: bool = False):
         self.source, self.checkpoint, self.ingest, self.quarantine = source, checkpoint, ingest, quarantine
+        self.reject_rotation = reject_rotation
 
     def run_once(self) -> TailerResult:
         state = json.loads(self.checkpoint.read_text()) if self.checkpoint.exists() else {}
@@ -48,6 +50,8 @@ class AppendOnlyTailer:
             != (identity["source_device"], identity["source_inode"])
         )
         rotated = identity_changed or offset > len(data) or (fingerprint and hashlib.sha256(data[:offset]).hexdigest() != fingerprint)
+        if rotated and self.reject_rotation:
+            raise RuntimeError("append-only source identity/prefix changed after cutoff; refusing pre-cutoff replay")
         if rotated: offset = 0
         complete = data[offset:]
         last_newline = complete.rfind(b"\n")
