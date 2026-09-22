@@ -54,14 +54,14 @@ The durable JetStream consumer is cutoff-scoped and uses `DeliverPolicy.NEW`
 so historical stream messages do not populate the new inbox. Events generated
 by post-cutoff signals are processed normally.
 
-P2.1 is not complete at deployment. The approved evidence minimum remains at
-least 10 trading days including a weekend, 30 natural signals over at least 3
-symbols, five consecutive clean daily quiesced reconciliations, three natural
-P2-shadow restarts, durable/redelivery evidence, zero duplicate domain
-effects, and provenance proof. If 30 natural signals are not observed within
-30 trading days, stop and report the observed rate. These thresholds do not
-authorize signal-authority cutover. No creation-lag or observation-start-lag
-eligibility bound is introduced; OD-A7-4 remains open.
+The former P2.1 natural-traffic/evidence-window proposal is superseded for
+signal-authority replacement by the explicit V1.3 immediate-cutover decision.
+No 10-day window, natural-signal count, or shadow restart count is a cutover
+gate. This deployment remains a shadow/migration tool only; it is not the
+DB_PRIMARY producer and does not establish production authority. See
+`CANONICAL_SIGNAL_AUTHORITY_PATH.md` for the new producer/relay path and its
+configuration requirements. Any historical P2.1 evidence remains diagnostic
+and does not import runtime history.
 
 ## Read-only inspection
 

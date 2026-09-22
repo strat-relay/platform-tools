@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
+import asyncio
 from typing import Any
 
 from .contracts import EventEnvelope
@@ -9,7 +8,13 @@ from .jetstream import JetStreamPublisher
 
 
 class OutboxRelay:
-    """Small, dormant-by-default relay: ack first, then mark the row published."""
+    """At-least-once outbox relay; database commit is independent of NATS.
+
+    A crash after JetStream accepts a message but before PostgreSQL marks it
+    published can redeliver the same event. ``Nats-Msg-Id`` and downstream
+    inbox idempotency bound duplicate domain effects; network delivery is not
+    claimed to be exactly once.
+    """
     def __init__(self, conn: Any, publisher: JetStreamPublisher, *, owner: str = "signal-outbox-relay"):
         self.conn, self.publisher, self.owner = conn, publisher, owner
 
@@ -36,3 +41,14 @@ class OutboxRelay:
                     cur.execute("UPDATE platform.outbox_events SET publish_status='FAILED', last_error=%s, attempts=attempts+1, lease_owner=NULL, leased_until=NULL WHERE event_id=%s", (str(exc), row[0]))
                 self.conn.commit(); result["failed"] += 1
         return result
+
+    async def run_forever(self, *, stop: asyncio.Event, idle_seconds: float = 1.0,
+                          batch_size: int = 100) -> None:
+        """Relay pending rows without any dependency on signal-file ingestion."""
+        while not stop.is_set():
+            result = await self.publish_batch(limit=batch_size)
+            if result["failed"] or not result["published"]:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=idle_seconds)
+                except TimeoutError:
+                    pass

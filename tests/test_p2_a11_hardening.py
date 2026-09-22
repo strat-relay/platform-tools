@@ -25,6 +25,9 @@ class _Cursor:
                 self.conn.quarantine_keys.add(identity)
                 self.conn.quarantine_records.append(args)
 
+    def fetchone(self):
+        return None
+
     def __enter__(self):
         return self
 

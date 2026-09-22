@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestration.adapters.context_structure_retrace import ContextStructureRetraceAdapter
+from orchestration.canonical_signal_publisher import CanonicalSignalPublisher
 from orchestration.adapters.liquidity_displacement import LiquidityDisplacementAdapter
 from orchestration.brokers.mt5_shadow import READ_ONLY_BRIDGE_TOOLS, MT5ShadowProvider
 from orchestration.config import load_config
@@ -26,6 +27,9 @@ from orchestration.models import AccountSnapshot, StrategySignal, stable_id
 from orchestration.registry import PortfolioRegistry, StrategyRegistry
 from orchestration.risk import RiskSizingEngine
 from orchestration.storage import OrchestrationStore
+from migration.flags import SignalAuthorityFlags, SignalAuthorityMode
+from postgres.config import PostgresConfig
+from postgres.db import connect
 from trade_manager.central import authorize_pending_proposals
 from orchestration.tradeability import evaluate as evaluate_tradeability, load_policy
 from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
@@ -254,41 +258,56 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
 
 
 def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, Any],
-              orchestration_mode: str = "SHADOW") -> int:
-    state = store.load_state(); seen = set(state.get("processed_signal_ids", [])); total = 0
+              orchestration_mode: str = "SHADOW", *,
+              signal_authority_mode: SignalAuthorityMode = SignalAuthorityMode.LEGACY_FILE,
+              canonical_publisher: CanonicalSignalPublisher | None = None) -> int:
+    if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY and canonical_publisher is None:
+        raise RuntimeError("DB_PRIMARY requires CanonicalSignalPublisher")
+    state = store.load_state()
+    seen = (canonical_publisher.existing_signal_ids() if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY
+            else set(state.get("processed_signal_ids", [])))
+    total = 0
     startup_epoch = load_epoch(EPOCH_PATH)
     if orchestration_mode == "REAL_EXECUTION" and not startup_epoch:
         raise RuntimeError("STARTUP_MARKET_WATERMARK_MISSING")
     watermark_by_strategy = records_by_strategy(startup_epoch or {})
     orchestrator_boundary = mf["freeze_timestamp"]
-    for raw in store.rows("signals"):
-        source_ts = raw.get("signal_timestamp")
-        classification = classify_source_timestamp(source_ts, orchestrator_boundary)
-        correction_id = stable_id("CLASS", {"signal_id": raw["signal_id"], "classification": classification})
-        store.append("classification_corrections", {"correction_id": correction_id, "signal_id": raw["signal_id"],
-            "original_source_timestamp": source_ts, "orchestrator_freeze_timestamp": orchestrator_boundary,
-            "corrected_classification": classification, "corrected_at": now(),
-            "reason": "classification_uses_originating_strategy_event_timestamp"}, correction_id)
+    if signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
+        for raw in store.rows("signals"):
+            source_ts = raw.get("signal_timestamp")
+            classification = classify_source_timestamp(source_ts, orchestrator_boundary)
+            correction_id = stable_id("CLASS", {"signal_id": raw["signal_id"], "classification": classification})
+            store.append("classification_corrections", {"correction_id": correction_id, "signal_id": raw["signal_id"],
+                "original_source_timestamp": source_ts, "orchestrator_freeze_timestamp": orchestrator_boundary,
+                "corrected_classification": classification, "corrected_at": now(),
+                "reason": "classification_uses_originating_strategy_event_timestamp"}, correction_id)
     provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
     for adapter in load_adapters(config, orchestrator_boundary):
         discovered.extend(adapter.discover_new_signals(seen))
-    # Recover canonical signals that were checkpointed before the outbox was
-    # introduced.  Only signals without a sizing disposition are retried;
-    # appends are idempotent and the historical rows remain intact.
-    sizing_ids = {row.get("signal_id") for row in store.rows("sizing_decisions")}
-    known = {row.get("signal_id") for row in store.rows("signals")}
-    for row in store.rows("signals"):
-        if row.get("signal_id") not in sizing_ids and row.get("signal_id") not in {x.signal_id for x in discovered}:
-            # Older durable rows predate explicit live emission timing.  Keep
-            # them readable, but leave the optional timing fields absent so
-            # the REAL consumer fails closed instead of replaying them.
-            discovered.append(StrategySignal(**{
-                k: row[k] for k in StrategySignal.__dataclass_fields__ if k in row
-            }))
+    known = (set(seen) if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY else
+             {row.get("signal_id") for row in store.rows("signals")})
+    if signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
+        # Legacy recovery is intentionally unavailable in DB_PRIMARY. There,
+        # PostgreSQL is the signal identity source and the relay recovers only
+        # pending outbox rows; the JSONL tailer/file is never consulted.
+        sizing_ids = {row.get("signal_id") for row in store.rows("sizing_decisions")}
+        for row in store.rows("signals"):
+            if row.get("signal_id") not in sizing_ids and row.get("signal_id") not in {x.signal_id for x in discovered}:
+                # Older durable rows remain readable only in file-authority modes.
+                discovered.append(StrategySignal(**{
+                    k: row[k] for k in StrategySignal.__dataclass_fields__ if k in row
+                }))
     for signal in discovered:
-        store.append("signals", signal.to_dict(), signal.signal_id)
-        if signal.signal_id not in known:
+        if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
+            assert canonical_publisher is not None
+            _, inserted = canonical_publisher.publish(signal)
+            if not inserted:
+                seen.add(signal.signal_id)
+                continue
+        else:
+            store.append("signals", signal.to_dict(), signal.signal_id)
+        if signal.signal_id not in known and signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
             event(store, "SIGNAL_CANONICALIZED", signal, {"identity_derivation": "stable_id_v1"})
         delivery_key = stable_id("DELIVERY", {"signal_id": signal.signal_id})
         try:
@@ -565,18 +584,45 @@ def acquire_lock() -> None:
 
 def run(args: argparse.Namespace, orchestration_mode: str) -> None:
     config = load_config(); store = OrchestrationStore(RUNTIME)
-    audit = startup_audit(config, orchestration_mode, store)
-    if not audit["pass"]:
-        raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {audit}")
-    mf = manifest(config)
-    stop_path = REAL_STOP if orchestration_mode == "REAL_EXECUTION" else STOP
-    acquire_lock(); state = store.load_state(); state["status"] = "ACTIVE"; store.save_state(state); stop_path.unlink(missing_ok=True)
+    signal_authority_mode = SignalAuthorityFlags.mode_from_env()
+    db_conn = None
+    canonical_publisher = None
+    if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
+        if not os.environ.get("NATS_URL"):
+            raise RuntimeError("DB_PRIMARY requires configured NATS_URL for the independent outbox relay")
+        db_config = PostgresConfig.from_env()
+        db_config.require_explicit_target()
+        db_conn = connect(db_config)
+        try:
+            canonical_publisher = CanonicalSignalPublisher(
+                db_conn,
+                cutoff_id=os.environ.get("SIGNAL_CUTOFF_ID", ""),
+                cutoff_utc=os.environ.get("SIGNAL_CUTOFF_UTC", ""),
+                source_id=os.environ.get("SIGNAL_SOURCE_ID", "signal-orchestrator"),
+            )
+            canonical_publisher.require_schema()
+        except Exception:
+            db_conn.close()
+            raise
+    try:
+        audit = startup_audit(config, orchestration_mode, store)
+        if not audit["pass"]:
+            raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {audit}")
+        mf = manifest(config)
+        stop_path = REAL_STOP if orchestration_mode == "REAL_EXECUTION" else STOP
+        acquire_lock(); state = store.load_state(); state["status"] = "ACTIVE"; store.save_state(state); stop_path.unlink(missing_ok=True)
+    except Exception:
+        if db_conn is not None:
+            db_conn.close()
+        raise
     halt = {"x": False}
     def handler(signum: int, frame: Any) -> None: halt["x"] = True
     signal.signal(signal.SIGINT, handler); signal.signal(signal.SIGTERM, handler)
     try:
         while not halt["x"] and not stop_path.exists():
-            try: poll_once(store, config, mf, orchestration_mode)
+            try: poll_once(store, config, mf, orchestration_mode,
+                           signal_authority_mode=signal_authority_mode,
+                           canonical_publisher=canonical_publisher)
             # Management proposals follow the same central authority as entry
             # signals. This creates only typed management intents; the REAL
             # consumer remains the sole broker-write boundary.
@@ -584,7 +630,12 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
             else:
                 # Keep the lifecycle health contract explicit so downstream
                 # services cannot mistake a shadow heartbeat for REAL mode.
-                heartbeat = {"pid": os.getpid(), "status": "ACTIVE", "mode": orchestration_mode, "timestamp": now(), "signals_seen": len(store.rows("signals"))}
+                signal_count = (len(canonical_publisher.existing_signal_ids())
+                                if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY and canonical_publisher
+                                else len(store.rows("signals")))
+                heartbeat = {"pid": os.getpid(), "status": "ACTIVE", "mode": orchestration_mode,
+                             "signal_authority_mode": signal_authority_mode.value,
+                             "timestamp": now(), "signals_seen": signal_count}
                 atomic(HEARTBEAT, heartbeat)
             try:
                 authorize_pending_proposals()
@@ -593,6 +644,8 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
             time.sleep(max(1, args.interval))
     finally:
         state = store.load_state(); state["status"] = "STOPPED"; store.save_state(state); PID.unlink(missing_ok=True)
+        if db_conn is not None:
+            db_conn.close()
 
 
 def main() -> None:

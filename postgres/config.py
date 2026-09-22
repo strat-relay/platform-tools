@@ -34,6 +34,18 @@ class PostgresConfig:
             "user": self.user, "password": self.password,
         }.items() if value}
 
+    def require_explicit_target(self) -> None:
+        """Reject libpq ambient defaults when starting an authoritative writer."""
+        if self.dsn and self.dsn.strip():
+            return
+        missing = [name for name, value in (
+            ("PGHOST", self.host), ("PGPORT", self.port), ("PGDATABASE", self.database),
+            ("PGUSER", self.user), ("PGPASSWORD", self.password),
+        ) if not value]
+        if missing:
+            raise ValueError("explicit PostgreSQL target required; set TRADING_POSTGRES_DSN or all PG* values (missing "
+                             + ", ".join(missing) + ")")
+
     def redacted(self) -> str:
         if self.dsn:
             return "<TRADING_POSTGRES_DSN>"

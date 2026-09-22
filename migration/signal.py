@@ -103,7 +103,15 @@ class CanonicalSignal:
         return str(self.fields["entry_signal_hash"])
 
 
-def canonical_signal(raw: Mapping[str, Any], *, source_reference: str | Mapping[str, Any] = "") -> CanonicalSignal:
+class CanonicalSignalIdentityConflict(RuntimeError):
+    """A producer reused a signal identity for different canonical content."""
+
+
+def canonical_signal(raw: Mapping[str, Any], *, source_reference: str | Mapping[str, Any] = "",
+                    runtime_version: str = "legacy-signal-tailer.v1",
+                    evaluator_version: str = "p2-a1-signal-ingest.v1",
+                    stage_id: str = "legacy_signal",
+                    primitive_id: str = "legacy.strategy_signal") -> CanonicalSignal:
     if not isinstance(raw, Mapping):
         raise QuarantinedRecordError("signal record must be a JSON object", failure_class="CANONICAL_VALIDATION")
     try:
@@ -171,9 +179,9 @@ def canonical_signal(raw: Mapping[str, Any], *, source_reference: str | Mapping[
     hashed_provenance = {k: v for k, v in source_provenance.items() if k in _PROVENANCE_ALLOWLIST}
     metadata = {k: raw.get(k) for k in ("symbol", "canonical_symbol", "entry_type", "timeframe", "lower_timeframe", "higher_timeframes") if k in raw}
     reason = None
-    stage = StageResult("legacy_signal", StageStatus.PASS, primitive_id="legacy.strategy_signal", observed={"signal_id": signal_id}, metadata=metadata)
+    stage = StageResult(stage_id, StageStatus.PASS, primitive_id=primitive_id, observed={"signal_id": signal_id}, metadata=metadata)
     trace = DecisionTrace((stage,), Decision.SIGNAL, fidelity=TraceFidelity.L1)
-    evaluation = Evaluation(strategy_id=strategy_id, instrument=instrument, decision_time=decision_time, decision=Decision.SIGNAL, trace=trace, direction=raw.get("direction"), strategy_version=strategy_version, parameter_set_id=parameter_set_ref, candidate_id=candidate_id, reason_codes=(), trace_fidelity=TraceFidelity.L1, runtime_version=str(raw.get("runtime_version") or "legacy-signal-tailer.v1"), evaluator_version="p2-a1-signal-ingest.v1", provenance=hashed_provenance)
+    evaluation = Evaluation(strategy_id=strategy_id, instrument=instrument, decision_time=decision_time, decision=Decision.SIGNAL, trace=trace, direction=raw.get("direction"), strategy_version=strategy_version, parameter_set_id=parameter_set_ref, candidate_id=candidate_id, reason_codes=(), trace_fidelity=TraceFidelity.L1, runtime_version=str(raw.get("runtime_version") or runtime_version), evaluator_version=str(raw.get("evaluator_version") or evaluator_version), provenance=hashed_provenance)
     signal_emitted_at = raw.get("signal_emitted_at")
     if signal_emitted_at is None or signal_emitted_at == "":
         signal_emitted_at = raw.get("created_at")
@@ -194,6 +202,12 @@ def ingest_signal(conn: Any, signal: CanonicalSignal, *, occurred_at: str | None
     f = signal.fields
     with transaction(conn):
         with conn.cursor() as cur:
+            cur.execute("SELECT entry_signal_hash FROM strategy.entry_signals WHERE signal_id=%s FOR UPDATE", (signal.signal_id,))
+            existing = cur.fetchone()
+            if existing:
+                if existing[0] != signal.entry_signal_hash:
+                    raise CanonicalSignalIdentityConflict(f"signal_id {signal.signal_id!r} already identifies different EntrySignal content")
+                return False
             candidate_payload = {key: value for key, value in f.items() if key != "entry_mechanisms"}
             cur.execute("""INSERT INTO strategy.candidates (candidate_id,strategy_id,strategy_version_id,instrument,detected_at,status,source_event_id,payload,canonical_hash,lifecycle_state)
                 VALUES (%s,%s,NULL,%s,%s,'DETECTED',%s,%s::jsonb,%s,'ENTRY_SIGNAL_CREATED') ON CONFLICT (candidate_id) DO NOTHING""", (signal.candidate_id, f["strategy_id"], f["instrument"], f["decision_time"], f["source_event_id"], json.dumps(candidate_payload, sort_keys=True), signal.canonical_hash))
@@ -224,6 +238,15 @@ def load_entry_mechanisms(conn: Any, signal_id: str) -> tuple[str, ...]:
 
 
 class LegacySignalTailer:
+    """Migration/test tooling only; never the DB_PRIMARY producer.
+
+    Production classification: ``PRODUCTION_PRIMARY_COMPONENT = False``;
+    ``MIGRATION_TOOLING = True``. The canonical orchestrator publisher is a
+    separate component and does not depend on a source file cursor.
+    """
+    PRODUCTION_PRIMARY_COMPONENT = False
+    MIGRATION_TOOLING = True
+
     def __init__(self, source: Path, checkpoint: Path, conn: Any, *, evidence_class: str = "LIVE",
                  cutoff_offset: int | None = None, cutoff_id: str | None = None):
         self.conn, self.source = conn, source

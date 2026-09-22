@@ -107,6 +107,7 @@ class SignalMigrationTests(unittest.TestCase):
                 if self.conn.fail_on_child and "entry_signal_mechanisms" in sql:
                     raise RuntimeError("child insert failed")
                 self.conn.pending.append((sql, args))
+            def fetchone(self): return None
             def fetchall(self): return [("DEPTH_ONLY",), ("REJECTION_WICK",)]
             def __enter__(self): return self
             def __exit__(self, *args): return False

@@ -1,5 +1,12 @@
 # 11 - P2.1 live-shadow review contract (evidence Codex must collect before any signal authority cutover)
 
+> **Superseded for authority cutover:** the V1.3 immediate signal-authority
+> decision removes the P2.1 evidence-window requirement. This document records
+> the former shadow-evidence proposal only; its natural-signal counts and
+> observation duration are not cutover gates. The P2 shadow tailer remains
+> migration tooling, not the DB_PRIMARY producer. See
+> `docs/p2_shadow/CANONICAL_SIGNAL_AUTHORITY_PATH.md` for the current path.
+
 Scope: shadow-only observation of the **existing K8s Context strategy** `CONTEXT_STRUCTURE_RETRACE_V1` on `XAUUSDm, BTCUSDm, USDJPYm, EURUSDm`, with legacy signal authority active. Required configuration throughout, asserted in every evidence report:
 
 ```
