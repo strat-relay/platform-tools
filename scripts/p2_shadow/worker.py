@@ -8,7 +8,7 @@ import signal
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -203,13 +203,13 @@ async def connect_jetstream():
         await js.stream_info("TRADING_CORE")
     except Exception:
         await js.add_stream(name="TRADING_CORE", subjects=LIVE_SUBJECTS, storage=StorageType.FILE,
-                            retention=RetentionPolicy.LIMITS, max_age=timedelta(days=30))
+                            retention=RetentionPolicy.LIMITS, max_age=30 * 24 * 60 * 60)
     try:
         await js.consumer_info("TRADING_CORE", "p2-signal-shadow")
     except Exception:
         await js.add_consumer("TRADING_CORE", config=ConsumerConfig(durable_name="p2-signal-shadow",
             ack_policy=AckPolicy.EXPLICIT, deliver_policy=DeliverPolicy.ALL, filter_subject=">",
-            ack_wait=timedelta(seconds=30), max_deliver=-1))
+            ack_wait=30, max_deliver=-1))
     return nc, js
 
 
