@@ -15,7 +15,7 @@ This workload is a narrow Platform-owned read boundary for canonical EntrySignal
 
 The image is built from `deploy/platform_api/Dockerfile`, pushed from the host as `host.docker.internal:5001/trading-platform-signals-api:20260922-cors-fix`, and referenced in Kubernetes by its immutable digest via `localhost:5001` (`sha256:4a8b7bdedbe813b25af9423d5ff09120f034199b186e7839ead43bc1cb6ed14b`).
 
-The workload/service identity is `platform-signals-api`, port `22350`; it is separate from `control-api` port `22349`. The pod only receives the PostgreSQL DSN, runs non-root with a read-only root filesystem and restricted network egress, and does not mount runtime state files.
+The workload/service identity is `platform-signals-api`, port `22350`; it is separate from `control-api` port `22349`. The pod only receives the PostgreSQL DSN, runs non-root with a read-only root filesystem and restricted network egress, and does not mount runtime state files. The single-replica update strategy uses `maxSurge: 0` and `maxUnavailable: 1` to fit a namespace already at its pod/CPU-limit quota; an image rollout can briefly interrupt signal API availability.
 
 The namespace was already at its hard limit of 8 pods / 3250m CPU limits. `resource-quota.yaml` adds exactly one pod slot and 250m CPU-limit headroom; memory and request quotas do not change. The API pod is capped at 250m CPU / 192Mi memory and requests 50m / 96Mi.
 
