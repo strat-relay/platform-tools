@@ -1,5 +1,5 @@
-# Add exactly one pod slot and 250m CPU-limit headroom for the isolated,
-# read-only Platform Signals API. Existing request and memory quotas are unchanged.
+# Add capacity for the isolated Platform Signals API and the small internal API
+# router. Request and memory quotas remain unchanged.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -7,8 +7,8 @@ metadata:
   namespace: trading
 spec:
   hard:
-    pods: "9"
-    limits.cpu: 3500m
+    pods: "10"
+    limits.cpu: 3600m
     limits.memory: 4Gi
     requests.cpu: "1"
     requests.memory: 2Gi

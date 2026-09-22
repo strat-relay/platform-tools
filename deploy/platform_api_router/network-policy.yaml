@@ -1,0 +1,66 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-api-router-ingress
+  namespace: trading
+  labels:
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: platform-api-router
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudflared
+      ports:
+        - protocol: TCP
+          port: 22351
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-api-router-egress
+  namespace: trading
+  labels:
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: platform-api-router
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-signals-api
+      ports:
+        - protocol: TCP
+          port: 22350
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: control-api
+      ports:
+        - protocol: TCP
+          port: 22349
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

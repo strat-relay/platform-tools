@@ -51,6 +51,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: cloudflared
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-api-router
       ports:
         - protocol: TCP
           port: 22350
