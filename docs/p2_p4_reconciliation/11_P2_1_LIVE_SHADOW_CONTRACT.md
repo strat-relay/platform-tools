@@ -37,7 +37,7 @@ Run **continuously** (every 5 minutes) and as **daily quiesced** runs (no writer
 | Class | Meaning | Gate effect |
 |---|---|---|
 | `MATCH` | equal | - |
-| `EXPECTED_LAG` | legacy row newer than the lag window `Delta` (proposal: 2 x tailer poll + 30 s) | none if resolved on the next run |
+| `EXPECTED_LAG` | legacy row's canonical `signal_emitted_at` is no more than the configured lag window `Delta` old (proposal: 2 x 1-second tailer poll + 30 s = 32 s) | temporarily non-blocking; must resolve on a subsequent run, and does not make a reconciliation `clean` |
 | `KNOWN_LEGACY_ANOMALY` | documented legacy behaviour (e.g. signals classified `GAP_RECOVERY`/`PRE_ORCHESTRATOR_REFERENCE` that are ingested but not routed) | recorded; count must not grow unexplained |
 | `MALFORMED_LEGACY_LINE` | a complete line that does not parse | **acceptable only if** persisted in the quarantine table, individually explained, and never a *signal* line the strategy intended to emit; tolerance: 0 unexplained |
 | **zero tolerance** | see below | **blocks** |
@@ -54,6 +54,16 @@ Run **continuously** (every 5 minutes) and as **daily quiesced** runs (no writer
 8. any future-data/outcome field present in canonical evidence;
 9. any component performing a write to a legacy runtime file, a broker call, or any effect beyond shadow tables/inbox/outbox;
 10. either `*_PRIMARY_ENABLED` flag true, or any consumer other than the shadow durable attached.
+
+`MISSING_DATABASE`, `MISSING_LEGACY`, semantic/hash mismatches, event-coverage
+gaps, and unexplained malformed signal lines are blocking. `EXPECTED_LAG` is
+temporarily non-blocking only while the authoritative `signal_emitted_at` is
+within `Delta`; after `Delta` it is `MISSING_DATABASE`. Missing or invalid
+`signal_emitted_at` never receives a grace period. Quiesced reconciliations use
+the same finite Delta and are strict after it expires. `MALFORMED_LEGACY_LINE`
+is contextual/informational only when durably quarantined and individually
+explained; otherwise it blocks. `KNOWN_LEGACY_ANOMALY` requires a separately
+documented, evidenced classifier; no generic suppression is implied by the enum.
 
 ## 3. Restart, duplicate, malformed, rotation evidence (natural where possible)
 

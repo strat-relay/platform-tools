@@ -67,6 +67,16 @@ findings are retained in `platform.reconciliation_runs` and
 classes, source cursor, signal counts by evidence class, outbox state/retries,
 JetStream state, inbox counts, lag distributions, and restart counters.
 
+Continuous reconciliation uses canonical `signal_emitted_at` as source/event
+time and a configurable `P2_RECONCILIATION_DELTA_SECONDS` (default 32 seconds,
+the A7 proposal of two 1-second tailer polls plus 30 seconds). `decision_time`
+is a reference fill time and does not grant processing grace. A recent
+legacy-only record is `EXPECTED_LAG` and keeps the run non-clean until
+resolved; after Delta, or when the source timestamp is missing/invalid, it is
+the blocking `MISSING_DATABASE` class. Quiesced comparisons get no extension
+beyond Delta. `KNOWN_LEGACY_ANOMALY` remains unreachable because no explicit,
+evidence-backed classifier exists.
+
 ## Stop / rollback
 
 Stopping only the shadow path does not require an authority change. To stop

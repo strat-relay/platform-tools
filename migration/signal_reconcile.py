@@ -1,16 +1,35 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .reconcile import ReconciliationStatus, reconcile
+from .reconcile import DEFAULT_RECONCILIATION_DELTA, ReconciliationStatus, reconcile
 from .signal import canonical_signal
 
 
-def reconcile_legacy_signals(conn: Any, source_path: Path, *, run_id: str | None = None, source_id: str | None = None) -> dict[str, Any]:
+def reconciliation_delta() -> timedelta:
+    raw = os.getenv("P2_RECONCILIATION_DELTA_SECONDS")
+    if raw is None:
+        return DEFAULT_RECONCILIATION_DELTA
+    try:
+        seconds = float(raw)
+    except ValueError as exc:
+        raise ValueError("P2_RECONCILIATION_DELTA_SECONDS must be a non-negative number") from exc
+    if seconds < 0 or seconds == float("inf") or seconds != seconds:
+        raise ValueError("P2_RECONCILIATION_DELTA_SECONDS must be a finite non-negative number")
+    try:
+        return timedelta(seconds=seconds)
+    except OverflowError as exc:
+        raise ValueError("P2_RECONCILIATION_DELTA_SECONDS is outside the supported range") from exc
+
+
+def reconcile_legacy_signals(conn: Any, source_path: Path, *, run_id: str | None = None,
+                             source_id: str | None = None, delta: timedelta | None = None,
+                             as_of: datetime | None = None) -> dict[str, Any]:
     """Read a legacy JSONL source and compare canonical rows by signal identity."""
     run_id = run_id or f"signal-reconcile-{uuid.uuid4()}"
     legacy, malformed = [], []
@@ -34,7 +53,7 @@ def reconcile_legacy_signals(conn: Any, source_path: Path, *, run_id: str | None
             LEFT JOIN platform.inbox_events ci ON ci.event_id=co.event_id AND ci.consumer_name='p2-signal-shadow'
             """)
         database = [{"id": r[0], "hash": r[1], "strategy_id": r[2], "version": r[3], "strategy_ref": r[4], "parameter_set_ref": r[5], "strategy_instance_id": r[6], "instrument": r[7], "direction": r[8], "decision_time": r[9].astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"), "signal_emitted_at": r[10].astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z") if r[10] else None, "entry_type": r[11], "entry_price": float(r[12]) if r[12] is not None else None, "stop_price": float(r[13]) if r[13] is not None else None, "target_price": float(r[14]) if r[14] is not None else None, "risk_distance": float(r[15]) if r[15] is not None else None, "target_distance": float(r[16]) if r[16] is not None else None, "target_r": float(r[17]) if r[17] is not None else None, "economic_position_id": r[18], "entry_opportunity_id": r[19], "setup_id": r[20], "source_event_id": r[21], "terminal_state": r[22], "_outbox_status": r[23], "_inbox_status": r[24], "_candidate_outbox_status": r[25], "_candidate_inbox_status": r[26]} for r in cur.fetchall()]
-    result = reconcile(legacy, database, key="id")
+    result = reconcile(legacy, database, key="id", delta=delta if delta is not None else reconciliation_delta(), as_of=as_of)
     finding_by_id = {item["identity"]: item for item in result["findings"]}
     for row in database:
         missing = []
