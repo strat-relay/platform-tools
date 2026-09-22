@@ -33,7 +33,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: localhost:5001/trading-platform-control-api@sha256:49e6ea1176ca0a12ad77ad89d9e892a6a3586bfd2bc9f386972092dca8d6828f
+          image: localhost:5001/trading-platform-control-api@sha256:842fecd8e36a3fd7b012437dc33b614ea6ff7c9b1e2fd7dce24158776aeed11b
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
