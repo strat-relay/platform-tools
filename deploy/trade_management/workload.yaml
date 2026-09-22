@@ -48,7 +48,7 @@ spec:
             # defaults an unset value to DISABLED and fails closed if it is ever anything else
             # (trade_management/runtime/config.py) - this env block never overrides it.
             - {name: P4_OBSERVATION_INTERVAL_SECONDS, value: "30"}  # SHIP-FIRST value; see docs/engineering/OPTIMIZATION_REGISTER.md
-            - {name: P4_BRIDGE_MCP_URL, value: "http://127.0.0.1:22347/mcp"}  # research listener only, never 22348
+            - {name: P4_BRIDGE_MCP_URL, value: "http://192.168.1.166:22347/mcp"}  # existing read-only MT5 bridge, never 22348
             - {name: P4_HEALTH_PORT, value: "8080"}
           ports:
             - name: http
