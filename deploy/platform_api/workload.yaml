@@ -28,7 +28,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: localhost:5001/trading-platform-signals-api@sha256:34af3059c0b28a00d94b1b56e86eeb6292d60c50bd3b938a3d11fed11f153833
+          image: localhost:5001/trading-platform-signals-api@sha256:4a8b7bdedbe813b25af9423d5ff09120f034199b186e7839ead43bc1cb6ed14b
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

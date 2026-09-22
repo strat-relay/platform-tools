@@ -9,10 +9,11 @@ This workload is a narrow Platform-owned read boundary for canonical EntrySignal
 - `limit` defaults to 100 and is bounded to 1–500; `offset` defaults to 0. Ordering is `decision_time DESC, signal_id ASC`.
 - Every request validates applied schema `012` and starts a PostgreSQL read-only transaction. A missing database/schema produces HTTP 503; there is no file fallback.
 - The envelope declares `source=canonical_postgres` and `schema_version=012`. Canonical columns are returned with exact Console aliases for symbol, signal timestamp, and geometry.
+- Browser CORS is restricted to the exact `https://console.stratrelay.app` origin by default. `PLATFORM_API_CORS_ORIGINS` may override the comma-separated origin allowlist; credentials are not enabled. Signal routes support GET/OPTIONS preflight only, with `Authorization` and `Content-Type` as the allowed request headers.
 
 ## Image and workload
 
-The image is built from `deploy/platform_api/Dockerfile`, pushed from the host as `host.docker.internal:5001/trading-platform-signals-api:20260922-canonical-signals-v2`, and referenced in Kubernetes by its immutable digest via `localhost:5001`.
+The image is built from `deploy/platform_api/Dockerfile`, pushed from the host as `host.docker.internal:5001/trading-platform-signals-api:20260922-cors-fix`, and referenced in Kubernetes by its immutable digest via `localhost:5001` (`sha256:4a8b7bdedbe813b25af9423d5ff09120f034199b186e7839ead43bc1cb6ed14b`).
 
 The workload/service identity is `platform-signals-api`, port `22350`; it is separate from `control-api` port `22349`. The pod only receives the PostgreSQL DSN, runs non-root with a read-only root filesystem and restricted network egress, and does not mount runtime state files.
 
