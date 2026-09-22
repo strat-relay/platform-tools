@@ -9,6 +9,13 @@ metadata:
     app.kubernetes.io/component: api-router
 spec:
   replicas: 1
+  # The namespace is at its pod/CPU/memory quota. Replace in place rather
+  # than requesting a surge replica; this can briefly interrupt API traffic.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: platform-api-router
@@ -29,7 +36,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: router
-          image: localhost:5001/trading-platform-api-router@sha256:c8f6e6457be1a218db462ebb4bd64be3c24f09a2a3095b9f42e6f57bec47f62d
+          image: localhost:5001/trading-platform-api-router@sha256:bcaad862637c0c3b1c1fb644b00f52c834746671f9e63bdcafb91cd1e637fcdf
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

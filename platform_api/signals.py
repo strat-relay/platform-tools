@@ -239,30 +239,85 @@ def _json_bytes(value: Any) -> bytes:
 
 
 def create_server(host: str = "0.0.0.0", port: int = 22350,
-                  api: PlatformSignalApi | None = None):
+                  api: PlatformSignalApi | None = None,
+                  allowed_origins: set[str] | frozenset[str] | None = None):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import os
+    from urllib.parse import urlsplit
 
     instance = api or PlatformSignalApi()
+    origins = allowed_origins
+    if origins is None:
+        configured = os.getenv("PLATFORM_API_CORS_ORIGINS", "https://console.stratrelay.app")
+        origins = frozenset(value.strip() for value in configured.split(",") if value.strip())
+
+    def cors_headers(origin: str | None) -> list[tuple[str, str]]:
+        # Exact-origin allowlist: do not reflect arbitrary Origin values or allow credentials.
+        headers = [("Vary", "Origin")]
+        if origin and origin in origins:
+            headers.append(("Access-Control-Allow-Origin", origin))
+        return headers
 
     class Handler(BaseHTTPRequestHandler):
+        def _send(self, status: int, body: dict[str, Any] | None = None,
+                  *, extra_headers: list[tuple[str, str]] | None = None) -> None:
+            encoded = _json_bytes(body) if body is not None else b""
+            self.send_response(status)
+            if body is not None:
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.send_header("Cache-Control", "no-store")
+            else:
+                self.send_header("Content-Length", "0")
+            for name, value in cors_headers(self.headers.get("Origin")):
+                self.send_header(name, value)
+            for name, value in extra_headers or []:
+                self.send_header(name, value)
+            self.end_headers()
+            if encoded:
+                self.wfile.write(encoded)
+
         def do_GET(self) -> None:
             status, body = instance.execute("GET", self.path)
-            encoded = _json_bytes(body)
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(encoded)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(encoded)
+            self._send(status, body)
 
         def do_POST(self) -> None:
             status, body = instance.execute("POST", self.path)
-            encoded = _json_bytes(body)
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(encoded)))
-            self.end_headers()
-            self.wfile.write(encoded)
+            self._send(status, body)
+
+        def do_OPTIONS(self) -> None:
+            path = urlsplit(self.path).path.rstrip("/") or "/"
+            signal_detail_prefix = "/api/v1/signals/"
+            is_signal_route = (
+                path == "/api/v1/signals"
+                or path.startswith(signal_detail_prefix)
+                and path.count("/") == signal_detail_prefix.count("/")
+            )
+            if not is_signal_route:
+                self._send(404, {"error": "RESOURCE_NOT_FOUND", "message": "route not found"})
+                return
+            origin = self.headers.get("Origin")
+            if not origin or origin not in origins:
+                self._send(403, {"error": "CORS_ORIGIN_DENIED"})
+                return
+            requested_method = self.headers.get("Access-Control-Request-Method", "GET").upper()
+            if requested_method not in {"GET", "OPTIONS"}:
+                self._send(403, {"error": "CORS_METHOD_DENIED"})
+                return
+            requested_headers = {
+                value.strip().lower()
+                for value in self.headers.get("Access-Control-Request-Headers", "").split(",")
+                if value.strip()
+            }
+            allowed_headers = {"authorization", "content-type"}
+            if not requested_headers <= allowed_headers:
+                self._send(403, {"error": "CORS_HEADERS_DENIED"})
+                return
+            self._send(204, extra_headers=[
+                ("Access-Control-Allow-Methods", "GET, OPTIONS"),
+                ("Access-Control-Allow-Headers", "Authorization, Content-Type"),
+                ("Access-Control-Max-Age", "600"),
+            ])
 
         def log_message(self, _format: str, *_args: Any) -> None:
             return
