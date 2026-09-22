@@ -21,7 +21,8 @@ def main() -> None:
         "sh", "-c",
         "set -eu; "
         "cp /outcome-overlay/context_structure_retrace_forward.py /work/; "
-        "cp /outcome-overlay/context_structure_retrace_outcome_projector.py /work/",
+        "cp /outcome-overlay/context_structure_retrace_outcome_projector.py /work/; "
+        "cp /outcome-overlay/strategy_report_format.py /work/",
     ]
     patch = {
         "spec": {

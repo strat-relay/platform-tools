@@ -14,5 +14,6 @@ RUN pip install --no-cache-dir --disable-pip-version-check \
 # it does not replace the orchestrator, runner ledger, or other live files.
 COPY context_structure_retrace_forward.py /outcome-overlay/
 COPY context_structure_retrace_outcome_projector.py /outcome-overlay/
+COPY strategy_report_format.py /outcome-overlay/
 
 CMD ["python", "-c", "import psycopg; print('entry-outcome overlay ready')"]
