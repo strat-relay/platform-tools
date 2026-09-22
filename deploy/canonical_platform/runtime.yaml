@@ -1,0 +1,364 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-postgres-init
+  namespace: trading
+  labels:
+    app.kubernetes.io/part-of: trading-platform
+data:
+  010-create-runtime-role.sh: |
+    #!/bin/sh
+    set -eu
+    psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      --set=ON_ERROR_STOP=1 \
+      --set=trading_app_password="$TRADING_APP_PASSWORD" <<'SQL'
+    CREATE ROLE trading_app LOGIN PASSWORD :'trading_app_password';
+    ALTER DATABASE trading_platform OWNER TO trading_app;
+    GRANT CONNECT, TEMPORARY ON DATABASE trading_platform TO trading_app;
+    SQL
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-postgres-data
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-postgres
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-postgres-headless
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-postgres
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: trading-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-postgres
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-postgres
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: trading-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: trading-postgres
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-postgres
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  serviceName: trading-postgres-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trading-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trading-postgres
+        app.kubernetes.io/part-of: trading-platform
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_DB
+              value: trading_platform
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: trading-postgres-auth
+                  key: POSTGRES_ADMIN_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-postgres-auth
+                  key: POSTGRES_ADMIN_PASSWORD
+            - name: TRADING_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-postgres-auth
+                  key: TRADING_APP_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 400m
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d/010-create-runtime-role.sh
+              subPath: 010-create-runtime-role.sh
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: trading-postgres-data
+        - name: init-script
+          configMap:
+            name: trading-postgres-init
+            defaultMode: 0555
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-nats-data
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-nats
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-nats-headless
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-nats
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: trading-nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-nats
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-nats
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: trading-nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: trading-nats
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-nats
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  serviceName: trading-nats-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trading-nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trading-nats
+        app.kubernetes.io/part-of: trading-platform
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: nats
+          image: nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c]
+          args:
+            - exec nats-server -js -sd /data/jetstream --user "$NATS_USER" --pass "$NATS_PASSWORD"
+          env:
+            - name: NATS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: trading-nats-auth
+                  key: NATS_USER
+            - name: NATS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-nats-auth
+                  key: NATS_PASSWORD
+          ports:
+            - name: client
+              containerPort: 4222
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: client
+            periodSeconds: 5
+            failureThreshold: 20
+          readinessProbe:
+            tcpSocket:
+              port: client
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: trading-nats-data
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-db-primary-prepared
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-platform-config
+    app.kubernetes.io/part-of: trading-platform
+  annotations:
+    trading-platform.stratrelay.io/activation: "manual-cutover-only"
+data:
+  SIGNAL_AUTHORITY_MODE: DB_PRIMARY
+  SIGNAL_DB_PRIMARY_ENABLED: "true"
+  SIGNAL_JETSTREAM_PRIMARY_ENABLED: "true"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trading-platform-data-ingress
+  namespace: trading
+  labels:
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [trading-postgres, trading-nats]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: main-runtime
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: signal-outbox-relay
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 4222
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trading-platform-runtime-data-egress
+  namespace: trading
+  labels:
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [main-runtime, outbox-relay]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [trading-postgres, trading-nats]
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 4222
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

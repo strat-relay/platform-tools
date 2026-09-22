@@ -1,0 +1,42 @@
+# Prepared only. This Deployment deliberately has zero replicas and is not
+# referenced by the live orchestrator configuration. Before activation, build
+# and pin the repository runtime image by digest and validate all startup gates.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-outbox-relay
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: signal-outbox-relay
+    app.kubernetes.io/component: outbox-relay
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: signal-outbox-relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signal-outbox-relay
+        app.kubernetes.io/component: outbox-relay
+        app.kubernetes.io/part-of: trading-platform
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: relay
+          image: localhost:5001/trading-platform-runtime:REPLACE_WITH_VERIFIED_DIGEST
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, scripts.signal_outbox_relay]
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+            - configMapRef:
+                name: trading-db-primary-prepared
+          resources:
+            requests:
+              cpu: 75m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi

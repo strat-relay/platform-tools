@@ -1,0 +1,19 @@
+# Prepared-only strategic merge patch for the authorized T0 cutover. Do not
+# apply before the persisted cutoff Secret exists and has been verified.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mt5-native-bridge-main-runtime
+  namespace: trading
+spec:
+  template:
+    spec:
+      containers:
+        - name: orchestrator-shadow
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+            - configMapRef:
+                name: trading-db-primary-prepared
+            - secretRef:
+                name: trading-signal-cutoff

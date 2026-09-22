@@ -1,0 +1,14 @@
+# Minimal namespace quota headroom for one future, separately supervised
+# outbox-relay pod. Applying this does not start that Deployment.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: trading-conservative
+  namespace: trading
+spec:
+  hard:
+    pods: "8"
+    limits.cpu: 3250m
+    limits.memory: 4Gi
+    requests.cpu: "1"
+    requests.memory: 2Gi
