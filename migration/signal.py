@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from core.strategies.evaluation import Decision, DecisionTrace, Evaluation, StageResult, StageStatus, TraceFidelity, canonical_hash
 from postgres.foundation import persist_evaluation
 from postgres.db import transaction
-from .tailer import AppendOnlyTailer, TailerResult
+from .tailer import AppendOnlyTailer, QuarantinedRecordError, TailerResult
 
 
 def _stable(prefix: str, value: Mapping[str, Any]) -> str:
@@ -47,6 +47,7 @@ class CanonicalSignal:
     terminal_state: str
     fields: Mapping[str, Any]
     strategy_metadata: Mapping[str, Any]
+    source_provenance: Mapping[str, Any]
 
     @property
     def canonical_hash(self) -> str:
@@ -68,20 +69,21 @@ def canonical_signal(raw: Mapping[str, Any], *, source_reference: str | Mapping[
     parameter_set_ref = raw.get("parameter_set_ref") or raw.get("parameter_set_id")
     parameter_status = "EXPLICIT" if parameter_set_ref else "LEGACY_IMPLICIT_IN_STRATEGY_ID"
     source_ref = {"source_reference": source_reference} if isinstance(source_reference, str) else dict(source_reference)
-    source_provenance = {k: v for k, v in dict(raw.get("provenance") or {}).items() if k in _PROVENANCE_ALLOWLIST}
+    source_provenance = dict(raw.get("provenance") or {})
+    hashed_provenance = {k: v for k, v in source_provenance.items() if k in _PROVENANCE_ALLOWLIST}
     metadata = {k: raw.get(k) for k in ("symbol", "canonical_symbol", "entry_type", "timeframe", "lower_timeframe", "higher_timeframes") if k in raw}
     reason = None
     stage = StageResult("legacy_signal", StageStatus.PASS, primitive_id="legacy.strategy_signal", observed={"signal_id": signal_id}, metadata=metadata)
     trace = DecisionTrace((stage,), Decision.SIGNAL, fidelity=TraceFidelity.L1)
-    evaluation = Evaluation(strategy_id=strategy_id, instrument=instrument, decision_time=decision_time, decision=Decision.SIGNAL, trace=trace, direction=raw.get("direction"), strategy_version=strategy_version, parameter_set_id=parameter_set_ref, candidate_id=candidate_id, reason_codes=(), trace_fidelity=TraceFidelity.L1, runtime_version=str(raw.get("runtime_version") or "legacy-signal-tailer.v1"), evaluator_version="p2-a1-signal-ingest.v1", provenance=source_provenance)
+    evaluation = Evaluation(strategy_id=strategy_id, instrument=instrument, decision_time=decision_time, decision=Decision.SIGNAL, trace=trace, direction=raw.get("direction"), strategy_version=strategy_version, parameter_set_id=parameter_set_ref, candidate_id=candidate_id, reason_codes=(), trace_fidelity=TraceFidelity.L1, runtime_version=str(raw.get("runtime_version") or "legacy-signal-tailer.v1"), evaluator_version="p2-a1-signal-ingest.v1", provenance=hashed_provenance)
     signal_emitted_at = raw.get("signal_emitted_at") or raw.get("created_at")
     if signal_emitted_at is not None:
         signal_emitted_at = _utc(signal_emitted_at)
     fields = {"signal_id": signal_id, "candidate_id": candidate_id, "evaluation_id": evaluation.evaluation_hash, "evaluation_hash": evaluation.evaluation_hash, "trace_hash": trace.trace_hash, "strategy_ref": f"{strategy_id}@{strategy_version}", "strategy_id": strategy_id, "strategy_version": strategy_version, "parameter_set_ref": parameter_set_ref, "parameter_set_status": parameter_status, "strategy_instance_id": raw.get("strategy_instance_id"), "instrument": instrument, "direction": raw.get("direction"), "decision_time": decision_time, "signal_emitted_at": signal_emitted_at, "entry_type": raw.get("entry_type"), "entry_price": raw.get("entry_price"), "entry_mechanism": raw.get("entry_mechanism"), "stop_price": raw.get("stop_price"), "risk_distance": raw.get("risk_distance"), "target_price": raw.get("target_price"), "target_distance": raw.get("target_distance"), "target_r": raw.get("target_r"), "economic_position_id": raw.get("economic_position_id"), "entry_opportunity_id": raw.get("entry_opportunity_id"), "setup_id": raw.get("setup_id"), "source_event_id": raw.get("source_event_id")}
-    semantic = {k: v for k, v in fields.items() if k not in {"evaluation_id", "evaluation_hash", "trace_hash", "signal_emitted_at"}}
-    fields["entry_signal_hash"] = canonical_hash({**semantic, "strategy_metadata": strategy_metadata, "source_provenance": source_provenance})
+    semantic = {k: v for k, v in fields.items() if k not in {"evaluation_id", "evaluation_hash", "trace_hash"}}
+    fields["entry_signal_hash"] = canonical_hash({**semantic, "strategy_metadata": strategy_metadata, "source_provenance": hashed_provenance})
     source_hash = str(raw.get("source_hash") or canonical_hash(raw))
-    return CanonicalSignal(signal_id, candidate_id, evaluation, source_ref, source_hash, raw.get("as_of") or raw.get("signal_timestamp"), "ENTRY_SIGNAL_CREATED", fields, strategy_metadata)
+    return CanonicalSignal(signal_id, candidate_id, evaluation, source_ref, source_hash, raw.get("as_of") or raw.get("signal_timestamp"), "ENTRY_SIGNAL_CREATED", fields, strategy_metadata, source_provenance)
 
 
 def ingest_signal(conn: Any, signal: CanonicalSignal, *, occurred_at: str | None = None) -> bool:
@@ -94,7 +96,7 @@ def ingest_signal(conn: Any, signal: CanonicalSignal, *, occurred_at: str | None
         persist_evaluation(conn, signal.evaluation, strategy_version_id=None)
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO strategy.entry_signals (signal_id,candidate_id,evaluation_id,strategy_ref,strategy_id,strategy_version,parameter_set_ref,parameter_set_status,strategy_instance_id,instrument,direction,decision_time,signal_emitted_at,entry_type,entry_price,entry_mechanism,stop_price,risk_distance,target_price,target_distance,target_r,economic_position_id,entry_opportunity_id,setup_id,source_event_id,source_ref,source_provenance,runtime_provenance,evaluation_hash,trace_hash,terminal_state,strategy_metadata,entry_signal_hash)
-                VALUES (%(signal_id)s,%(candidate_id)s,%(evaluation_id)s,%(strategy_ref)s,%(strategy_id)s,%(strategy_version)s,%(parameter_set_ref)s,%(parameter_set_status)s,%(strategy_instance_id)s,%(instrument)s,%(direction)s,%(decision_time)s,%(signal_emitted_at)s,%(entry_type)s,%(entry_price)s,%(entry_mechanism)s,%(stop_price)s,%(risk_distance)s,%(target_price)s,%(target_distance)s,%(target_r)s,%(economic_position_id)s,%(entry_opportunity_id)s,%(setup_id)s,%(source_event_id)s,%(source_ref)s::jsonb,%(source_provenance)s::jsonb,%(runtime_provenance)s::jsonb,%(evaluation_hash)s,%(trace_hash)s,%(terminal_state)s,%(strategy_metadata)s::jsonb,%(entry_signal_hash)s) ON CONFLICT (signal_id) DO NOTHING""", {**f, "source_ref": json.dumps(signal.source_reference, sort_keys=True), "source_provenance": json.dumps(signal.evaluation.provenance, sort_keys=True), "runtime_provenance": json.dumps({"runtime_version": signal.evaluation.runtime_version, "evaluator_version": signal.evaluation.evaluator_version}, sort_keys=True), "terminal_state": signal.terminal_state, "strategy_metadata": json.dumps(signal.strategy_metadata, sort_keys=True)})
+                VALUES (%(signal_id)s,%(candidate_id)s,%(evaluation_id)s,%(strategy_ref)s,%(strategy_id)s,%(strategy_version)s,%(parameter_set_ref)s,%(parameter_set_status)s,%(strategy_instance_id)s,%(instrument)s,%(direction)s,%(decision_time)s,%(signal_emitted_at)s,%(entry_type)s,%(entry_price)s,%(entry_mechanism)s,%(stop_price)s,%(risk_distance)s,%(target_price)s,%(target_distance)s,%(target_r)s,%(economic_position_id)s,%(entry_opportunity_id)s,%(setup_id)s,%(source_event_id)s,%(source_ref)s::jsonb,%(source_provenance)s::jsonb,%(runtime_provenance)s::jsonb,%(evaluation_hash)s,%(trace_hash)s,%(terminal_state)s,%(strategy_metadata)s::jsonb,%(entry_signal_hash)s) ON CONFLICT (signal_id) DO NOTHING""", {**f, "source_ref": json.dumps(signal.source_reference, sort_keys=True), "source_provenance": json.dumps(signal.source_provenance, sort_keys=True), "runtime_provenance": json.dumps({"runtime_version": signal.evaluation.runtime_version, "evaluator_version": signal.evaluation.evaluator_version}, sort_keys=True), "terminal_state": signal.terminal_state, "strategy_metadata": json.dumps(signal.strategy_metadata, sort_keys=True)})
             cur.execute("""INSERT INTO strategy.signals (signal_id,evaluation_id,candidate_id,strategy_id,instrument,direction,signal_time,payload,canonical_hash,lifecycle_state)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,'ENTRY_SIGNAL_CREATED') ON CONFLICT (signal_id) DO NOTHING""", (signal.signal_id, f["evaluation_id"], signal.candidate_id, f["strategy_id"], f["instrument"], f["direction"], f["decision_time"], json.dumps(f, sort_keys=True), signal.entry_signal_hash))
             event_payload = json.dumps({k: f[k] for k in ("signal_id", "candidate_id", "evaluation_id", "evaluation_hash", "trace_hash", "entry_signal_hash", "strategy_ref", "strategy_id", "instrument", "direction", "decision_time", "signal_emitted_at")}, sort_keys=True)
@@ -104,13 +106,19 @@ def ingest_signal(conn: Any, signal: CanonicalSignal, *, occurred_at: str | None
 
 
 class LegacySignalTailer:
-    def __init__(self, source: Path, checkpoint: Path, conn: Any):
+    def __init__(self, source: Path, checkpoint: Path, conn: Any, *, evidence_class: str = "LIVE"):
         self.conn, self.source = conn, source
+        self.evidence_class = evidence_class
         self.tailer = AppendOnlyTailer(source, checkpoint, ingest=self._ingest, quarantine=self._quarantine)
         self.last_malformed: list[dict[str, Any]] = []
 
     def _ingest(self, raw: dict[str, Any]) -> None:
-        ingest_signal(self.conn, canonical_signal(raw, source_reference={"source_id": str(self.source), "source_offset": raw.get("source_offset")}), occurred_at=raw.get("signal_emitted_at") or raw.get("created_at"))
+        try:
+            evidence_class = "ROTATION_RECOVERY" if raw.get("_source_rotation_replay") else self.evidence_class
+            signal = canonical_signal(raw, source_reference={"source_id": str(self.source), "source_offset": raw.get("source_offset"), "evidence_class": evidence_class})
+        except (ValueError, TypeError, KeyError) as exc:
+            raise QuarantinedRecordError(str(exc)) from exc
+        ingest_signal(self.conn, signal, occurred_at=raw.get("signal_emitted_at") or raw.get("created_at"))
 
     def _quarantine(self, item: dict[str, Any]) -> None:
         with transaction(self.conn):

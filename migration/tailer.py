@@ -15,6 +15,10 @@ class TailerResult:
     offset: int
 
 
+class QuarantinedRecordError(ValueError):
+    """A syntactically valid JSON row that violates the canonical contract."""
+
+
 class AppendOnlyTailer:
     def __init__(self, source: Path, checkpoint: Path, *, ingest: Callable[[dict[str, Any]], None] | None = None,
                  quarantine: Callable[[dict[str, Any]], None] | None = None):
@@ -37,11 +41,21 @@ class AppendOnlyTailer:
             source_offset = cursor
             cursor += len(raw) + 1
             try:
-                record = json.loads(raw.decode("utf-8")); record.setdefault("source_path", str(self.source))
-                record.setdefault("source_line", line_no); record.setdefault("source_offset", source_offset); record.setdefault("canonical_hash", hashlib.sha256(raw).hexdigest())
-                records.append(record)
+                record = json.loads(raw.decode("utf-8"))
+                if not isinstance(record, dict):
+                    raise ValueError("signal JSONL row must be an object")
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                item = {"line": line_no, "source_offset": source_offset, "error": str(exc), "raw": raw.decode("utf-8", "replace"), "raw_sha256": hashlib.sha256(raw).hexdigest()}
+                malformed.append(item)
+                if self.quarantine: self.quarantine(item)
+                continue
+            record.setdefault("source_path", str(self.source))
+            record.setdefault("source_line", line_no); record.setdefault("source_offset", source_offset); record.setdefault("canonical_hash", hashlib.sha256(raw).hexdigest())
+            record["_source_rotation_replay"] = rotated
+            try:
                 if self.ingest: self.ingest(record)
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                records.append(record)
+            except QuarantinedRecordError as exc:
                 item = {"line": line_no, "source_offset": source_offset, "error": str(exc), "raw": raw.decode("utf-8", "replace"), "raw_sha256": hashlib.sha256(raw).hexdigest()}
                 malformed.append(item)
                 if self.quarantine: self.quarantine(item)

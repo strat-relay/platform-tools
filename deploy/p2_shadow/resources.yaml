@@ -1,0 +1,319 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: p2-signal-shadow-postgres-data
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: {storage: 2Gi}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: p2-signal-shadow-jetstream-data
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: p2-signal-shadow-evidence-data
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: p2-signal-shadow-postgres
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  type: ClusterIP
+  selector: {app: p2-signal-shadow-postgres}
+  ports: [{name: postgres, port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: p2-signal-shadow-postgres
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  serviceName: p2-signal-shadow-postgres
+  replicas: 1
+  selector:
+    matchLabels: {app: p2-signal-shadow-postgres}
+  template:
+    metadata:
+      labels: {app: p2-signal-shadow-postgres, app.kubernetes.io/part-of: p2-signal-shadow}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: postgres@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: POSTGRES_DB, value: p2_signal_shadow}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: POSTGRES_PASSWORD}}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{name: postgres, containerPort: 5432}]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 768Mi}
+          startupProbe:
+            exec: {command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']}
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec: {command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']}
+            periodSeconds: 5
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: p2-signal-shadow-postgres-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: p2-signal-shadow-nats
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  type: ClusterIP
+  selector: {app: p2-signal-shadow-nats}
+  ports: [{name: client, port: 4222, targetPort: 4222}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: p2-signal-shadow-nats
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  serviceName: p2-signal-shadow-nats
+  replicas: 1
+  selector:
+    matchLabels: {app: p2-signal-shadow-nats}
+  template:
+    metadata:
+      labels: {app: p2-signal-shadow-nats, app.kubernetes.io/part-of: p2-signal-shadow}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+      containers:
+        - name: nats
+          image: nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c]
+          args: ["exec nats-server -js -sd /data/jetstream --user \"$P2_NATS_USER\" --pass \"$P2_NATS_PASSWORD\""]
+          env:
+            - {name: P2_NATS_USER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_NATS_USER}}}
+            - {name: P2_NATS_PASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_NATS_PASSWORD}}}
+          ports: [{name: client, containerPort: 4222}]
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          startupProbe:
+            tcpSocket: {port: client}
+            periodSeconds: 5
+            failureThreshold: 20
+          readinessProbe:
+            tcpSocket: {port: client}
+            periodSeconds: 5
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: p2-signal-shadow-jetstream-data}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: p2-signal-shadow-worker
+  namespace: trading
+  labels: {app.kubernetes.io/part-of: p2-signal-shadow}
+spec:
+  replicas: 0
+  selector:
+    matchLabels: {app: p2-signal-shadow-worker}
+  template:
+    metadata:
+      labels: {app: p2-signal-shadow-worker, app.kubernetes.io/part-of: p2-signal-shadow}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: prepare-worker-runtime
+          image: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c]
+          args:
+            - >-
+              set -eu;
+              app="/data/app-${P2_SOURCE_SHA}";
+              venv="/data/venv-${P2_DEPS_SHA}";
+              mkdir -p "$app";
+              tar -xzf /bundle/source.tar.gz -C "$app";
+              if [ ! -x "$venv/bin/python" ]; then
+                python -m venv "$venv";
+                "$venv/bin/pip" install --no-cache-dir -r /bundle/requirements-postgres.txt -r /bundle/requirements-messaging.txt;
+              fi
+          env:
+            - {name: P2_SOURCE_SHA, value: "REPLACE_SOURCE_SHA"}
+            - {name: P2_DEPS_SHA, value: "REPLACE_DEPS_SHA"}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 350m, memory: 512Mi}
+          volumeMounts:
+            - {name: source-bundle, mountPath: /bundle, readOnly: true}
+            - {name: evidence, mountPath: /data}
+        - name: migrate-postgres
+          image: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c]
+          args: ["exec /data/venv-${P2_DEPS_SHA}/bin/python -m scripts.p2_shadow.prepare_db"]
+          env:
+            - {name: PYTHONPATH, value: /data/app-REPLACE_SOURCE_SHA}
+            - {name: P2_DEPS_SHA, value: "REPLACE_DEPS_SHA"}
+            - {name: PGHOST, value: p2-signal-shadow-postgres}
+            - {name: PGPORT, value: "5432"}
+            - {name: PGDATABASE, value: p2_signal_shadow}
+            - {name: PGUSER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: POSTGRES_USER}}}
+            - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: POSTGRES_PASSWORD}}}
+            - {name: P2_APP_USER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_APP_USER}}}
+            - {name: P2_APP_PASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_APP_PASSWORD}}}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          volumeMounts: [{name: evidence, mountPath: /data}]
+        - name: bootstrap-shadow-proof
+          image: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c]
+          args: ["exec /data/venv-${P2_DEPS_SHA}/bin/python -m scripts.p2_shadow.worker bootstrap"]
+          env:
+            - {name: PYTHONPATH, value: /data/app-REPLACE_SOURCE_SHA}
+            - {name: P2_DEPS_SHA, value: "REPLACE_DEPS_SHA"}
+            - {name: PGHOST, value: p2-signal-shadow-postgres}
+            - {name: PGPORT, value: "5432"}
+            - {name: PGDATABASE, value: p2_signal_shadow}
+            - {name: PGUSER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_APP_USER}}}
+            - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_APP_PASSWORD}}}
+            - {name: NATS_URL, value: nats://p2-signal-shadow-nats:4222}
+            - {name: P2_NATS_USER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_NATS_USER}}}
+            - {name: P2_NATS_PASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_NATS_PASSWORD}}}
+            - {name: P2_SOURCE_PATH, value: /work/runtime/orchestration/signals.jsonl}
+            - {name: P2_DATA_DIR, value: /data}
+            - {name: SIGNAL_DB_PRIMARY_ENABLED, value: "false"}
+            - {name: SIGNAL_JETSTREAM_PRIMARY_ENABLED, value: "false"}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          volumeMounts:
+            - {name: source-bundle, mountPath: /bundle, readOnly: true}
+            - {name: runtime, mountPath: /work/runtime, readOnly: true}
+            - {name: evidence, mountPath: /data}
+      containers:
+        - name: worker
+          image: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c]
+          args: ["exec /data/venv-${P2_DEPS_SHA}/bin/python -m scripts.p2_shadow.worker live"]
+          env:
+            - {name: PYTHONPATH, value: /data/app-REPLACE_SOURCE_SHA}
+            - {name: P2_DEPS_SHA, value: "REPLACE_DEPS_SHA"}
+            - {name: PGHOST, value: p2-signal-shadow-postgres}
+            - {name: PGPORT, value: "5432"}
+            - {name: PGDATABASE, value: p2_signal_shadow}
+            - {name: PGUSER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_APP_USER}}}
+            - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_APP_PASSWORD}}}
+            - {name: NATS_URL, value: nats://p2-signal-shadow-nats:4222}
+            - {name: P2_NATS_USER, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_NATS_USER}}}
+            - {name: P2_NATS_PASSWORD, valueFrom: {secretKeyRef: {name: p2-signal-shadow-db, key: P2_NATS_PASSWORD}}}
+            - {name: P2_SOURCE_PATH, value: /work/runtime/orchestration/signals.jsonl}
+            - {name: P2_DATA_DIR, value: /data}
+            - {name: P2_A1_COMMIT, value: 3a39fd783874303d8d526c7d6c52387c43925928}
+            - {name: P2_SHADOW_COMMIT, value: "REPLACE_SOURCE_COMMIT"}
+            - {name: P2_IMAGE_REF, value: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9}
+            - {name: P2_SOURCE_SHA, value: "REPLACE_SOURCE_SHA"}
+            - {name: P2_SOURCE_BUNDLE_SHA, value: "REPLACE_SOURCE_BUNDLE_SHA"}
+            - {name: P2_OBSERVED_RUNNER_IMAGE, value: "REPLACE_RUNNER_IMAGE"}
+            - {name: P2_RUNNER_DEPLOYMENT_GENERATION, value: "REPLACE_RUNNER_GENERATION"}
+            - {name: P2_RUNNER_CONFIG_SHA256, value: "REPLACE_RUNNER_CONFIG_SHA256"}
+            - {name: P2_POSTGRES_IMAGE_REF, value: postgres@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c}
+            - {name: P2_NATS_IMAGE_REF, value: nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927}
+            - {name: SIGNAL_DB_PRIMARY_ENABLED, value: "false"}
+            - {name: SIGNAL_JETSTREAM_PRIMARY_ENABLED, value: "false"}
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: POD_UID, valueFrom: {fieldRef: {fieldPath: metadata.uid}}}
+          resources:
+            requests: {cpu: 75m, memory: 128Mi}
+            limits: {cpu: 300m, memory: 384Mi}
+          readinessProbe:
+            exec: {command: [sh, -c, 'PYTHONPATH=/data/app-${P2_SOURCE_SHA} /data/venv-${P2_DEPS_SHA}/bin/python -m scripts.p2_shadow.health']}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec: {command: [sh, -c, 'PYTHONPATH=/data/app-${P2_SOURCE_SHA} /data/venv-${P2_DEPS_SHA}/bin/python -m scripts.p2_shadow.health']}
+            periodSeconds: 20
+            failureThreshold: 3
+          volumeMounts:
+            - {name: runtime, mountPath: /work/runtime, readOnly: true}
+            - {name: evidence, mountPath: /data}
+      volumes:
+        - name: source-bundle
+          configMap: {name: p2-signal-shadow-source}
+        - name: runtime
+          persistentVolumeClaim: {claimName: mt5-native-bridge-runtime, readOnly: true}
+        - name: evidence
+          persistentVolumeClaim: {claimName: p2-signal-shadow-evidence-data}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: p2-signal-shadow-isolation
+  namespace: trading
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: p2-signal-shadow}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: p2-signal-shadow-worker}}
+      ports:
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 4222}
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: p2-signal-shadow-postgres}}
+      ports: [{protocol: TCP, port: 5432}]
+    - to:
+        - podSelector: {matchLabels: {app: p2-signal-shadow-nats}}
+      ports: [{protocol: TCP, port: 4222}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports: [{protocol: TCP, port: 443}]

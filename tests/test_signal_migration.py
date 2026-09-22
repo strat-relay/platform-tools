@@ -29,6 +29,7 @@ class SignalMigrationTests(unittest.TestCase):
         self.assertEqual(signal.evaluation.trace_fidelity.value, "L1")
         self.assertEqual(signal.source_reference["source_reference"], "events.jsonl:1")
         self.assertNotIn("outcome", signal.evaluation.provenance)
+        self.assertEqual(signal.source_provenance["outcome"], "WIN")
         self.assertEqual(signal.canonical_hash, signal.evaluation.evaluation_hash)
         self.assertEqual(signal.canonical_hash, canonical_signal(self.raw(), source_reference="events.jsonl:1").canonical_hash)
 
@@ -37,6 +38,20 @@ class SignalMigrationTests(unittest.TestCase):
         second = canonical_signal({**self.raw(), "as_of": "2026-09-22T00:00:00Z"}, source_reference={"source_id": "b", "source_offset": 999})
         self.assertEqual(first.evaluation.evaluation_hash, second.evaluation.evaluation_hash)
         self.assertEqual(first.entry_signal_hash, second.entry_signal_hash)
+
+    def test_full_source_provenance_is_retained_without_hashing_outcomes(self):
+        original = self.raw()
+        changed_outcome = {**original, "provenance": {**original["provenance"], "outcome": "LOSS"}}
+        first = canonical_signal(original)
+        second = canonical_signal(changed_outcome)
+        self.assertEqual(first.source_provenance["outcome"], "WIN")
+        self.assertEqual(second.source_provenance["outcome"], "LOSS")
+        self.assertEqual(first.entry_signal_hash, second.entry_signal_hash)
+
+    def test_semantic_geometry_changes_entry_signal_hash(self):
+        first = canonical_signal(self.raw())
+        second = canonical_signal({**self.raw(), "target_price": 103})
+        self.assertNotEqual(first.entry_signal_hash, second.entry_signal_hash)
 
     def test_decision_time_is_normalized_and_epoch_rejected(self):
         self.assertEqual(canonical_signal({**self.raw(), "decision_time": "2026-09-21T02:00:00-02:00"}).evaluation.decision_time, "2026-09-21T04:00:00.000000Z")
