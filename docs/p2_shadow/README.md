@@ -21,7 +21,7 @@ own persistent volume claim.
 
 | Component | Request | Limit | Persistent storage |
 |---|---:|---:|---:|
-| PostgreSQL | 100m CPU / 256Mi | 500m / 768Mi | 2Gi |
+| PostgreSQL | 100m CPU / 256Mi | 500m / 512Mi | 2Gi |
 | NATS + JetStream | 50m / 96Mi | 250m / 256Mi | 1Gi |
 | P2 worker | 75m / 128Mi | 300m / 384Mi | 1Gi evidence PVC |
 | Worker init containers | 50–100m / 96–128Mi each | 250–350m / 256–512Mi | shared evidence PVC |
