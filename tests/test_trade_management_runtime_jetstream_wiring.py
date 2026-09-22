@@ -58,6 +58,7 @@ class ActivationBoundaryAndBootstrapTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.deliver_policy, DeliverPolicy.NEW)
         self.assertEqual(config.filter_subject, "signal.entry.created.v1")
         self.assertEqual(config.durable_name, OPEN_CONSUMER)
+        self.assertTrue(config.deliver_subject.startswith(f"_INBOX.{OPEN_CONSUMER}."))
 
     async def test_bootstrap_never_recreates_the_consumer_on_a_second_call(self):
         js = FakeJetStreamManager()
@@ -147,6 +148,13 @@ class DuplicateAndRedeliveryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class EndToEndTests(unittest.IsolatedAsyncioTestCase):
+    async def test_tm_none_push_consumer_has_a_delivery_subject(self):
+        js = FakeJetStreamManager()
+        await bootstrap_tm_none_consumer(js, consumer_name=DECISION_CONSUMER)
+        stream, config = js.add_consumer_calls[0]
+        self.assertEqual(stream, "TRADING_OBSERVATION")
+        self.assertTrue(config.deliver_subject.startswith(f"_INBOX.{DECISION_CONSUMER}."))
+
     async def test_new_entry_signal_flows_through_to_withheld_hold(self):
         js = FakeJetStreamManager()
         js.streams["TRADING_CORE"] = FakeStream(subjects=["signal.entry.created.v1"])

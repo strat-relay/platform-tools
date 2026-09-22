@@ -8,6 +8,7 @@ design (mission section 11).
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any, Callable
 
 from infrastructure.messaging.contracts import EventEnvelope
@@ -36,6 +37,7 @@ async def bootstrap_tm_none_consumer(js_manager: Any, *, consumer_name: str) -> 
         pass
     config = ConsumerConfig(durable_name=consumer_name, ack_policy=AckPolicy.EXPLICIT,
                             deliver_policy=DeliverPolicy.ALL, filter_subject=SUBJECT,
+                            deliver_subject=f"_INBOX.{consumer_name}.{uuid.uuid4().hex}",
                             ack_wait=30, max_deliver=-1)
     await js_manager.add_consumer(STREAM, config)
 

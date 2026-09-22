@@ -6,6 +6,7 @@ that instant. `trade_management/runtime/activation.py` persists the proof of whe
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from trade_management.managed_trade import EntrySignalRecordMissing
@@ -33,6 +34,7 @@ async def bootstrap_open_consumer(js_manager: Any, conn: Any, *, consumer_name: 
         stream_info = await js_manager.stream_info(STREAM)
         config = ConsumerConfig(durable_name=consumer_name, ack_policy=AckPolicy.EXPLICIT,
                                 deliver_policy=DeliverPolicy.NEW, filter_subject=SUBJECT,
+                                deliver_subject=f"_INBOX.{consumer_name}.{uuid.uuid4().hex}",
                                 ack_wait=30, max_deliver=-1)
         await js_manager.add_consumer(STREAM, config)
 
