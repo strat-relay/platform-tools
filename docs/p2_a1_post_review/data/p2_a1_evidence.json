@@ -1,0 +1,209 @@
+{
+  "checks": [
+    {
+      "claim": "evaluation_id (evaluation_hash) is IDENTICAL for the same logical signal regardless of source_offset or source path (restart/rechunk/relocation invariant)",
+      "evidence": "b70fe1e19672 == b70fe1e19672 == b70fe1e19672",
+      "id": "V1",
+      "result": "PASS"
+    },
+    {
+      "claim": "the hashed Evaluation.provenance contains no source_reference/path/offset field (source location is stored outside the hash, in CanonicalSignal.source_reference)",
+      "evidence": "provenance keys=['classification', 'source_strategy_fingerprint']",
+      "id": "V2",
+      "result": "PASS"
+    },
+    {
+      "claim": "future/outcome provenance keys are excluded by an ALLOWLIST (not a blocklist) of strategy-provided provenance",
+      "evidence": "provenance={'classification': 'PROSPECTIVE_ORCHESTRATOR_SIGNAL', 'source_strategy_fingerprint': '70dba71d...'}",
+      "id": "V3",
+      "result": "PASS"
+    },
+    {
+      "claim": "a different signal_id under the same strategy_ref does NOT collide (no accidental Evaluation identity collision)",
+      "evidence": "distinct signal_id -> distinct hash",
+      "id": "V4",
+      "result": "PASS"
+    },
+    {
+      "claim": "Context and Liquidity both label strategy_version 'V1' but strategy_ref disambiguates them, and P2-A1 no longer writes a shared platform.strategy_versions row (strategy_version_id passed as NULL)",
+      "evidence": "ctx=CONTEXT_STRUCTURE_RETRACE_V1@V1 liq=LIQUIDITY_DISPLACEMENT_SCALP_XAUUSD_33_V1@V1",
+      "id": "V5",
+      "result": "PASS"
+    },
+    {
+      "claim": "no INSERT into platform.strategy_versions exists in migration/signal.py any more",
+      "evidence": "grep",
+      "id": "V6",
+      "result": "PASS"
+    },
+    {
+      "claim": "strategy_metadata (e.g. Liquidity entry_fraction) is preserved verbatim and changes entry_signal_hash; parameter_set_status is explicit (LEGACY_IMPLICIT_IN_STRATEGY_ID), not a silent NULL",
+      "evidence": "status=LEGACY_IMPLICIT_IN_STRATEGY_ID metadata={'entry_fraction': 0.3333333333333333}",
+      "id": "V7",
+      "result": "PASS"
+    },
+    {
+      "claim": "decision_time is normalised to UTC ISO-8601 with microseconds and a trailing Z; an epoch-only value is rejected",
+      "evidence": "canonical_signal decision_time normalisation",
+      "id": "V8",
+      "result": "PASS"
+    },
+    {
+      "claim": "epoch-only decision_time raises ValueError from canonical_signal itself",
+      "evidence": "canonical_signal({'decision_time': 1758412800}) raised",
+      "id": "V9",
+      "result": "PASS"
+    },
+    {
+      "claim": "a malformed line triggers the quarantine callback (durable persistence hook) at both the first run and after a simulated restart, with distinct byte offsets",
+      "evidence": "quarantine calls=2 offsets=[782, 791]",
+      "id": "V10",
+      "result": "PASS"
+    },
+    {
+      "claim": "quarantine records carry (source_offset, raw_sha256, error) - the fields migration/signal.py._quarantine needs for its UNIQUE (source_id, source_offset, raw_sha256) key",
+      "evidence": "keys=['error', 'line', 'raw', 'raw_sha256', 'source_offset']",
+      "id": "V11",
+      "result": "PASS"
+    },
+    {
+      "claim": "source_offset is a physical byte offset into the file (monotonic, not reset per read chunk)",
+      "evidence": "offsets=[782, 791]",
+      "id": "V12",
+      "result": "PASS"
+    },
+    {
+      "claim": "a syntactically-valid-JSON line whose CONTENT the ingest function rejects (e.g. epoch decision_time) propagates UNCAUGHT out of AppendOnlyTailer.run_once() instead of being quarantined - checkpoint is not written, so a restart re-reads and re-crashes on the same line",
+      "evidence": "crashed=True checkpoint_written=False quarantine_calls=0",
+      "id": "V13",
+      "result": "PASS"
+    },
+    {
+      "claim": "AppendOnlyTailer.run_once only catches (UnicodeDecodeError, json.JSONDecodeError) around the ingest call, not exceptions raised by the ingest callback itself",
+      "evidence": "tailer.py exception scope",
+      "id": "V14",
+      "result": "PASS"
+    },
+    {
+      "claim": "a real reconciler exists that re-derives canonical signals from the LEGACY FILE (not a synthetic fixture) and compares them to strategy.entry_signals by signal_id",
+      "evidence": "migration/signal_reconcile.py",
+      "id": "V15",
+      "result": "PASS"
+    },
+    {
+      "claim": "the comparator checks version, hash, and an extended set of semantic fields (strategy_ref, parameter_set_ref, geometry, legacy refs, terminal_state) before declaring MATCH",
+      "evidence": "reconcile.py semantic field list",
+      "id": "V16",
+      "result": "PASS"
+    },
+    {
+      "claim": "EXPECTED_LAG and KNOWN_LEGACY_ANOMALY exist as enum values in ReconciliationStatus but the comparator (reconcile()) never assigns them - no time-window/lag tolerance exists anywhere in the comparison logic",
+      "evidence": "ReconciliationStatus enum declares both; reconcile() body assigns neither",
+      "id": "V17",
+      "result": "PASS"
+    },
+    {
+      "claim": "a signal present in the legacy file but not yet in the database is unconditionally MISSING_DATABASE with no age check, so a continuous (non-quiesced) reconciliation run will report legitimately in-flight records as a zero-tolerance finding",
+      "evidence": "no lag-window logic found in reconcile.py",
+      "id": "V18",
+      "result": "PASS"
+    },
+    {
+      "claim": "malformed legacy lines encountered BY THE RECONCILER are recorded as MALFORMED_LEGACY_LINE findings and force result['clean']=False",
+      "evidence": "signal_reconcile.py",
+      "id": "V19",
+      "result": "PASS"
+    },
+    {
+      "claim": "reconciliation runs and findings are persisted durably (platform.reconciliation_runs / platform.reconciliation_findings), not just returned in memory",
+      "evidence": "signal_reconcile.py",
+      "id": "V20",
+      "result": "PASS"
+    },
+    {
+      "claim": "OutboxRelay selects unpublished/expired-lease rows FOR UPDATE SKIP LOCKED, leases them, publishes, then marks PUBLISHED; a crash between lease and mark leaves the row eligible again after the lease expires (retry/restart-safe)",
+      "evidence": "outbox_relay.py",
+      "id": "V21",
+      "result": "PASS"
+    },
+    {
+      "claim": "a publish exception marks the row FAILED (attempts incremented) rather than raising out of the batch, and FAILED rows are re-selected on the next batch (publish_status <> 'PUBLISHED')",
+      "evidence": "outbox_relay.py",
+      "id": "V22",
+      "result": "PASS"
+    },
+    {
+      "claim": "JetStreamPublisher.publish sets header Nats-Msg-Id = envelope.event_id on every publish (including via the relay, which does not override headers)",
+      "evidence": "jetstream.py",
+      "id": "V23",
+      "result": "PASS"
+    },
+    {
+      "claim": "OutboxRelay reconstructs EventEnvelope field-for-field from the SELECT column order (event_id,event_type,aggregate_type,aggregate_id,aggregate_version,occurred_at,payload,correlation_id,causation_id) without a positional mismatch",
+      "evidence": "outbox_relay.py positional construction",
+      "id": "V24",
+      "result": "PASS"
+    },
+    {
+      "claim": "SignalAuthorityFlags defaults to both false, requires an explicit true/false string, and JETSTREAM_PRIMARY requires DB_PRIMARY",
+      "evidence": "dataclass default",
+      "id": "V25",
+      "result": "PASS"
+    },
+    {
+      "claim": "validate() fails closed when a flag is set but the corresponding backend is not confirmed available",
+      "evidence": "SignalAuthorityFlags(True, False).validate(db_available=False) raised RuntimeError",
+      "id": "V26",
+      "result": "PASS"
+    },
+    {
+      "claim": "strategy.entry_signals has a UNIQUE index on the canonical result key (strategy_id, strategy_version, parameter_set_ref, instrument, decision_time, candidate_id)",
+      "evidence": "011 DDL",
+      "id": "V27",
+      "result": "PASS"
+    },
+    {
+      "claim": "strategy.entry_signals has NO reference_entry_semantics column; only the raw entry_type is persisted (the A7 enum is not materialised at ingest time)",
+      "evidence": "011 DDL",
+      "id": "V28",
+      "result": "PASS"
+    },
+    {
+      "claim": "no backfill tool exists for entry_signals; rows ingested before this migration (under the pre-A1 schema) have no entry_signals row and are not automatically repaired",
+      "evidence": "git grep backfill",
+      "id": "V29",
+      "result": "PASS"
+    },
+    {
+      "claim": "migration 011 uses the same idempotent CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS / DROP+ADD CONSTRAINT pattern as 010, and is checksum-verified by apply_migrations",
+      "evidence": "011 DDL + foundation.py",
+      "id": "V30",
+      "result": "PASS"
+    },
+    {
+      "claim": "every changed file outside docs/tests is confined to migration/, infrastructure/messaging/, postgres/ (no strategy, Trade Manager, bridge, execution, orchestration, control_api file touched)",
+      "evidence": "outside files=[]",
+      "id": "V31",
+      "result": "PASS"
+    },
+    {
+      "claim": "frozen strategy files, the Phase 7 observer, the execution consumer and orchestration/storage.py (the OD-01 repair) are byte-identical to the P2 handoff commit (8f49aef)",
+      "evidence": "git diff --stat over frozen + execution + trade_manager",
+      "id": "V32",
+      "result": "PASS"
+    },
+    {
+      "claim": "no entitlement/subscription/customer/broker-ticket/lot column or concept was introduced anywhere in the diff",
+      "evidence": "git grep",
+      "id": "V33",
+      "result": "PASS"
+    },
+    {
+      "claim": "migration/gates.py (evaluate_signal_gates) is unchanged since 8f49aef: no new gate criteria account for the relay/Nats-Msg-Id/quarantine additions",
+      "evidence": "git diff migration/gates.py",
+      "id": "V34",
+      "result": "PASS"
+    }
+  ],
+  "p2_a1_commit": "3a39fd783874303d8d526c7d6c52387c43925928"
+}
