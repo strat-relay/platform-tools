@@ -8,8 +8,9 @@
 #   limits.cpu:     3600m -> 3750m         (+150m, exactly this pod's cpu limit)
 #   limits.memory:  4Gi -> 4160Mi          (3904Mi existing + 256Mi this pod's memory limit)
 # requests.cpu (existing ceiling "1") and requests.memory (existing ceiling 2Gi) are left
-# unchanged: this pod's own requests (cpu 25m, memory 64Mi) are small relative to those
-# ceilings and current requests usage was not reported as constrained.
+# unchanged: this pod's own requests (cpu 50m, memory 64Mi) fit the existing request ceilings
+# with observed usage (875m CPU and 1568Mi memory), leaving headroom below
+# requests.cpu 1 and requests.memory 2Gi.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
