@@ -19,6 +19,16 @@ SUBJECTS = frozenset({
     "execution.result.recorded.v1",
     "broker.state.updated.v1",
     "ownership.changed.v1",
+    # NATS-first real-time data plane (architecture/nats-first-data-plane).
+    # Deliberately outside the "strategy."/"signal." prefixes so it is never
+    # picked up by TRADING_CORE's prefix-derived subject list below: this
+    # subject's durable JetStream acceptance, not a PostgreSQL commit, is the
+    # acceptance event, and it must stay on its own stream (SIGNAL_REALTIME)
+    # so its ordering/retention/consumer set never entangles with the
+    # DB-first outbox-relay-originated `signal.entry.created.v1` reporting
+    # event on TRADING_CORE. The dormant SIGNAL_DATA_PLANE_MODE=NATS_FIRST
+    # path is the only producer; DB_FIRST (the default) never uses it.
+    "realtime.signal.entry.accepted.v1",
 })
 
 STREAMS = {
@@ -26,6 +36,13 @@ STREAMS = {
                      "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
     "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.")))),
                    "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
+    # Real-time hot path only. Retention is deliberately short: durable
+    # acceptance for delivery, not long-term audit (PostgreSQL, via the
+    # projector, remains the query/reporting history). Sizing is an open
+    # decision (see docs/nats_first_data_plane); the value below is a
+    # prototype default, not a production recommendation.
+    "SIGNAL_REALTIME": {"subjects": ("realtime.signal.entry.accepted.v1",),
+                        "storage": "file", "retention": "limits", "max_age": 7 * 24 * 60 * 60},
 }
 
 
