@@ -1,9 +1,10 @@
+import hashlib
 import os
 import uuid
 import unittest
 
 from postgres.config import PostgresConfig
-from postgres.db import apply_migrations, connect, transaction
+from postgres.db import MIGRATIONS, apply_migrations, connect, transaction
 from postgres.phase6 import Phase6Store, canonical_hash
 
 
@@ -155,6 +156,300 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(cur.fetchone()[0], 0)
             cur.execute("SELECT count(*) FROM platform.migration_boundaries WHERE boundary_id=%s", (f"boundary-{suffix}",))
             self.assertEqual(cur.fetchone()[0], 0)
+
+
+@unittest.skipUnless(_database_available(), "PostgreSQL is not available; run through Compose")
+class TradeManagementRealPostgresTests(unittest.TestCase):
+    """P4.2 real-PostgreSQL proof (architecture/p4-2-managed-trade integration): migration 013
+    applies cleanly, the new tables/constraints/indexes exist, immutability/append-only
+    protections actually enforce at the database level (not just in the in-process fake used by
+    tests/test_trade_management_*.py), and P2's schema is untouched. No trade_management/*.py
+    code is imported here - this exercises the DDL directly, independent of the application
+    layer, against an isolated instance (never production PostgreSQL)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conn = connect(PostgresConfig.from_env())
+        apply_migrations(cls.conn)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.conn.close()
+
+    def setUp(self):
+        # Defensive: a query error in one test (e.g. a genuine SQL bug) leaves psycopg's shared
+        # class-level connection in an aborted-transaction state; without this, that failure
+        # would cascade into every subsequent test in the class as a spurious
+        # InFailedSqlTransaction rather than each test's own real outcome.
+        self.conn.rollback()
+
+    def _tm_version(self, suffix: str, *, status: str = "FROZEN") -> str:
+        manifest_hash = hashlib.sha256(f"test-manifest-{suffix}".encode()).hexdigest()
+        tm_version_id = f"TMV_{manifest_hash[:24]}"
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("""INSERT INTO trade_management.trade_manager_version
+                    (tm_version_id, evaluator_id, label, manifest, manifest_hash, status)
+                    VALUES (%s,%s,%s,%s::jsonb,%s,%s)""",
+                           (tm_version_id, "tm-none.v1", f"TEST-{suffix}", "{}", manifest_hash, status))
+        return tm_version_id
+
+    def _entry_signal(self, suffix: str) -> str:
+        evaluation_id = f"eval-{suffix}"
+        signal_id = f"sig-{suffix}"
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("""INSERT INTO strategy.evaluations
+                    (evaluation_id, strategy_id, instrument, decision_time, decision, trace_fidelity,
+                     runtime_version, evaluator_version, canonical_payload, canonical_hash)
+                    VALUES (%s,'TEST_STRAT','XAUUSD', now(), 'SIGNAL', 'L0', 'test.v1', 'test.v1',
+                            '{}'::jsonb, %s)""",
+                           (evaluation_id, f"canonhash-{suffix}"))
+                cur.execute("""INSERT INTO strategy.entry_signals
+                    (signal_id, candidate_id, evaluation_id, strategy_ref, strategy_id, strategy_version,
+                     instrument, decision_time, evaluation_hash, trace_hash, terminal_state, entry_signal_hash,
+                     entry_price, stop_price, target_price)
+                    VALUES (%s,%s,%s,'TEST_STRAT@V1','TEST_STRAT','V1','XAUUSD', now(), %s, %s, 'ENTRY_SIGNAL_CREATED',
+                            %s, 100, 99, 103)""",
+                           (signal_id, f"cand-{suffix}", evaluation_id, f"evalhash-{suffix}",
+                            f"tracehash-{suffix}", f"entryhash-{suffix}"))
+        return signal_id
+
+    def _managed_trade(self, suffix: str, *, tm_version_id: str, signal_id: str) -> str:
+        managed_trade_id = f"MT-{suffix}"
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("""INSERT INTO trade_management.managed_trade
+                    (managed_trade_id, entry_signal_id, entry_signal_hash, strategy_id, strategy_version,
+                     strategy_ref, instrument, direction, decision_time, reference_entry_price, initial_stop,
+                     initial_target, tm_version_id, tm_binding_id, binding_hash, tm_bound_at,
+                     binding_resolution, evidence_mode, eligibility)
+                    VALUES (%s,%s,%s,'TEST_STRAT','V1','TEST_STRAT@V1','XAUUSD','LONG', now(), 100, 99, 103,
+                            %s,%s,%s, now(), 'DEFAULT_TM_NONE', 'FORWARD', 'ELIGIBILITY_UNEVALUATED')""",
+                           (managed_trade_id, signal_id, f"entryhash-{suffix}", tm_version_id,
+                            f"bind-{suffix}", f"bindhash-{suffix}"))
+        return managed_trade_id
+
+    def test_migrations_through_014_are_applied_and_recorded(self):
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT version FROM platform.schema_migrations WHERE version = ANY(%s)",
+                        (["011", "012", "013", "014"],))
+            self.assertEqual({row[0] for row in cur.fetchall()}, {"011", "012", "013", "014"})
+
+    def test_tm_none_1_production_seed_is_registered_frozen_and_shadow_only(self):
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT evaluator_id, label, manifest_hash, status
+                          FROM trade_management.trade_manager_version
+                          WHERE tm_version_id = 'TMV_ecaca5f080f9f79bb18cc936'""")
+            row = cur.fetchone()
+        self.assertIsNotNone(row, "TM-NONE-1 must be seeded by 014_tm_none_1_seed.sql")
+        evaluator_id, label, manifest_hash, status = row
+        self.assertEqual(evaluator_id, "tm-none.v1")
+        self.assertEqual(label, "TM-NONE-1")
+        self.assertEqual(manifest_hash, "ecaca5f080f9f79bb18cc936fb3867420c416eb372f998f3ec7c175369b5ac0d")
+        self.assertEqual(status, "FROZEN")
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT publication_eligibility FROM trade_management.tm_version_promotion
+                          WHERE tm_version_id = 'TMV_ecaca5f080f9f79bb18cc936'""")
+            self.assertEqual([r[0] for r in cur.fetchall()], ["SHADOW_ONLY"])
+
+    def test_tm_none_1_seed_is_idempotent_on_reapplication(self):
+        # Re-running the seed's own statements directly (not through the checksum-gated
+        # migration runner) must still be a safe no-op - the mission's "deterministic/
+        # idempotent" requirement, proven independent of apply_migrations()'s own bookkeeping.
+        seed_sql = (MIGRATIONS / "014_tm_none_1_seed.sql").read_text(encoding="utf-8")
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute(seed_sql)
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM trade_management.trade_manager_version WHERE tm_version_id = 'TMV_ecaca5f080f9f79bb18cc936'")
+            self.assertEqual(cur.fetchone()[0], 1)
+            cur.execute("SELECT count(*) FROM trade_management.tm_version_promotion WHERE tm_version_id = 'TMV_ecaca5f080f9f79bb18cc936'")
+            self.assertEqual(cur.fetchone()[0], 1)
+
+    def test_migration_reapplication_is_a_safe_noop(self):
+        self.assertEqual(apply_migrations(self.conn), [])
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM trade_management.trade_manager_version")
+            cur.fetchone()  # table still queryable; reapplication did not corrupt it
+
+    def test_expected_tables_constraints_and_indexes_exist(self):
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT to_regclass(x) FROM unnest(%s::text[]) AS x""",
+                        (["trade_management.trade_manager_version", "trade_management.tm_version_promotion",
+                          "trade_management.legacy_stream_binding", "trade_management.managed_trade",
+                          "trade_management.managed_trade_skip", "trade_management.managed_trade_quarantine",
+                          "trade_management.market_snapshot", "trade_management.trade_observation",
+                          "trade_management.trade_manager_decision", "trade_management.publication_decision"],))
+            self.assertTrue(all(row[0] is not None for row in cur.fetchall()))
+            cur.execute("""SELECT indexname FROM pg_indexes WHERE schemaname='trade_management'
+                          AND indexname IN ('managed_trade_strategy_idx', 'managed_trade_state_idx',
+                                            'market_snapshot_instrument_idx', 'trade_manager_decision_trade_idx')""")
+            self.assertEqual({row[0] for row in cur.fetchall()},
+                             {"managed_trade_strategy_idx", "managed_trade_state_idx",
+                              "market_snapshot_instrument_idx", "trade_manager_decision_trade_idx"})
+
+    def test_managed_trade_binding_and_geometry_columns_are_immutable(self):
+        suffix = uuid.uuid4().hex[:12]
+        tm_version_id = self._tm_version(suffix)
+        signal_id = self._entry_signal(suffix)
+        managed_trade_id = self._managed_trade(suffix, tm_version_id=tm_version_id, signal_id=signal_id)
+
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("UPDATE trade_management.managed_trade SET decision_time = now() WHERE managed_trade_id = %s",
+                               (managed_trade_id,))
+        other_tm_version_id = self._tm_version(suffix + "-other")
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("UPDATE trade_management.managed_trade SET tm_version_id = %s WHERE managed_trade_id = %s",
+                               (other_tm_version_id, managed_trade_id))
+
+        # Mutable columns (state bookkeeping) remain writable.
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("UPDATE trade_management.managed_trade SET last_observation_seq = 1 WHERE managed_trade_id = %s",
+                           (managed_trade_id,))
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT last_observation_seq, decision_time FROM trade_management.managed_trade WHERE managed_trade_id = %s",
+                       (managed_trade_id,))
+            seq, _ = cur.fetchone()
+            self.assertEqual(seq, 1)
+
+    def test_trade_manager_version_immutable_except_frozen_to_retired(self):
+        suffix = uuid.uuid4().hex[:12]
+        tm_version_id = self._tm_version(suffix, status="FROZEN")
+
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("UPDATE trade_management.trade_manager_version SET manifest = '{\"x\":1}'::jsonb WHERE tm_version_id = %s",
+                               (tm_version_id,))
+
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("UPDATE trade_management.trade_manager_version SET status = 'RETIRED' WHERE tm_version_id = %s",
+                           (tm_version_id,))
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT status FROM trade_management.trade_manager_version WHERE tm_version_id = %s", (tm_version_id,))
+            self.assertEqual(cur.fetchone()[0], "RETIRED")
+
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("DELETE FROM trade_management.trade_manager_version WHERE tm_version_id = %s",
+                               (tm_version_id,))
+
+    def test_legacy_stream_binding_is_append_only(self):
+        suffix = uuid.uuid4().hex[:12]
+        tm_version_id = self._tm_version(suffix)
+        binding_id = f"BIND-{suffix}"
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("""INSERT INTO trade_management.legacy_stream_binding
+                    (binding_id, strategy_id, tm_version_id, valid_from, binding_hash)
+                    VALUES (%s,'TEST_STRAT',%s, now(), %s)""",
+                           (binding_id, tm_version_id, f"bindhash-{suffix}"))
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("UPDATE trade_management.legacy_stream_binding SET binding_hash = 'changed' WHERE binding_id = %s",
+                               (binding_id,))
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("DELETE FROM trade_management.legacy_stream_binding WHERE binding_id = %s", (binding_id,))
+
+    def test_observation_uniqueness_prevents_silent_overwrite(self):
+        # No explicit trigger on trade_observation (A6/A7 rely on the content-addressed
+        # observation_id PK + no ON CONFLICT clause, per docs/p4_2_managed_trade/README.md);
+        # this proves that protection actually holds at the database level: a second INSERT of
+        # the same observation_id is rejected, not silently accepted as an overwrite.
+        suffix = uuid.uuid4().hex[:12]
+        tm_version_id = self._tm_version(suffix)
+        signal_id = self._entry_signal(suffix)
+        managed_trade_id = self._managed_trade(suffix, tm_version_id=tm_version_id, signal_id=signal_id)
+        snapshot_id = f"MSN-{suffix}"
+        observation_id = f"TOBS-{suffix}"
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("""INSERT INTO trade_management.market_snapshot
+                    (market_snapshot_id, provider_id, instrument, source_timestamp, bid, ask, data_status, quote_hash)
+                    VALUES (%s,'test-provider','XAUUSD', now(), 100, 100.2, 'FORWARD', %s)""",
+                           (snapshot_id, f"quotehash-{suffix}"))
+                cur.execute("""INSERT INTO trade_management.trade_observation
+                    (observation_id, managed_trade_id, observation_seq, market_snapshot_id, tm_version_id,
+                     observed_at, effective_at, data_status, payload_hash)
+                    VALUES (%s,%s,1,%s,%s, now(), now(), 'FORWARD', %s)""",
+                           (observation_id, managed_trade_id, snapshot_id, tm_version_id, f"payloadhash-{suffix}"))
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("""INSERT INTO trade_management.trade_observation
+                        (observation_id, managed_trade_id, observation_seq, market_snapshot_id, tm_version_id,
+                         observed_at, effective_at, data_status, payload_hash)
+                        VALUES (%s,%s,2,%s,%s, now(), now(), 'FORWARD', %s)""",
+                               (observation_id, managed_trade_id, snapshot_id, tm_version_id, "different-hash"))
+
+    def test_trade_manager_decision_is_immutable(self):
+        suffix = uuid.uuid4().hex[:12]
+        tm_version_id = self._tm_version(suffix)
+        signal_id = self._entry_signal(suffix)
+        managed_trade_id = self._managed_trade(suffix, tm_version_id=tm_version_id, signal_id=signal_id)
+        snapshot_id = f"MSN-{suffix}"
+        observation_id = f"TOBS-{suffix}"
+        decision_id = f"TMD-{suffix}"
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("""INSERT INTO trade_management.market_snapshot
+                    (market_snapshot_id, provider_id, instrument, source_timestamp, bid, ask, data_status, quote_hash)
+                    VALUES (%s,'test-provider','XAUUSD', now(), 100, 100.2, 'FORWARD', %s)""",
+                           (snapshot_id, f"quotehash-{suffix}"))
+                cur.execute("""INSERT INTO trade_management.trade_observation
+                    (observation_id, managed_trade_id, observation_seq, market_snapshot_id, tm_version_id,
+                     observed_at, effective_at, data_status, payload_hash)
+                    VALUES (%s,%s,1,%s,%s, now(), now(), 'FORWARD', %s)""",
+                           (observation_id, managed_trade_id, snapshot_id, tm_version_id, f"payloadhash-{suffix}"))
+                cur.execute("""INSERT INTO trade_management.trade_manager_decision
+                    (decision_id, managed_trade_id, tm_version_id, observation_id, observation_seq,
+                     action, decision_time, data_status)
+                    VALUES (%s,%s,%s,%s,1,'HOLD', now(), 'FORWARD')""",
+                           (decision_id, managed_trade_id, tm_version_id, observation_id))
+                cur.execute("""INSERT INTO trade_management.publication_decision(decision_id, outcome, reason)
+                              VALUES (%s,'WITHHELD','NOT_ACTIONABLE_HOLD')""", (decision_id,))
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("UPDATE trade_management.trade_manager_decision SET action = 'EXIT' WHERE decision_id = %s",
+                               (decision_id,))
+        with self.assertRaises(Exception):
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("DELETE FROM trade_management.trade_manager_decision WHERE decision_id = %s", (decision_id,))
+
+    def test_p2_schema_and_relational_mechanisms_remain_intact(self):
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT to_regclass('strategy.entry_signals'), to_regclass('strategy.entry_signal_mechanisms'),
+                                 to_regclass('strategy.evaluations'), to_regclass('platform.outbox_events'),
+                                 to_regclass('platform.inbox_events')""")
+            self.assertEqual(cur.fetchone(), ("strategy.entry_signals", "strategy.entry_signal_mechanisms",
+                                              "strategy.evaluations", "platform.outbox_events", "platform.inbox_events"))
+            cur.execute("""SELECT column_name FROM information_schema.columns
+                          WHERE table_schema='strategy' AND table_name='entry_signals' AND column_name='entry_signal_hash'""")
+            self.assertIsNotNone(cur.fetchone())
+
+    def test_no_forbidden_columns_exist_in_the_new_schema(self):
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT table_name, column_name FROM information_schema.columns
+                          WHERE table_schema = 'trade_management'
+                            AND (column_name ILIKE '%%account%%' OR column_name ILIKE '%%ticket%%'
+                                 OR column_name ILIKE '%%lot%%' OR column_name ILIKE '%%broker_position%%'
+                                 OR column_name ILIKE 'execution\\_%%' OR column_name ILIKE '%%entitle%%'
+                                 OR column_name ILIKE '%%subscription%%' OR column_name ILIKE '%%customer%%'
+                                 OR column_name ILIKE 'published\\_%%')""")
+            self.assertEqual(cur.fetchall(), [])
 
 
 if __name__ == "__main__":
