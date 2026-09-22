@@ -6,6 +6,7 @@ the frozen bar-decision path.
 """
 from __future__ import annotations
 
+import math
 import os
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -161,7 +162,8 @@ def project_entry_only_outcomes(
                         stored is not None
                         and ((stored[2] is None and realized_r is None)
                              or (stored[2] is not None and realized_r is not None
-                                 and float(stored[2]) == float(realized_r)))
+                                 and math.isclose(float(stored[2]), float(realized_r),
+                                                  rel_tol=1e-12, abs_tol=1e-12)))
                     )
                     same_exit_time = (
                         stored is not None

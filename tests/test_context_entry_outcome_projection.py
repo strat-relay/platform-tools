@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from context_structure_retrace_outcome_projector import project_entry_only_outcomes
 
@@ -133,6 +134,18 @@ class EntryOnlyProjectionTests(unittest.TestCase):
         self.assertEqual(first["projected"], 3)
         self.assertEqual(second, {"matched": 3, "projected": 0, "unchanged": 3, "unmatched": 0})
         self.assertEqual(len(self.db.outcomes), 3)
+
+    def test_numeric_round_trip_does_not_conflict_on_float_representation(self):
+        project_entry_only_outcomes(runner_state(), **self.kwargs)
+        stored = self.db.outcomes["SIG-TARGET"]
+        # PostgreSQL NUMERIC retains the decimal representation produced by
+        # the driver; reading it back as float can differ by a few ULPs.
+        self.db.outcomes["SIG-TARGET"] = (*stored[:2], Decimal("0.742819059469595"), *stored[3:])
+
+        result = project_entry_only_outcomes(runner_state(), **self.kwargs)
+
+        self.assertEqual(result, {"matched": 3, "projected": 0, "unchanged": 3, "unmatched": 0})
+        self.assertEqual(self.db.outcomes["SIG-TARGET"][2], Decimal("0.742819059469595"))
 
     def test_entry_opportunity_mismatch_is_not_projected(self):
         state = runner_state()
