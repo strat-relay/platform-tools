@@ -1,6 +1,5 @@
-# Minimum namespace quota headroom for the one prepared (zero-replica) P4 runtime pod in
-# workload.yaml. Not applied by this branch - Codex applies this only as part of activation
-# review (mission section 7 "Do NOT modify live Kubernetes in this task").
+# Minimum namespace quota headroom for the one P4 runtime pod in workload.yaml. Apply only
+# immediately before P4 activation; do not make unrelated capacity changes.
 #
 # Computed from the observed live state at authoring time (pods: 10/10, limits.cpu: 3600m/3600m,
 # limits.memory: 3904Mi/4Gi) plus this one pod's own configured limits (workload.yaml:

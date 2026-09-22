@@ -1,7 +1,5 @@
-# Prepared only. This Deployment deliberately has zero replicas and is not referenced by the
-# live orchestrator configuration - matching deploy/canonical_platform/outbox-relay-prepared.yaml's
-# own convention exactly. Nothing in this file is applied to the live cluster by
-# architecture/p4-2-runtime; Codex performs activation after review (mission section 7).
+# Single P4 runtime Deployment. Apply only after the P4 schema migrations and the activation
+# boundary snapshot have been recorded. This workload does not change orchestrator authority.
 #
 # One P4 pod runs all three components this vertical slice needs (mission's "ONE RUNTIME
 # WORKLOAD IF PRACTICAL" decision): the ManagedTrade opening consumer, the observation
@@ -17,7 +15,7 @@ metadata:
     app.kubernetes.io/component: p4-managed-trade
     app.kubernetes.io/part-of: trading-platform
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: trade-management-runtime
