@@ -1,6 +1,6 @@
-# Platform Signals API
+# Platform Signals and Control API
 
-This workload is a narrow Platform-owned read boundary for canonical EntrySignal data. It does not replace the bridge-owned Control API and does not expose broker endpoints.
+This Platform-owned, read-only API workload serves canonical EntrySignal routes and the migrated Control API surface. It does not perform trading execution or serve broker facts from PostgreSQL.
 
 ## Contract
 
@@ -9,13 +9,13 @@ This workload is a narrow Platform-owned read boundary for canonical EntrySignal
 - `limit` defaults to 100 and is bounded to 1–500; `offset` defaults to 0. Ordering is `decision_time DESC, signal_id ASC`.
 - Every request validates applied schema `012` and starts a PostgreSQL read-only transaction. A missing database/schema produces HTTP 503; there is no file fallback.
 - The envelope declares `source=canonical_postgres` and `schema_version=012`. Canonical columns are returned with exact Console aliases for symbol, signal timestamp, and geometry.
+- Other `/api/v1/*` routes are dispatched to `PlatformControlApi`: system/safety use authority configuration and PostgreSQL, strategies use the mounted active platform config, events use `platform.outbox_events`, execution records use canonical execution tables, and routes without canonical authority return explicit unavailable/inactive semantics. No legacy filesystem fallback is present.
+- The router centralizes credentialed CORS for the exact `https://console.stratrelay.app` origin; the API does not reflect arbitrary origins. `PLATFORM_API_CORS_ORIGINS` is the API's non-credentialed standalone allowlist.
 
 ## Image and workload
 
-The image is built from `deploy/platform_api/Dockerfile`, pushed from the host as `host.docker.internal:5001/trading-platform-signals-api:20260922-canonical-signals-v2`, and referenced in Kubernetes by its immutable digest via `localhost:5001`.
+The image is built from `deploy/platform_api/Dockerfile` and deployed by immutable digest from the local registry.
 
-The workload/service identity is `platform-signals-api`, port `22350`; it is separate from `control-api` port `22349`. The pod only receives the PostgreSQL DSN, runs non-root with a read-only root filesystem and restricted network egress, and does not mount runtime state files.
+The workload identity remains `platform-signals-api`, port `22350`; a second `platform-control-api` Service alias selects the same pod, so no additional pod is required. The pod receives the PostgreSQL DSN and authority modes plus a read-only mount of the active strategy ConfigMap. It runs non-root with a read-only root filesystem and restricted network egress, without legacy runtime-state mounts. The single-replica update strategy uses `maxSurge: 0` and `maxUnavailable: 1`; a rollout can briefly interrupt API availability.
 
-The namespace was already at its hard limit of 8 pods / 3250m CPU limits. `resource-quota.yaml` adds exactly one pod slot and 250m CPU-limit headroom; memory and request quotas do not change. The API pod is capped at 250m CPU / 192Mi memory and requests 50m / 96Mi.
-
-The existing Console hostname is still routed wholesale to the legacy Control API through a token-managed Cloudflare Tunnel. This workload must not be substituted as the host's origin. To route only signal paths, configure an explicit edge path rule for `/api/v1/signals` and `/api/v1/signals/*` to `platform-signals-api:22350`, preserving the current fallback origin for every other route. No such rule is installed by these manifests.
+The current namespace quota is full; consolidation and no-surge rollouts avoid adding a pod.

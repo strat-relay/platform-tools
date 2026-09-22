@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import inspect
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 from platform_api import signals as signal_api_module
 from platform_api.signals import (
@@ -185,6 +188,67 @@ class PlatformSignalApiTests(unittest.TestCase):
         status, body = api.execute("GET", "/api/v1/signals?limit=10000")
         self.assertEqual(status, 400)
         self.assertEqual(body["error"], "INVALID_QUERY")
+
+    def test_http_server_allows_console_origin_and_preflight_only(self):
+        api = self.make_api()
+        server = signal_api_module.create_server(
+            "127.0.0.1", 0, api=api,
+            allowed_origins={"https://console.stratrelay.app"},
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            request = Request(
+                f"{base}/api/v1/signals",
+                headers={"Origin": "https://console.stratrelay.app"},
+            )
+            with urlopen(request) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers["Access-Control-Allow-Origin"],
+                                 "https://console.stratrelay.app")
+                self.assertEqual(response.headers["Vary"], "Origin")
+
+            preflight = Request(
+                f"{base}/api/v1/signals/SIG_POST_T0_CANONICAL",
+                method="OPTIONS",
+                headers={
+                    "Origin": "https://console.stratrelay.app",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "authorization,content-type",
+                },
+            )
+            with urlopen(preflight) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers["Access-Control-Allow-Methods"], "GET, OPTIONS")
+                self.assertEqual(response.headers["Access-Control-Allow-Headers"],
+                                 "Authorization, Content-Type")
+
+            denied = Request(
+                f"{base}/api/v1/signals",
+                headers={"Origin": "https://untrusted.example"},
+            )
+            with urlopen(denied) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
+
+            rejected_header = Request(
+                f"{base}/api/v1/signals",
+                method="OPTIONS",
+                headers={
+                    "Origin": "https://console.stratrelay.app",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "x-unapproved-header",
+                },
+            )
+            with self.assertRaises(HTTPError) as error:
+                urlopen(rejected_header)
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 
 if __name__ == "__main__":
