@@ -39,14 +39,24 @@ class FakeRepository:
                 "mt5_order_send_attempted": 0, "broker_orders_accepted": 0,
                 "broker_fills_observed": 0, "rejected": 0, "blocked": 0}
 
+    def context_entry_outcome_report(self):
+        self._ok()
+        return {"found": True, "report": {"outcome_authority": "canonical_postgres",
+                                            "outcome_type": "ENTRY_ONLY",
+                                            "performance": {"trades": 10, "open": 1}}}
+
 
 class PlatformControlApiTests(unittest.TestCase):
     def make_api(self, *, env=None, unavailable=False):
         td = tempfile.TemporaryDirectory()
         self.addCleanup(td.cleanup)
         config = Path(td.name) / "platform.json"
-        config.write_text(json.dumps({"strategies": [{"strategy_id": "S", "strategy_version": "V1",
-                                                       "enabled": True, "adapter": "Adapter", "routes": {"audit": True}}]}))
+        config.write_text(json.dumps({"strategies": [
+            {"strategy_id": "S", "strategy_version": "V1", "enabled": True,
+             "adapter": "Adapter", "routes": {"audit": True}},
+            {"strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1", "strategy_version": "V1",
+             "enabled": True, "adapter": "Context", "routes": {"audit": True}},
+        ]}))
         authority = {"ORCHESTRATOR_MODE": "PRIMARY", "SIGNAL_AUTHORITY_MODE": "DB_PRIMARY",
                      "EXECUTION_AUTHORITY_MODE": "DISABLED", "SIGNAL_DB_PRIMARY_ENABLED": "true"}
         authority.update(env or {})
@@ -87,6 +97,14 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(api.execute("GET", "/api/v1/strategies/S")[1]["data"]["strategy_version"], "V1")
         self.assertEqual(api.execute("GET", "/api/v1/strategies/MISSING")[0], 404)
         self.assertEqual(api.execute("GET", "/api/v1/strategies/S/report")[0], 503)
+
+    def test_context_report_reads_canonical_outcomes_without_legacy_builder(self):
+        status, body = self.make_api().execute(
+            "GET", "/api/v1/strategies/CONTEXT_STRUCTURE_RETRACE_V1/report")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "canonical_postgres")
+        self.assertEqual(body["data"]["report"]["outcome_authority"], "canonical_postgres")
+        self.assertEqual(body["data"]["report"]["outcome_type"], "ENTRY_ONLY")
 
     def test_stale_strategy_file_is_never_consulted(self):
         api = self.make_api()

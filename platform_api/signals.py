@@ -10,6 +10,7 @@ from postgres.db import connect
 
 
 SCHEMA_VERSION = "012"
+OUTCOME_SCHEMA_VERSION = "015"
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
 
@@ -24,6 +25,9 @@ SELECT s.signal_id, s.candidate_id, s.evaluation_id, s.strategy_ref,
        s.source_event_id, s.source_id, s.source_offset, s.evidence_class,
        s.cutoff_id, s.source_provenance, s.evaluation_hash, s.trace_hash,
        s.terminal_state, s.strategy_metadata, s.entry_signal_hash,
+       outcomes.outcome_type, outcomes.status AS outcome,
+       outcomes.realized_r, outcomes.exit_timestamp,
+       outcomes.source AS outcome_source,
        mechanisms.entry_mechanisms,
        publication.publish_status AS publication_state,
        publication.published_at
@@ -42,6 +46,8 @@ LEFT JOIN LATERAL (
     ORDER BY o.created_at DESC, o.event_id
     LIMIT 1
 ) AS publication ON TRUE
+LEFT JOIN strategy.entry_signal_outcomes AS outcomes
+    ON outcomes.signal_id = s.signal_id
 """
 
 
@@ -75,6 +81,11 @@ def _project(row: dict[str, Any]) -> dict[str, Any]:
     result["symbol"] = result.get("instrument")
     result["signal_timestamp"] = result.get("decision_time")
     result["market_event_id"] = result.get("source_event_id")
+    result.setdefault("outcome", None)
+    result.setdefault("outcome_type", None)
+    result.setdefault("realized_r", None)
+    result.setdefault("exit_timestamp", None)
+    result.setdefault("outcome_source", None)
     return result
 
 
@@ -89,14 +100,15 @@ class CanonicalSignalRepository:
             with self._connect(readonly=True) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET TRANSACTION READ ONLY")
-                    cursor.execute(
-                        "SELECT version FROM platform.schema_migrations WHERE version = %s",
-                        (SCHEMA_VERSION,),
-                    )
-                    if cursor.fetchone() is None:
-                        raise CanonicalSourceUnavailable(
-                            f"canonical PostgreSQL requires schema {SCHEMA_VERSION}"
+                    for version in (SCHEMA_VERSION, OUTCOME_SCHEMA_VERSION):
+                        cursor.execute(
+                            "SELECT version FROM platform.schema_migrations WHERE version = %s",
+                            (version,),
                         )
+                        if cursor.fetchone() is None:
+                            raise CanonicalSourceUnavailable(
+                                f"canonical PostgreSQL requires schema {version}"
+                            )
                     cursor.execute(sql, params)
                     return [_project(_row_dict(cursor, row)) for row in cursor.fetchall()]
         except CanonicalSourceUnavailable:
@@ -180,7 +192,8 @@ class PlatformSignalApi:
             body["unavailable"] = [{"code": error, "source": "canonical_postgres",
                                     "message": message or error}]
         else:
-            body.update({"data": data, "unavailable": [], "schema_version": SCHEMA_VERSION})
+            body.update({"data": data, "unavailable": [], "schema_version": SCHEMA_VERSION,
+                         "outcome_schema_version": OUTCOME_SCHEMA_VERSION})
         if meta:
             body["meta"] = meta
         return body
@@ -202,7 +215,8 @@ class PlatformSignalApi:
             except CanonicalSourceUnavailable:
                 return 503, {"status": "not_ready", "source": "canonical_postgres"}
             return 200, {"status": "ready", "source": "canonical_postgres",
-                         "schema_version": SCHEMA_VERSION}
+                         "schema_version": SCHEMA_VERSION,
+                         "outcome_schema_version": OUTCOME_SCHEMA_VERSION}
         if path == "/api/v1/signals":
             allowed = {"strategy_id", "strategy", "symbol", "instrument", "direction",
                        "search", "date_from", "date_to", "limit", "offset", "evidence_class"}

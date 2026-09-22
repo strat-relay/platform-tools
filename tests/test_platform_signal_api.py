@@ -56,6 +56,11 @@ CANONICAL_ROW = {
     "entry_mechanisms": ["DEPTH_ONLY", "REJECTION_WICK"],
     "publication_state": "PUBLISHED",
     "published_at": "2026-09-18T12:00:01+00:00",
+    "outcome_type": "ENTRY_ONLY",
+    "outcome": "TARGET_HIT",
+    "realized_r": 0.75,
+    "exit_timestamp": "2026-09-18T12:30:00+00:00",
+    "outcome_source": "CONTEXT_STRUCTURE_RETRACE_V1",
 }
 
 
@@ -76,7 +81,8 @@ class FakeCursor:
         if sql == "SET TRANSACTION READ ONLY":
             return
         if "platform.schema_migrations" in sql:
-            self.rows = [("012",)] if self.connection.schema_ready else []
+            version = params[0]
+            self.rows = [(version,)] if self.connection.schema_ready and version in {"012", "015"} else []
         elif sql.lstrip().startswith("SELECT s.signal_id"):
             self.rows = list(self.connection.rows)
             if "LIMIT %s OFFSET %s" in sql:
@@ -121,6 +127,10 @@ class PlatformSignalApiTests(unittest.TestCase):
         self.assertEqual([row["signal_id"] for row in body["data"]], [CANONICAL_ROW["signal_id"]])
         self.assertEqual(body["source"], "canonical_postgres")
         self.assertEqual(body["schema_version"], "012")
+        self.assertEqual(body["outcome_schema_version"], "015")
+        self.assertEqual(body["data"][0]["outcome"], "TARGET_HIT")
+        self.assertEqual(body["data"][0]["realized_r"], 0.75)
+        self.assertEqual(body["data"][0]["exit_timestamp"], "2026-09-18T12:30:00+00:00")
         self.assertEqual(self.connection.statements[0][0], "SET TRANSACTION READ ONLY")
         select_sql = next(sql for sql, _ in self.connection.statements if "SELECT s.signal_id" in sql)
         self.assertIn("FROM strategy.entry_signals AS s", select_sql)

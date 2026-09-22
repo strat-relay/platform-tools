@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -75,6 +76,125 @@ class PlatformControlRepository:
             (SELECT count(*) FROM execution.results WHERE status = 'REJECTED') AS rejected,
             (SELECT count(*) FROM execution.results WHERE status = 'BLOCKED') AS blocked""")
         return rows[0]
+
+    def context_entry_outcome_report(self) -> dict[str, Any]:
+        """Build the Context ENTRY_ONLY report strictly from PostgreSQL rows."""
+        rows = self.query("""SELECT s.signal_id, s.economic_position_id,
+                    s.instrument, s.direction, s.entry_price, s.decision_time,
+                    o.status, o.realized_r, o.exit_timestamp, o.updated_at
+                FROM strategy.entry_signals AS s
+                JOIN strategy.entry_signal_outcomes AS o USING (signal_id)
+                WHERE s.strategy_id = %s AND o.outcome_type = %s
+                ORDER BY s.decision_time, s.signal_id""",
+                          ("CONTEXT_STRUCTURE_RETRACE_V1", "ENTRY_ONLY"))
+        cutoff_rows = self.query("""SELECT value FROM platform.system_metadata
+                                   WHERE key = %s""",
+                                 ("context.entry_only_outcome_cutoff",))
+        cutoff = cutoff_rows[0]["value"] if cutoff_rows else {}
+        if isinstance(cutoff, str):
+            cutoff = json.loads(cutoff)
+
+        open_positions: list[dict[str, Any]] = []
+        closed_positions: list[dict[str, Any]] = []
+        by_symbol: dict[str, dict[str, Any]] = {}
+        activity: list[dict[str, Any]] = []
+        realized_values: list[float] = []
+        for row in rows:
+            outcome_status = row["status"]
+            symbol = row["instrument"]
+            symbol_data = by_symbol.setdefault(symbol, {
+                "symbol": symbol, "detected": 0, "opportunities": 0,
+                "entries": 0, "open": 0, "closed": 0, "realized_r": 0.0,
+            })
+            symbol_data["detected"] += 1
+            symbol_data["opportunities"] += 1
+            symbol_data["entries"] += 1
+            position = {
+                "signal_id": row["signal_id"],
+                "economic_position_id": row["economic_position_id"],
+                "symbol": symbol,
+                "direction": row["direction"],
+                "entry_time": row["decision_time"],
+                "entry_price": row["entry_price"],
+                "status": outcome_status,
+            }
+            if outcome_status == "OPEN":
+                symbol_data["open"] += 1
+                open_positions.append(position)
+            else:
+                realized_r = float(row["realized_r"])
+                realized_values.append(realized_r)
+                symbol_data["closed"] += 1
+                symbol_data["realized_r"] += realized_r
+                closed_positions.append({
+                    **position,
+                    "outcome": outcome_status,
+                    "close_time": row["exit_timestamp"],
+                    "realized_r": realized_r,
+                    "exit_reason": outcome_status,
+                })
+            activity.append({
+                "timestamp": row["updated_at"],
+                "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+                "symbol": symbol,
+                "event_type": outcome_status,
+                "economic_position_id": row["economic_position_id"],
+                "metadata": {"signal_id": row["signal_id"], "outcome_type": "ENTRY_ONLY"},
+            })
+
+        closed_count = len(closed_positions)
+        target_count = sum(row["status"] == "TARGET_HIT" for row in rows)
+        stopped_count = sum(row["status"] == "STOPPED" for row in rows)
+        realized_total = sum(realized_values)
+        count = len(rows)
+        cutoff_utc = cutoff.get("cutoff_utc") if isinstance(cutoff, dict) else None
+        observed_at = datetime.now(timezone.utc).isoformat()
+        return {
+            "found": True,
+            "report": {
+                "identity": {
+                    "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+                    "display_name": "Context Structure Retrace",
+                    "strategy_version": "V1",
+                    "observability_version": "entry-only-outcomes.v1",
+                    "sample_boundary": cutoff_utc,
+                    "observed_at": observed_at,
+                },
+                "status": {
+                    "runner_status": "UNKNOWN",
+                    "observability_timestamp": observed_at,
+                    "kill_switch": False,
+                },
+                "sample": {"scope": "CANONICAL_POST_T0_ENTRY_SIGNALS", "boundary": cutoff_utc},
+                "funnel": [
+                    {"stage": "ENTRY_SIGNALS", "label": "Canonical Entry Signals", "count": count},
+                    {"stage": "OPEN", "label": "Open", "count": len(open_positions)},
+                    {"stage": "TARGET_HIT", "label": "Target Hit", "count": target_count},
+                    {"stage": "STOPPED", "label": "Stopped", "count": stopped_count},
+                ],
+                "performance": {
+                    "trades": closed_count,
+                    "wins": target_count,
+                    "losses": stopped_count,
+                    "breakevens": 0,
+                    "open": len(open_positions),
+                    "realized_r": realized_total,
+                    "expectancy_r": realized_total / closed_count if closed_count else None,
+                    "win_rate": target_count / closed_count if closed_count else None,
+                    "loss_rate": stopped_count / closed_count if closed_count else None,
+                },
+                "symbols": list(by_symbol.values()),
+                "open_positions": open_positions,
+                "closed_positions": closed_positions,
+                "rejection_reasons": [],
+                "data_quality": {"gap_status": "NOT_TRACKED"},
+                "recent_activity": sorted(activity, key=lambda item: item["timestamp"], reverse=True)[:50],
+                "extension": {"kind": "CONTEXT_STRUCTURE_RETRACE_V1"},
+                "outcome_authority": "canonical_postgres",
+                "outcome_type": "ENTRY_ONLY",
+                "outcome_schema_version": "015",
+            },
+        }
 
 
 class PlatformControlApi:
@@ -180,6 +300,10 @@ class PlatformControlApi:
                     return 404, self._body(None, source="active_platform_config", status="ACTIVE", error="RESOURCE_NOT_FOUND")
                 if len(parts) == 1:
                     return 200, self._body(strategy, source="active_platform_config")
+                if (parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1" and len(parts) == 2
+                        and parts[1] == "report"):
+                    report = self.repository.context_entry_outcome_report()
+                    return 200, self._body(report, source="canonical_postgres")
                 return 503, self._body(None, source="canonical_platform", status="UNAVAILABLE",
                                        error="SOURCE_UNAVAILABLE", message="Canonical strategy observability data is not available")
             if path == "/api/v1/events" or path.startswith("/api/v1/events/"):

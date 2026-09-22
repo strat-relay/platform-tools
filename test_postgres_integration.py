@@ -38,6 +38,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                          "strategy.entry_opportunities", "strategy.economic_positions"))
             self.assertEqual(cur.fetchone(), ("strategy.symbol_progress", "strategy.setups", "strategy.setup_lifecycle",
                                               "strategy.entry_opportunities", "strategy.economic_positions"))
+            cur.execute("SELECT to_regclass(%s)", ("strategy.entry_signal_outcomes",))
+            self.assertEqual(cur.fetchone()[0], "strategy.entry_signal_outcomes")
 
     def test_migrations_are_idempotent_and_checksummed(self):
         self.assertEqual(apply_migrations(self.conn), [])
@@ -214,6 +216,48 @@ class TradeManagementRealPostgresTests(unittest.TestCase):
                            (signal_id, f"cand-{suffix}", evaluation_id, f"evalhash-{suffix}",
                             f"tracehash-{suffix}", f"entryhash-{suffix}"))
         return signal_id
+
+    def test_entry_signal_outcomes_fk_and_open_closed_integrity(self):
+        signal_id = self._entry_signal(f"outcome-{uuid.uuid4().hex}")
+        with self.conn.cursor() as cur:
+            cur.execute("SAVEPOINT entry_outcome_integrity")
+            try:
+                cur.execute("""INSERT INTO strategy.entry_signal_outcomes
+                    (signal_id, outcome_type, status, source)
+                    VALUES (%s, 'ENTRY_ONLY', 'OPEN', 'CONTEXT_STRUCTURE_RETRACE_V1')""",
+                            (f"missing-signal-{uuid.uuid4().hex}",))
+                self.fail("outcome rows must reference an immutable EntrySignal")
+            except Exception as exc:
+                self.assertEqual(getattr(exc, "sqlstate", None), "23503")
+                cur.execute("ROLLBACK TO SAVEPOINT entry_outcome_integrity")
+            cur.execute("""SELECT entry_signal_hash FROM strategy.entry_signals
+                WHERE signal_id = %s""", (signal_id,))
+            entry_signal_hash = cur.fetchone()[0]
+
+            cur.execute("""INSERT INTO strategy.entry_signal_outcomes
+                (signal_id, outcome_type, status, source)
+                VALUES (%s, 'ENTRY_ONLY', 'OPEN', 'CONTEXT_STRUCTURE_RETRACE_V1')""",
+                        (signal_id,))
+
+            cur.execute("SAVEPOINT entry_outcome_terminal_check")
+            try:
+                cur.execute("""UPDATE strategy.entry_signal_outcomes
+                    SET status = 'TARGET_HIT'
+                    WHERE signal_id = %s""", (signal_id,))
+                self.fail("terminal outcomes require realized R and exit timestamp")
+            except Exception as exc:
+                self.assertEqual(getattr(exc, "sqlstate", None), "23514")
+                cur.execute("ROLLBACK TO SAVEPOINT entry_outcome_terminal_check")
+
+            cur.execute("""UPDATE strategy.entry_signal_outcomes
+                SET status = 'TARGET_HIT', realized_r = 0.75,
+                    exit_timestamp = now(), updated_at = now()
+                WHERE signal_id = %s""", (signal_id,))
+            cur.execute("""SELECT entry_signal_hash FROM strategy.entry_signals
+                WHERE signal_id = %s""", (signal_id,))
+            self.assertEqual(cur.fetchone()[0], entry_signal_hash)
+            cur.execute("DELETE FROM strategy.entry_signal_outcomes WHERE signal_id = %s", (signal_id,))
+        self.conn.commit()
 
     def _managed_trade(self, suffix: str, *, tm_version_id: str, signal_id: str) -> str:
         managed_trade_id = f"MT-{suffix}"

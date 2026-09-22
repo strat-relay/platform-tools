@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+import unittest
+from datetime import datetime, timezone
+
+from context_structure_retrace_outcome_projector import project_entry_only_outcomes
+
+
+CUTOFF = "post-t0-cutoff"
+NOW = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc)
+
+
+class Cursor:
+    def __init__(self, db):
+        self.db = db
+        self.rows = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, sql, params=()):
+        normalized = " ".join(sql.split())
+        self.rows = []
+        if "FROM platform.schema_migrations" in normalized:
+            if params == ("015",):
+                self.rows = [("015",)]
+        elif normalized.startswith("SELECT value FROM platform.system_metadata"):
+            value = self.db.metadata.get(params[0])
+            self.rows = [(value,)] if value is not None else []
+        elif normalized.startswith("INSERT INTO platform.system_metadata"):
+            key, cutoff, cutoff_id, strategy_id, outcome_type, _updated_at = params
+            self.db.metadata.setdefault(key, {"cutoff_utc": cutoff, "signal_cutoff_id": cutoff_id,
+                                              "strategy_id": strategy_id, "outcome_type": outcome_type})
+        elif "FROM strategy.entry_signals" in normalized:
+            strategy_id, cutoff_id = params
+            self.rows = [(row[0], row[2], row[3]) for row in self.db.signals
+                         if row[1] == strategy_id and row[4] == cutoff_id]
+        elif normalized.startswith("INSERT INTO strategy.entry_signal_outcomes"):
+            signal_id, outcome_type, status, realized_r, exit_at, source, updated_at = params
+            existing = self.db.outcomes.get(signal_id)
+            proposed = (outcome_type, status, realized_r, exit_at, source)
+            if existing is None:
+                self.db.outcomes[signal_id] = proposed
+                self.rows = [(signal_id,)]
+            elif existing[1] == "OPEN" and existing[1:4] != proposed[1:4]:
+                self.db.outcomes[signal_id] = proposed
+                self.rows = [(signal_id,)]
+        elif normalized.startswith("SELECT outcome_type, status, realized_r"):
+            existing = self.db.outcomes.get(params[0])
+            self.rows = [existing] if existing else []
+        else:
+            raise AssertionError(f"unexpected SQL: {normalized}")
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self):
+        return list(self.rows)
+
+
+class Connection:
+    def __init__(self, db):
+        self.db = db
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def cursor(self):
+        return Cursor(self.db)
+
+    def commit(self):
+        self.db.commits += 1
+
+
+class FakeDB:
+    def __init__(self):
+        self.signals = [
+            ("SIG-TARGET", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-TARGET", "OP-TARGET", CUTOFF),
+            ("SIG-STOP", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-STOP", "OP-STOP", CUTOFF),
+            ("SIG-OPEN", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OPEN", "OP-OPEN", CUTOFF),
+            # A canonical row from a different cutoff must not enter this projection.
+            ("SIG-OLD", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OLD", "OP-OLD", "other-cutoff"),
+        ]
+        self.metadata = {}
+        self.outcomes = {}
+        self.commits = 0
+
+    def connect(self, **_kwargs):
+        return Connection(self)
+
+
+def runner_state():
+    return {"positions": {
+        "POS-TARGET": {"economic_position_id": "POS-TARGET", "entry_opportunity_id": "OP-TARGET",
+                       "status": "TARGET_HIT", "realized_R": 0.7428190594695953,
+                       "exit_timestamp": 1790058900},
+        "POS-STOP": {"economic_position_id": "POS-STOP", "entry_opportunity_id": "OP-STOP",
+                     "status": "STOPPED", "realized_R": -1.0, "exit_timestamp": 1790059200},
+        "POS-OPEN": {"economic_position_id": "POS-OPEN", "entry_opportunity_id": "OP-OPEN",
+                     "status": "OPEN", "realized_R": None, "exit_timestamp": None},
+        "POS-OLD": {"economic_position_id": "POS-OLD", "entry_opportunity_id": "OP-OLD",
+                    "status": "TARGET_HIT", "realized_R": 99.0, "exit_timestamp": 1790058900},
+    }}
+
+
+class EntryOnlyProjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.db = FakeDB()
+        self.kwargs = {"connect_fn": self.db.connect,
+                       "environ": {"ENTRY_OUTCOME_SIGNAL_CUTOFF_ID": CUTOFF},
+                       "clock": lambda: NOW}
+
+    def test_projects_target_stop_and_open_without_importing_other_cutoffs(self):
+        result = project_entry_only_outcomes(runner_state(), **self.kwargs)
+        self.assertEqual(result, {"matched": 3, "projected": 3, "unchanged": 0, "unmatched": 0})
+        target = self.db.outcomes["SIG-TARGET"]
+        self.assertEqual(target[:3], ("ENTRY_ONLY", "TARGET_HIT", 0.7428190594695953))
+        self.assertEqual(target[3], datetime.fromtimestamp(1790058900, timezone.utc))
+        self.assertEqual(self.db.outcomes["SIG-STOP"][1:3], ("STOPPED", -1.0))
+        self.assertEqual(self.db.outcomes["SIG-OPEN"][1:4], ("OPEN", None, None))
+        self.assertNotIn("SIG-OLD", self.db.outcomes)
+        self.assertEqual(self.db.metadata["context.entry_only_outcome_cutoff"]["signal_cutoff_id"], CUTOFF)
+
+    def test_repeated_projection_is_idempotent(self):
+        first = project_entry_only_outcomes(runner_state(), **self.kwargs)
+        second = project_entry_only_outcomes(runner_state(), **self.kwargs)
+        self.assertEqual(first["projected"], 3)
+        self.assertEqual(second, {"matched": 3, "projected": 0, "unchanged": 3, "unmatched": 0})
+        self.assertEqual(len(self.db.outcomes), 3)
+
+    def test_entry_opportunity_mismatch_is_not_projected(self):
+        state = runner_state()
+        state["positions"]["POS-TARGET"]["entry_opportunity_id"] = "DIFFERENT"
+        result = project_entry_only_outcomes(state, **self.kwargs)
+        self.assertEqual(result["unmatched"], 1)
+        self.assertNotIn("SIG-TARGET", self.db.outcomes)
+
+
+if __name__ == "__main__":
+    unittest.main()
