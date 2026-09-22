@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from postgres.db import connect
 
@@ -234,6 +235,21 @@ class PlatformSignalApi:
         return 404, self._envelope(error="RESOURCE_NOT_FOUND", message="route not found")
 
 
+class UnifiedPlatformApi:
+    """Dispatch canonical signal routes unchanged and all other API routes to Platform Control."""
+
+    def __init__(self, signals: PlatformSignalApi | None = None, control_api: Any | None = None):
+        from .control import PlatformControlApi
+        self.signals = signals or PlatformSignalApi()
+        self.control_api = control_api or PlatformControlApi()
+
+    def execute(self, method: str, target: str) -> tuple[int, dict[str, Any]]:
+        path = urlsplit(target).path.rstrip("/") or "/"
+        if path == "/api/v1/signals" or path.startswith("/api/v1/signals/"):
+            return self.signals.execute(method, target)
+        return self.control_api.execute(method, target)
+
+
 def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, default=_json_value, separators=(",", ":")).encode("utf-8")
 
@@ -245,7 +261,7 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
     import os
     from urllib.parse import urlsplit
 
-    instance = api or PlatformSignalApi()
+    instance = api or UnifiedPlatformApi()
     origins = allowed_origins
     if origins is None:
         configured = os.getenv("PLATFORM_API_CORS_ORIGINS", "https://console.stratrelay.app")
@@ -288,12 +304,7 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
         def do_OPTIONS(self) -> None:
             path = urlsplit(self.path).path.rstrip("/") or "/"
             signal_detail_prefix = "/api/v1/signals/"
-            is_signal_route = (
-                path == "/api/v1/signals"
-                or path.startswith(signal_detail_prefix)
-                and path.count("/") == signal_detail_prefix.count("/")
-            )
-            if not is_signal_route:
+            if not path.startswith("/api/v1/"):
                 self._send(404, {"error": "RESOURCE_NOT_FOUND", "message": "route not found"})
                 return
             origin = self.headers.get("Origin")
@@ -329,7 +340,8 @@ def main() -> None:
     import os
 
     server = create_server(os.getenv("PLATFORM_API_HOST", "0.0.0.0"),
-                           int(os.getenv("PLATFORM_API_PORT", "22350")))
+                           int(os.getenv("PLATFORM_API_PORT", "22350")),
+                           api=UnifiedPlatformApi())
     server.serve_forever()
 
 

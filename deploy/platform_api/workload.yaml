@@ -45,6 +45,32 @@ spec:
                 secretKeyRef:
                   name: trading-runtime-endpoints
                   key: TRADING_POSTGRES_DSN
+            - name: ORCHESTRATOR_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-db-primary-prepared
+                  key: ORCHESTRATOR_MODE
+            - name: SIGNAL_AUTHORITY_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-db-primary-prepared
+                  key: SIGNAL_AUTHORITY_MODE
+            - name: EXECUTION_AUTHORITY_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-db-primary-prepared
+                  key: EXECUTION_AUTHORITY_MODE
+            - name: SIGNAL_DB_PRIMARY_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-db-primary-prepared
+                  key: SIGNAL_DB_PRIMARY_ENABLED
+            - name: PLATFORM_STRATEGY_CONFIG_PATH
+              value: /etc/platform-config/platform.json
+          volumeMounts:
+            - name: platform-config
+              mountPath: /etc/platform-config
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -73,6 +99,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
+      volumes:
+        - name: platform-config
+          configMap:
+            name: mt5-native-bridge-safe-platform-config
+            items:
+              - key: platform.json
+                path: platform.json
 ---
 apiVersion: v1
 kind: Service
@@ -81,6 +114,24 @@ metadata:
   namespace: trading
   labels:
     app.kubernetes.io/name: platform-signals-api
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: platform-signals-api
+  ports:
+    - name: http
+      port: 22350
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-control-api
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: platform-control-api
     app.kubernetes.io/part-of: trading-platform
 spec:
   type: ClusterIP

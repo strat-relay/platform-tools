@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from platform_api.control import PlatformControlApi
+from platform_api.signals import CanonicalSourceUnavailable, UnifiedPlatformApi
+
+
+class FakeRepository:
+    def __init__(self, *, unavailable: bool = False):
+        self.unavailable = unavailable
+
+    def _ok(self):
+        if self.unavailable:
+            raise CanonicalSourceUnavailable("test source unavailable")
+
+    def platform_status(self):
+        self._ok()
+        return {"outbox_count": 18, "inbox_count": 0, "orchestrator_running": 0}
+
+    def events(self, limit, offset, event_id=None):
+        self._ok()
+        rows = [{"event_id": "evt-1", "event_type": "signal.entry.created.v1",
+                 "aggregate_type": "signal", "aggregate_id": "sig-1", "schema_version": "1",
+                 "payload": {"signal_id": "sig-1", "strategy_id": "S"},
+                 "occurred_at": "2026-09-22T00:00:00Z", "correlation_id": None, "causation_id": None}]
+        return [r for r in rows if event_id is None or r["event_id"] == event_id]
+
+    def executions(self, limit, offset, intent_id=None):
+        self._ok()
+        return []
+
+    def execution_metrics(self):
+        self._ok()
+        return {"execution_intents": 0, "broker_capable_requests_attempted": 0,
+                "mt5_order_send_attempted": 0, "broker_orders_accepted": 0,
+                "broker_fills_observed": 0, "rejected": 0, "blocked": 0}
+
+
+class PlatformControlApiTests(unittest.TestCase):
+    def make_api(self, *, env=None, unavailable=False):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        config = Path(td.name) / "platform.json"
+        config.write_text(json.dumps({"strategies": [{"strategy_id": "S", "strategy_version": "V1",
+                                                       "enabled": True, "adapter": "Adapter", "routes": {"audit": True}}]}))
+        authority = {"ORCHESTRATOR_MODE": "PRIMARY", "SIGNAL_AUTHORITY_MODE": "DB_PRIMARY",
+                     "EXECUTION_AUTHORITY_MODE": "DISABLED", "SIGNAL_DB_PRIMARY_ENABLED": "true"}
+        authority.update(env or {})
+        return PlatformControlApi(FakeRepository(unavailable=unavailable), authority, str(config))
+
+    def test_system_reports_canonical_modes_and_inactive_execution(self):
+        status, body = self.make_api().execute("GET", "/api/v1/system")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["orchestrator_mode"], "PRIMARY")
+        self.assertEqual(body["data"]["signal_authority_mode"], "DB_PRIMARY")
+        self.assertEqual(body["data"]["execution_authority_mode"], "DISABLED")
+        self.assertEqual(body["data"]["components"]["execution"]["status"], "INACTIVE")
+        self.assertEqual(body["data"]["components"]["orchestrator"]["status"], "UNKNOWN")
+
+    def test_readiness_requires_canonical_postgres(self):
+        self.assertEqual(self.make_api().execute("GET", "/readyz")[0], 200)
+        status, body = self.make_api(unavailable=True).execute("GET", "/readyz")
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"], "SOURCE_UNAVAILABLE")
+
+    def test_safety_execution_disabled_is_safe_not_unavailable(self):
+        status, body = self.make_api().execute("GET", "/api/v1/safety")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["status"], "SAFE")
+        self.assertFalse(body["data"]["execution_enabled"])
+        self.assertFalse(body["data"]["broker_write_path_active"])
+
+    def test_safety_fails_closed_when_canonical_database_unavailable(self):
+        status, body = self.make_api(unavailable=True).execute("GET", "/api/v1/safety")
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"], "SOURCE_UNAVAILABLE")
+
+    def test_strategy_reads_current_config_not_runtime_files(self):
+        api = self.make_api()
+        status, body = api.execute("GET", "/api/v1/strategies")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"][0]["strategy_id"], "S")
+        self.assertEqual(api.execute("GET", "/api/v1/strategies/S")[1]["data"]["strategy_version"], "V1")
+        self.assertEqual(api.execute("GET", "/api/v1/strategies/MISSING")[0], 404)
+        self.assertEqual(api.execute("GET", "/api/v1/strategies/S/report")[0], 503)
+
+    def test_stale_strategy_file_is_never_consulted(self):
+        api = self.make_api()
+        api.strategy_config_path = "/path/that/must/not/be/read/runtime/execution/state.json"
+        status, body = api.execute("GET", "/api/v1/strategies")
+        self.assertEqual(status, 503)
+        self.assertNotIn("LEGACY", json.dumps(body))
+
+    def test_events_are_canonical_and_audit_truthfully_unavailable(self):
+        api = self.make_api()
+        status, body = api.execute("GET", "/api/v1/events")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "canonical_postgres")
+        self.assertEqual(body["data"][0]["event_id"], "evt-1")
+        self.assertEqual(api.execute("GET", "/api/v1/events/evt-1")[1]["data"]["signal_id"], "sig-1")
+        status, audit = api.execute("GET", "/api/v1/audit")
+        self.assertEqual(status, 503)
+        self.assertEqual(audit["status"], "UNAVAILABLE")
+
+    def test_stale_events_and_safety_files_are_not_authority(self):
+        import inspect
+        from platform_api import control
+        source = inspect.getsource(control)
+        self.assertNotIn("signals.jsonl", source)
+        self.assertNotIn("events.jsonl", source)
+        self.assertNotIn("execution/state.json", source)
+
+    def test_execution_disabled_is_inactive_and_metrics_are_canonical_zeroes(self):
+        api = self.make_api()
+        status, body = api.execute("GET", "/api/v1/executions")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "INACTIVE")
+        self.assertEqual(body["data"]["executions"], [])
+        status, metrics = api.execute("GET", "/api/v1/executions/metrics")
+        self.assertEqual(status, 200)
+        self.assertEqual(metrics["data"]["mt5_order_send_attempted"], 0)
+
+    def test_execution_database_failure_is_not_misreported_as_inactive(self):
+        status, body = self.make_api(unavailable=True).execute("GET", "/api/v1/executions")
+        self.assertEqual(status, 503)
+        self.assertEqual(body["status"], "UNAVAILABLE")
+
+    def test_execution_disabled_does_not_require_22348(self):
+        status, body = self.make_api().execute("GET", "/api/v1/system")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["components"]["execution"]["status"], "INACTIVE")
+        self.assertNotIn("22348", json.dumps(body))
+
+    def test_broker_routes_are_explicitly_unavailable_without_bridge_facts(self):
+        api = self.make_api()
+        paths = ["/api/v1/broker/account", "/api/v1/broker/positions", "/api/v1/broker/pending-orders",
+                 "/api/v1/broker/history-orders", "/api/v1/broker/deals", "/api/v1/broker/symbols",
+                 "/api/v1/broker/exposure", "/api/v1/exposure"]
+        for path in paths:
+            with self.subTest(path=path):
+                status, body = api.execute("GET", path)
+                self.assertEqual(status, 503)
+                self.assertEqual(body["status"], "UNAVAILABLE")
+                self.assertIsNone(body.get("data"))
+
+    def test_connections_separate_bridge_unavailable_from_execution_inactive(self):
+        status, body = self.make_api().execute("GET", "/api/v1/connections")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["data_channel"]["status"], "UNAVAILABLE")
+        self.assertEqual(body["data"]["execution_channel"]["status"], "INACTIVE")
+
+    def test_reports_are_explicitly_unavailable_not_falsely_empty(self):
+        for path in ("/api/v1/reports", "/api/v1/reports/report-1"):
+            status, body = self.make_api().execute("GET", path)
+            self.assertEqual(status, 503)
+            self.assertEqual(body["error"], "SOURCE_UNAVAILABLE")
+
+    def test_unknown_api_path_does_not_fall_back(self):
+        status, body = self.make_api().execute("GET", "/api/v1/not-a-route")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["source"], "platform_api_router")
+
+    def test_all_discovered_route_patterns_have_explicit_handlers(self):
+        api = self.make_api()
+        paths = ["/api/v1/system", "/api/v1/safety", "/api/v1/strategies", "/api/v1/strategies/S",
+                 "/api/v1/signals", "/api/v1/events", "/api/v1/events/evt-1", "/api/v1/audit",
+                 "/api/v1/audit/a", "/api/v1/executions", "/api/v1/executions/metrics", "/api/v1/executions/i",
+                 "/api/v1/broker/account", "/api/v1/broker/positions", "/api/v1/broker/pending-orders",
+                 "/api/v1/broker/history-orders", "/api/v1/broker/deals", "/api/v1/broker/symbols",
+                 "/api/v1/broker/exposure", "/api/v1/exposure", "/api/v1/connections", "/api/v1/reports",
+                 "/api/v1/reports/r", "/api/v1/strategies/S/instances", "/api/v1/strategies/S/shadow"]
+        for path in paths:
+            with self.subTest(path=path):
+                status, body = api.execute("GET", path)
+                self.assertIn(status, (200, 404, 503))
+                self.assertIn("source", body)
+
+    def test_signal_dispatch_remains_unchanged(self):
+        class SignalSpy:
+            def execute(self, method, target):
+                return 209, {"path": target, "method": method}
+        combined = UnifiedPlatformApi(signals=SignalSpy(), control_api=self.make_api())
+        self.assertEqual(combined.execute("GET", "/api/v1/signals?limit=1")[0], 209)
+        self.assertEqual(combined.execute("GET", "/api/v1/system")[0], 200)
+
+
+if __name__ == "__main__":
+    unittest.main()
