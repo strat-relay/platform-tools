@@ -19,13 +19,31 @@ SUBJECTS = frozenset({
     "execution.result.recorded.v1",
     "broker.state.updated.v1",
     "ownership.changed.v1",
+    # P4.2 (architecture/p4-2-managed-trade). trade.opened.v1/trade.decision.made.v1 are
+    # explicit additions to TRADING_CORE (never a `trade.>` wildcard, A7 10);
+    # trade.observation.recorded.v1 is high-frequency and gets its own stream below so its
+    # retention/ordering never entangles with TRADING_CORE's low-frequency domain events.
+    "trade.opened.v1",
+    "trade.observation.recorded.v1",
+    "trade.decision.made.v1",
 })
 
+# Explicit membership for the trade.* subjects that belong on TRADING_CORE (never a `trade.>`
+# wildcard - A7 10 "explicit trade/management subjects (no trade.>)").
+_TRADING_CORE_TRADE_SUBJECTS = ("trade.opened.v1", "trade.decision.made.v1")
+
 STREAMS = {
-    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal.")))),
+    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal."))
+                                              or x in _TRADING_CORE_TRADE_SUBJECTS)),
                      "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
     "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.")))),
                    "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
+    # Real-time trade-observation hot path only (A6 08, A7 10). Retention is an open decision
+    # (OD-08: "expose as configuration with no production default committed"); the value below
+    # is a prototype placeholder, not a committed production number - see
+    # docs/p4_2_managed_trade/README.md.
+    "TRADING_OBSERVATION": {"subjects": ("trade.observation.recorded.v1",),
+                            "storage": "file", "retention": "limits", "max_age": 7 * 24 * 60 * 60},
 }
 
 
