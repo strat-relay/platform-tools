@@ -16,4 +16,6 @@ The image is built from `deploy/platform_api/Dockerfile`, pushed from the host a
 
 The workload/service identity is `platform-signals-api`, port `22350`; it is separate from `control-api` port `22349`. The pod only receives the PostgreSQL DSN, runs non-root with a read-only root filesystem and restricted network egress, and does not mount runtime state files.
 
+The namespace was already at its hard limit of 8 pods / 3250m CPU limits. `resource-quota.yaml` adds exactly one pod slot and 250m CPU-limit headroom; memory and request quotas do not change. The API pod is capped at 250m CPU / 192Mi memory and requests 50m / 96Mi.
+
 The existing Console hostname is still routed wholesale to the legacy Control API through a token-managed Cloudflare Tunnel. This workload must not be substituted as the host's origin. To route only signal paths, configure an explicit edge path rule for `/api/v1/signals` and `/api/v1/signals/*` to `platform-signals-api:22350`, preserving the current fallback origin for every other route. No such rule is installed by these manifests.

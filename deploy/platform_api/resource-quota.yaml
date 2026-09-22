@@ -1,0 +1,14 @@
+# Add exactly one pod slot and 250m CPU-limit headroom for the isolated,
+# read-only Platform Signals API. Existing request and memory quotas are unchanged.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: trading-conservative
+  namespace: trading
+spec:
+  hard:
+    pods: "9"
+    limits.cpu: 3500m
+    limits.memory: 4Gi
+    requests.cpu: "1"
+    requests.memory: 2Gi
