@@ -36,7 +36,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: router
-          image: localhost:5001/trading-platform-api-router@sha256:bcaad862637c0c3b1c1fb644b00f52c834746671f9e63bdcafb91cd1e637fcdf
+          image: localhost:5001/trading-platform-api-router@sha256:d90610a197bee0f46217613013f9b1757d79cb1631c8fcc87adabfb220de6254
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
