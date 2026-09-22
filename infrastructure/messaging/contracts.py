@@ -19,29 +19,31 @@ SUBJECTS = frozenset({
     "execution.result.recorded.v1",
     "broker.state.updated.v1",
     "ownership.changed.v1",
-    # P4.2 (architecture/p4-2-managed-trade). trade.opened.v1/trade.decision.made.v1 are
-    # explicit additions to TRADING_CORE (never a `trade.>` wildcard, A7 10);
-    # trade.observation.recorded.v1 is high-frequency and gets its own stream below so its
-    # retention/ordering never entangles with TRADING_CORE's low-frequency domain events.
+    # P4.2 (architecture/p4-2-managed-trade, architecture/p4-2-runtime). Registered as valid
+    # event identity (EventEnvelope construction validates against this set) but deliberately
+    # NOT assigned to any stream below: production ship-first decision (docs/engineering/
+    # OPTIMIZATION_REGISTER.md) is that TRADING_CORE MUST REMAIN UNCHANGED for the first P4.2
+    # vertical slice, and neither trade.opened.v1 nor trade.decision.made.v1 is consumed by
+    # anything in this slice (only trade.observation.recorded.v1 is, by TM-NONE). Both are
+    # still recorded durably in platform.outbox_events by trade_management/managed_trade.py
+    # and tm_none.py - just not relayed to JetStream yet. See
+    # docs/p4_2_managed_trade/03_RUNTIME.md "Event stream topology".
     "trade.opened.v1",
     "trade.observation.recorded.v1",
     "trade.decision.made.v1",
 })
 
-# Explicit membership for the trade.* subjects that belong on TRADING_CORE (never a `trade.>`
-# wildcard - A7 10 "explicit trade/management subjects (no trade.>)").
-_TRADING_CORE_TRADE_SUBJECTS = ("trade.opened.v1", "trade.decision.made.v1")
-
 STREAMS = {
-    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal."))
-                                              or x in _TRADING_CORE_TRADE_SUBJECTS)),
+    # Unchanged (byte-identical subject derivation) since before P4.2: TRADING_CORE MUST
+    # REMAIN UNCHANGED for the first P4.2 production deployment (architecture/p4-2-runtime
+    # ship-first decision) - P4 consumes signal.entry.created.v1 from here but never adds to it.
+    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal.")))),
                      "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
     "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.")))),
                    "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
-    # Real-time trade-observation hot path only (A6 08, A7 10). Retention is an open decision
-    # (OD-08: "expose as configuration with no production default committed"); the value below
-    # is a prototype placeholder, not a committed production number - see
-    # docs/p4_2_managed_trade/README.md.
+    # The one P4-owned stream this vertical slice actually needs (A6 08, A7 10). Retention is
+    # an explicit SHIP-FIRST value, not a final decision - tracked in
+    # docs/engineering/OPTIMIZATION_REGISTER.md ("TRADING_OBSERVATION retention review").
     "TRADING_OBSERVATION": {"subjects": ("trade.observation.recorded.v1",),
                             "storage": "file", "retention": "limits", "max_age": 7 * 24 * 60 * 60},
 }

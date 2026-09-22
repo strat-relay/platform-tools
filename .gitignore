@@ -27,3 +27,11 @@ artifacts/
 !deploy/**/*.json
 !contracts/**/*.json
 !postgres/**/*.json
+
+# The bare `runtime/` rule above targets local runtime-data directories (e.g. scratch
+# TRADING_PLATFORM_RUNTIME_DIR output); trade_management/runtime/ (architecture/p4-2-runtime)
+# is source code, not generated runtime data, and must stay tracked. __pycache__ under it
+# stays ignored, per the top-level rule.
+!trade_management/runtime/
+!trade_management/runtime/**
+trade_management/runtime/__pycache__/
