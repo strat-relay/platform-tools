@@ -34,6 +34,12 @@ LIVE_SUBJECTS = ["strategy.candidate.detected.v1", "signal.entry.created.v1"]
 STOP = asyncio.Event()
 
 
+def shadow_consumer_config() -> ConsumerConfig:
+    return ConsumerConfig(durable_name="p2-signal-shadow", ack_policy=AckPolicy.EXPLICIT,
+                         deliver_policy=DeliverPolicy.ALL, filter_subject=">",
+                         ack_wait=30, max_deliver=-1)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
@@ -204,12 +210,6 @@ async def connect_jetstream():
     except Exception:
         await js.add_stream(name="TRADING_CORE", subjects=LIVE_SUBJECTS, storage=StorageType.FILE,
                             retention=RetentionPolicy.LIMITS, max_age=30 * 24 * 60 * 60)
-    try:
-        await js.consumer_info("TRADING_CORE", "p2-signal-shadow")
-    except Exception:
-        await js.add_consumer("TRADING_CORE", config=ConsumerConfig(durable_name="p2-signal-shadow",
-            ack_policy=AckPolicy.EXPLICIT, deliver_policy=DeliverPolicy.ALL, filter_subject=">",
-            ack_wait=30, max_deliver=-1))
     return nc, js
 
 
@@ -241,7 +241,8 @@ async def bootstrap_once() -> None:
             await msg.ack()
         except Exception:
             await msg.nak()
-    sub = await js.subscribe(">", stream="TRADING_CORE", durable="p2-signal-shadow", manual_ack=True, cb=on_message)
+    sub = await js.subscribe(">", stream="TRADING_CORE", durable="p2-signal-shadow",
+                            config=shadow_consumer_config(), manual_ack=True, cb=on_message)
     # Snapshot the size once. Appends after it are excluded from this bootstrap pass.
     snapshot_size = SOURCE.stat().st_size
     accepted = malformed = 0
@@ -414,7 +415,8 @@ async def run_live() -> None:
             await msg.ack()
         except Exception:
             await msg.nak()
-    sub = await js.subscribe(">", stream="TRADING_CORE", durable="p2-signal-shadow", manual_ack=True, cb=on_message)
+    sub = await js.subscribe(">", stream="TRADING_CORE", durable="p2-signal-shadow",
+                            config=shadow_consumer_config(), manual_ack=True, cb=on_message)
     relay = OutboxRelay(conn, JetStreamPublisher(js), owner="p2-signal-shadow-worker")
     prior_marker = json.loads(MARKER.read_text(encoding="utf-8")) if MARKER.exists() else None
     boundary_identity = await catch_up_before_window(conn, js, relay, prior_marker)
