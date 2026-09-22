@@ -17,7 +17,9 @@ DEPS_SHA="$(cat requirements-postgres.txt requirements-messaging.txt | shasum -a
 PACK_DIR="${TMPDIR:-/tmp}/p2-shadow-build-${SOURCE_COMMIT}"
 mkdir -p "$PACK_DIR"
 SOURCE_ARCHIVE="$PACK_DIR/source.tar.gz"
-tar -czf "$SOURCE_ARCHIVE" --exclude='__pycache__' --exclude='*.pyc' --exclude='*.pyo' --exclude='.git' \
+# Prevent macOS tar from serializing resource forks as AppleDouble `._*`
+# entries. Those sidecars can match the migration `*.sql` glob in the pod.
+COPYFILE_DISABLE=1 tar -czf "$SOURCE_ARCHIVE" --exclude='__pycache__' --exclude='*.pyc' --exclude='*.pyo' --exclude='.git' \
   -C "$ROOT" core migration postgres infrastructure scripts/p2_shadow
 SOURCE_BUNDLE_SHA="$(shasum -a 256 "$SOURCE_ARCHIVE" | awk '{print $1}')"
 RUNNER_GENERATION="$(kubectl --kubeconfig "$KUBECONFIG" -n "$NAMESPACE" get deployment mt5-native-bridge-main-runtime -o jsonpath='{.metadata.generation}')"
