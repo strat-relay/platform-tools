@@ -52,8 +52,10 @@ credential is used only by the server's first-init procedure.
 At the later T0 transition, create a separate `trading-signal-cutoff` Secret
 with `SIGNAL_CUTOFF_ID` and `SIGNAL_CUTOFF_UTC` from the persisted cutoff record.
 The prepared patch `orchestrator-db-primary-env-prepared.patch.yaml` injects
-the runtime endpoint Secret, the DB_PRIMARY flags, and that cutoff Secret. It
-is deliberately not applied in this task. Before using it at T0, inspect the
+the runtime endpoint Secret, the DB_PRIMARY flags, and that cutoff Secret. The
+prepared ConfigMap also pins `ORCHESTRATOR_MODE=PRIMARY` and
+`EXECUTION_AUTHORITY_MODE=DISABLED`. It is deliberately not applied in this
+task. Before using it at T0, inspect the
 live Deployment's environment and merge the `envFrom` references without
 discarding any existing required environment entries. Do not create the cutoff
 Secret or attach the prepared ConfigMap before T0.

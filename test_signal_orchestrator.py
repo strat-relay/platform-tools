@@ -9,6 +9,7 @@ from orchestration.risk import RiskSizingEngine
 from orchestration.brokers.mt5_shadow import BridgeQueueBacklog, MT5ShadowProvider
 from orchestration.storage import OrchestrationStore
 from orchestration.config import DEFAULT_CONFIG
+from migration.flags import ExecutionAuthorityMode, SignalAuthorityMode
 import signal_orchestrator as so
 
 
@@ -69,14 +70,106 @@ class OrchestratorTests(unittest.TestCase):
     def test_real_startup_requires_real_consistent_state(self):
         with tempfile.TemporaryDirectory() as td, patch.object(so, "safety_audit", return_value={"pass": True}), patch.object(so, "PLATFORM_RUNTIME", Path(td) / "runtime"), patch.object(so, "REAL_CONTEXT", "SYNTHETIC_ACCOUNT"):
             store = OrchestrationStore(Path(td) / "orchestration")
-            self.assertFalse(so.startup_audit(self._startup_config("SHADOW"), "REAL_EXECUTION", store)["pass"])
+            self.assertFalse(so.startup_audit(self._startup_config("SHADOW"), "REAL_EXECUTION", store,
+                execution_authority_mode=ExecutionAuthorityMode.ENABLED)["pass"])
             self._real_runtime(td)
-            self.assertTrue(so.startup_audit(self._startup_config("REAL_EXECUTION"), "REAL_EXECUTION", store)["pass"])
+            self.assertTrue(so.startup_audit(self._startup_config("REAL_EXECUTION"), "REAL_EXECUTION", store,
+                execution_authority_mode=ExecutionAuthorityMode.ENABLED)["pass"])
             broken = self._startup_config("REAL_EXECUTION")
             broken["accounts"][0]["execution_mode"] = "SHADOW"
-            result = so.startup_audit(broken, "REAL_EXECUTION", store)
+            result = so.startup_audit(broken, "REAL_EXECUTION", store,
+                execution_authority_mode=ExecutionAuthorityMode.ENABLED)
             self.assertFalse(result["pass"])
             self.assertIn("ENABLED_ACCOUNT_NOT_REAL", result["reasons"])
+
+    def test_primary_startup_requires_independent_canonical_and_execution_modes(self):
+        valid_env = {
+            "ORCHESTRATOR_MODE": "PRIMARY",
+            "SIGNAL_AUTHORITY_MODE": "DB_PRIMARY",
+            "SIGNAL_DB_PRIMARY_ENABLED": "true",
+            "SIGNAL_JETSTREAM_PRIMARY_ENABLED": "true",
+            "EXECUTION_AUTHORITY_MODE": "DISABLED",
+            "TRADING_POSTGRES_DSN": "postgresql://writer:secret@db.example/trading",
+            "NATS_URL": "nats://nats.example:4222",
+            "SIGNAL_CUTOFF_ID": "persisted-cutoff",
+            "SIGNAL_CUTOFF_UTC": "2026-09-22T00:00:00Z",
+        }
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(so, "safety_audit", return_value={"pass": True}), \
+             patch.dict("os.environ", valid_env, clear=True):
+            store = OrchestrationStore(Path(td) / "orchestration")
+            self.assertTrue(so.startup_audit(self._startup_config("REAL_EXECUTION"), "PRIMARY", store)["pass"])
+
+            invalid_cases = [
+                ({"SIGNAL_AUTHORITY_MODE": "LEGACY_FILE", "SIGNAL_DB_PRIMARY_ENABLED": "false",
+                  "SIGNAL_JETSTREAM_PRIMARY_ENABLED": "false"}, "PRIMARY_REQUIRES_DB_PRIMARY_SIGNAL_AUTHORITY"),
+                ({"TRADING_POSTGRES_DSN": ""}, "CANONICAL_POSTGRES_NOT_CONFIGURED"),
+                ({"SIGNAL_CUTOFF_ID": ""}, "SIGNAL_CUTOFF_ID_MISSING"),
+                ({"SIGNAL_CUTOFF_UTC": ""}, "SIGNAL_CUTOFF_UTC_MISSING"),
+                ({"SIGNAL_CUTOFF_UTC": "2026-09-22T00:00:00"}, "SIGNAL_CUTOFF_UTC_MUST_INCLUDE_TIMEZONE"),
+                ({"NATS_URL": ""}, "CANONICAL_NATS_NOT_CONFIGURED"),
+                ({"EXECUTION_AUTHORITY_MODE": "ENABLED"}, "PRIMARY_REQUIRES_EXECUTION_DISABLED"),
+                ({"EXECUTION_AUTHORITY_MODE": ""}, "INVALID_EXECUTION_AUTHORITY"),
+                ({"ORCHESTRATOR_MODE": ""}, "ORCHESTRATOR_MODE_MUST_EXPLICITLY_BE_PRIMARY"),
+            ]
+            for overrides, expected_reason in invalid_cases:
+                with self.subTest(expected_reason=expected_reason):
+                    env = {**valid_env, **overrides}
+                    with patch.dict("os.environ", env, clear=True):
+                        result = so.startup_audit(self._startup_config("REAL_EXECUTION"), "PRIMARY", store)
+                    self.assertFalse(result["pass"])
+                    self.assertTrue(any(reason.startswith(expected_reason) for reason in result["reasons"]))
+
+    def test_shadow_rejects_db_primary_to_prevent_dual_authority(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(so, "safety_audit", return_value={"pass": True}), \
+             patch.dict("os.environ", {
+                 "SIGNAL_AUTHORITY_MODE": "DB_PRIMARY",
+                 "SIGNAL_DB_PRIMARY_ENABLED": "true",
+                 "SIGNAL_JETSTREAM_PRIMARY_ENABLED": "true",
+                 "EXECUTION_AUTHORITY_MODE": "DISABLED",
+             }, clear=True):
+            result = so.startup_audit(self._startup_config("SHADOW"), "SHADOW",
+                                      OrchestrationStore(Path(td) / "orchestration"))
+            self.assertFalse(result["pass"])
+            self.assertIn("SHADOW_CANNOT_USE_DB_PRIMARY_SIGNAL_AUTHORITY", result["reasons"])
+
+    def test_primary_account_routes_are_inert_without_broker_provider(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = OrchestrationStore(Path(td) / "orchestration")
+            cfg = self._startup_config("REAL_EXECUTION")
+            cfg["portfolios"][0]["strategy_ids"] = ["TEST"]
+            class ForbiddenProvider:
+                def __getattr__(self, name):
+                    raise AssertionError(f"PRIMARY attempted broker access: {name}")
+            so.route_signal(store, signal(), cfg, ForbiddenProvider(), "PRIMARY")
+            execution_routes = [row for row in store.rows("route_decisions")
+                                if row.get("route_type") == "EXECUTION_DISABLED"]
+            self.assertEqual(len(execution_routes), 1)
+            self.assertEqual(execution_routes[0]["status"], "DISABLED")
+            self.assertEqual(execution_routes[0]["reason"], "EXECUTION_AUTHORITY_DISABLED")
+
+    def test_primary_poll_uses_canonical_publisher_without_provider_or_signal_file(self):
+        class Adapter:
+            def discover_new_signals(self, seen):
+                return [signal()]
+        class Publisher:
+            def __init__(self): self.published = []
+            def existing_signal_ids(self): return set()
+            def publish(self, value): self.published.append(value); return (value, True)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            store = OrchestrationStore(root / "orchestration")
+            publisher = Publisher()
+            with patch.object(so, "load_adapters", return_value=[Adapter()]), \
+                 patch.object(so, "MT5ShadowProvider", side_effect=AssertionError("PRIMARY created MT5 provider")), \
+                 patch.object(so, "HEARTBEAT", root / "heartbeat.json"):
+                count = so.poll_once(store, {}, {"freeze_timestamp": "2026-09-22T00:00:00Z"},
+                    "PRIMARY", signal_authority_mode=SignalAuthorityMode.DB_PRIMARY,
+                    canonical_publisher=publisher)
+            self.assertEqual(count, 1)
+            self.assertEqual(len(publisher.published), 1)
+            self.assertFalse((root / "orchestration" / "signals.jsonl").exists())
 
     def test_real_route_is_disposition_only_and_keeps_broker_writes_outside_orchestrator(self):
         with tempfile.TemporaryDirectory() as td:

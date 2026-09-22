@@ -27,7 +27,8 @@ from orchestration.models import AccountSnapshot, StrategySignal, stable_id
 from orchestration.registry import PortfolioRegistry, StrategyRegistry
 from orchestration.risk import RiskSizingEngine
 from orchestration.storage import OrchestrationStore
-from migration.flags import SignalAuthorityFlags, SignalAuthorityMode
+from migration.flags import (ExecutionAuthorityMode, SignalAuthorityFlags,
+                             SignalAuthorityMode, execution_authority_mode_from_env)
 from postgres.config import PostgresConfig
 from postgres.db import connect
 from trade_manager.central import authorize_pending_proposals
@@ -43,6 +44,7 @@ HEARTBEAT = RUNTIME / "heartbeat.json"
 PID = RUNTIME / "pid"
 STOP = Path("/tmp/signal-orchestrator-shadow.stop")
 REAL_STOP = Path("/tmp/signal-orchestrator-real.stop")
+PRIMARY_STOP = Path("/tmp/signal-orchestrator-primary.stop")
 VERSION = "SIGNAL_ORCHESTRATOR_SHADOW_V1"
 LIVE_OUTPUT_VERSION = "SIGNAL_ORCHESTRATOR_LIVE_OUTPUT_V1"
 SCHEMA = "signal-orchestration-v1"
@@ -147,7 +149,7 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
     return adapters
 
 
-def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict[str, Any], provider: MT5ShadowProvider,
+def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict[str, Any], provider: MT5ShadowProvider | None,
                  orchestration_mode: str = "SHADOW") -> None:
     registry = PortfolioRegistry(config)
     created = now()
@@ -161,7 +163,7 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
         "channel": "INTERNAL_QUEUE", "audience_id": "internal-shadow", "created_at": created,
         "status": "QUEUED", "attempt_count": 0, "last_error": None}, signal.signal_id)
     live_state = store.load_state()
-    if live_classification(signal.to_dict(), live_state) == "POST_LIVE_EXECUTION":
+    if orchestration_mode != "PRIMARY" and live_classification(signal.to_dict(), live_state) == "POST_LIVE_EXECUTION":
         live_route_id = stable_id("ROUTE", {"signal": signal.signal_id, "type": "REAL_EXECUTION_OUTPUT"})
         store.append("route_decisions", {"route_decision_id": live_route_id, "signal_id": signal.signal_id,
             "route_type": "REAL_EXECUTION_OUTPUT", "destination_id": "real-execution-consumer",
@@ -169,6 +171,17 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
         event(store, "LIVE_OUTPUT_PUBLISHED", signal, {"destination": "real-execution-consumer",
                                                          "classification": "POST_LIVE_EXECUTION"})
     for portfolio, account in registry.routes_for(signal.strategy_id):
+        if orchestration_mode == "PRIMARY":
+            route_type = "EXECUTION_DISABLED"
+            rid = stable_id("ROUTE", {"signal": signal.signal_id, "type": route_type,
+                                       "destination": portfolio["portfolio_id"] + account["account_id"]})
+            store.append("route_decisions", {"route_decision_id": rid, "signal_id": signal.signal_id,
+                "route_type": route_type, "destination_id": portfolio["portfolio_id"],
+                "account_id": account["account_id"], "status": "DISABLED",
+                "reason": "EXECUTION_AUTHORITY_DISABLED", "created_at": created}, rid)
+            event(store, "EXECUTION_ROUTE_DISABLED", signal,
+                  {"account_id": account["account_id"], "reason": "EXECUTION_AUTHORITY_DISABLED"})
+            continue
         account_mode = account.get("execution_mode")
         account_allowed = account_mode == orchestration_mode
         route_type = "SHADOW_EXECUTION" if orchestration_mode == "SHADOW" else "REAL_EXECUTION_DISPOSITION"
@@ -185,6 +198,8 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
             event(store, event_type, signal, {"account_id": account["account_id"], "reason": "ACCOUNT_MODE_MISMATCH"})
             continue
         try:
+            if provider is None:
+                raise RuntimeError("broker read provider unavailable for execution-capable orchestration mode")
             raw = provider.account_snapshot(account["account_id"])
             orchestration_state = store.load_state()
             prior_context = orchestration_state.get("last_account_context_id")
@@ -260,7 +275,10 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
 def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, Any],
               orchestration_mode: str = "SHADOW", *,
               signal_authority_mode: SignalAuthorityMode = SignalAuthorityMode.LEGACY_FILE,
-              canonical_publisher: CanonicalSignalPublisher | None = None) -> int:
+              canonical_publisher: CanonicalSignalPublisher | None = None,
+              provider: MT5ShadowProvider | None = None) -> int:
+    if orchestration_mode == "PRIMARY" and signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
+        raise RuntimeError("PRIMARY requires DB_PRIMARY signal authority")
     if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY and canonical_publisher is None:
         raise RuntimeError("DB_PRIMARY requires CanonicalSignalPublisher")
     state = store.load_state()
@@ -281,7 +299,8 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                 "original_source_timestamp": source_ts, "orchestrator_freeze_timestamp": orchestrator_boundary,
                 "corrected_classification": classification, "corrected_at": now(),
                 "reason": "classification_uses_originating_strategy_event_timestamp"}, correction_id)
-    provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
+    if orchestration_mode != "PRIMARY" and provider is None:
+        provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
     for adapter in load_adapters(config, orchestrator_boundary):
         discovered.extend(adapter.discover_new_signals(seen))
@@ -365,25 +384,75 @@ def safety_audit() -> dict[str, Any]:
 
 
 def startup_audit(config: dict[str, Any], orchestration_mode: str,
-                  store: OrchestrationStore | None = None) -> dict[str, Any]:
+                  store: OrchestrationStore | None = None, *,
+                  signal_authority_mode: SignalAuthorityMode | None = None,
+                  execution_authority_mode: ExecutionAuthorityMode | None = None) -> dict[str, Any]:
     """Validate one explicit startup mode without changing any state."""
     store = store or OrchestrationStore(RUNTIME)
     state = store.load_state()
     audit = safety_audit()
     reasons: list[str] = []
     accounts = [a for a in config.get("accounts", []) if a.get("enabled")]
-    if orchestration_mode not in {"SHADOW", "REAL_EXECUTION"}:
+    if orchestration_mode not in {"SHADOW", "PRIMARY", "REAL_EXECUTION"}:
         reasons.append("UNKNOWN_ORCHESTRATION_MODE")
+    configured_orchestrator_mode = os.environ.get("ORCHESTRATOR_MODE", "").strip().upper()
+    if configured_orchestrator_mode and configured_orchestrator_mode != orchestration_mode:
+        reasons.append("ORCHESTRATOR_MODE_CONFLICTS_WITH_STARTUP_MODE")
+    if signal_authority_mode is None:
+        try:
+            signal_authority_mode = SignalAuthorityFlags.mode_from_env()
+        except ValueError as exc:
+            reasons.append(f"INVALID_SIGNAL_AUTHORITY:{exc}")
+            signal_authority_mode = SignalAuthorityMode.LEGACY_FILE
+    if execution_authority_mode is None:
+        try:
+            execution_authority_mode = execution_authority_mode_from_env(
+                required=orchestration_mode in {"PRIMARY", "REAL_EXECUTION"})
+        except ValueError as exc:
+            reasons.append(f"INVALID_EXECUTION_AUTHORITY:{exc}")
+            execution_authority_mode = ExecutionAuthorityMode.DISABLED
     if not audit["pass"]:
         reasons.append("ORDER_ISOLATION_AUDIT_FAILED")
     if orchestration_mode == "SHADOW":
+        if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
+            reasons.append("SHADOW_CANNOT_USE_DB_PRIMARY_SIGNAL_AUTHORITY")
+        if execution_authority_mode is not ExecutionAuthorityMode.DISABLED:
+            reasons.append("SHADOW_REQUIRES_EXECUTION_DISABLED")
         if config.get("execution_mode") != "SHADOW":
             reasons.append("PLATFORM_MODE_NOT_SHADOW")
         if any(a.get("execution_mode") != "SHADOW" for a in accounts):
             reasons.append("ENABLED_ACCOUNT_NOT_SHADOW")
         if state.get("live_execution_enabled"):
             reasons.append("LIVE_EXECUTION_ENABLED")
+    elif orchestration_mode == "PRIMARY":
+        if os.environ.get("ORCHESTRATOR_MODE", "").strip().upper() != "PRIMARY":
+            reasons.append("ORCHESTRATOR_MODE_MUST_EXPLICITLY_BE_PRIMARY")
+        if signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
+            reasons.append("PRIMARY_REQUIRES_DB_PRIMARY_SIGNAL_AUTHORITY")
+        if execution_authority_mode is not ExecutionAuthorityMode.DISABLED:
+            reasons.append("PRIMARY_REQUIRES_EXECUTION_DISABLED")
+        if state.get("live_execution_enabled"):
+            reasons.append("LIVE_EXECUTION_ENABLED")
+        try:
+            PostgresConfig.from_env().require_explicit_target()
+        except ValueError as exc:
+            reasons.append(f"CANONICAL_POSTGRES_NOT_CONFIGURED:{exc}")
+        if not os.environ.get("NATS_URL", "").strip():
+            reasons.append("CANONICAL_NATS_NOT_CONFIGURED")
+        if not os.environ.get("SIGNAL_CUTOFF_ID", "").strip():
+            reasons.append("SIGNAL_CUTOFF_ID_MISSING")
+        if not os.environ.get("SIGNAL_CUTOFF_UTC", "").strip():
+            reasons.append("SIGNAL_CUTOFF_UTC_MISSING")
+        else:
+            try:
+                cutoff = datetime.fromisoformat(os.environ["SIGNAL_CUTOFF_UTC"].replace("Z", "+00:00"))
+                if cutoff.tzinfo is None:
+                    reasons.append("SIGNAL_CUTOFF_UTC_MUST_INCLUDE_TIMEZONE")
+            except (TypeError, ValueError):
+                reasons.append("SIGNAL_CUTOFF_UTC_INVALID")
     elif orchestration_mode == "REAL_EXECUTION":
+        if execution_authority_mode is not ExecutionAuthorityMode.ENABLED:
+            reasons.append("REAL_EXECUTION_REQUIRES_EXECUTION_ENABLED")
         if config.get("execution_mode") != "REAL_EXECUTION":
             reasons.append("PLATFORM_MODE_NOT_REAL")
         if not accounts:
@@ -583,8 +652,15 @@ def acquire_lock() -> None:
 
 
 def run(args: argparse.Namespace, orchestration_mode: str) -> None:
+    configured_orchestrator_mode = os.environ.get("ORCHESTRATOR_MODE", "").strip().upper()
+    if orchestration_mode == "PRIMARY" and configured_orchestrator_mode != "PRIMARY":
+        raise RuntimeError("primary-start requires ORCHESTRATOR_MODE=PRIMARY")
+    if configured_orchestrator_mode and configured_orchestrator_mode != orchestration_mode:
+        raise RuntimeError("ORCHESTRATOR_MODE conflicts with the selected startup command")
     config = load_config(); store = OrchestrationStore(RUNTIME)
     signal_authority_mode = SignalAuthorityFlags.mode_from_env()
+    execution_authority_mode = execution_authority_mode_from_env(
+        required=orchestration_mode in {"PRIMARY", "REAL_EXECUTION"})
     db_conn = None
     canonical_publisher = None
     if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
@@ -605,11 +681,14 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
             db_conn.close()
             raise
     try:
-        audit = startup_audit(config, orchestration_mode, store)
+        audit = startup_audit(config, orchestration_mode, store,
+                              signal_authority_mode=signal_authority_mode,
+                              execution_authority_mode=execution_authority_mode)
         if not audit["pass"]:
             raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {audit}")
         mf = manifest(config)
-        stop_path = REAL_STOP if orchestration_mode == "REAL_EXECUTION" else STOP
+        stop_path = {"SHADOW": STOP, "PRIMARY": PRIMARY_STOP,
+                     "REAL_EXECUTION": REAL_STOP}[orchestration_mode]
         acquire_lock(); state = store.load_state(); state["status"] = "ACTIVE"; store.save_state(state); stop_path.unlink(missing_ok=True)
     except Exception:
         if db_conn is not None:
@@ -622,7 +701,9 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
         while not halt["x"] and not stop_path.exists():
             try: poll_once(store, config, mf, orchestration_mode,
                            signal_authority_mode=signal_authority_mode,
-                           canonical_publisher=canonical_publisher)
+                           canonical_publisher=canonical_publisher,
+                           provider=(None if orchestration_mode == "PRIMARY" else
+                                     MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")))
             # Management proposals follow the same central authority as entry
             # signals. This creates only typed management intents; the REAL
             # consumer remains the sole broker-write boundary.
@@ -637,10 +718,11 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
                              "signal_authority_mode": signal_authority_mode.value,
                              "timestamp": now(), "signals_seen": signal_count}
                 atomic(HEARTBEAT, heartbeat)
-            try:
-                authorize_pending_proposals()
-            except Exception as management_exc:
-                atomic(RUNTIME / "management_health.json", {"status": "DEGRADED", "error": str(management_exc), "timestamp": now()})
+            if orchestration_mode != "PRIMARY":
+                try:
+                    authorize_pending_proposals()
+                except Exception as management_exc:
+                    atomic(RUNTIME / "management_health.json", {"status": "DEGRADED", "error": str(management_exc), "timestamp": now()})
             time.sleep(max(1, args.interval))
     finally:
         state = store.load_state(); state["status"] = "STOPPED"; store.save_state(state); PID.unlink(missing_ok=True)
@@ -649,12 +731,15 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="command", required=True)
+    p = argparse.ArgumentParser(description="Signal orchestration with independent signal and execution authority")
+    sub = p.add_subparsers(dest="command", required=True)
     start = sub.add_parser("shadow-start"); start.add_argument("--interval", type=int, default=15)
+    primary_start = sub.add_parser("primary-start", help="start authoritative DB_PRIMARY orchestration with execution disabled")
+    primary_start.add_argument("--interval", type=int, default=15)
     real_start = sub.add_parser("real-start"); real_start.add_argument("--interval", type=int, default=15)
     startup_audit_cmd = sub.add_parser("startup-audit")
-    startup_audit_cmd.add_argument("--mode", choices=("SHADOW", "REAL_EXECUTION"))
-    for name in ("shadow-stop", "real-stop", "status", "health", "account", "report", "signals", "decisions", "distribution", "audit-order-isolation", "freeze", "live-audit", "live-enable", "live-status"):
+    startup_audit_cmd.add_argument("--mode", choices=("SHADOW", "PRIMARY", "REAL_EXECUTION"))
+    for name in ("shadow-stop", "primary-stop", "real-stop", "status", "health", "account", "report", "signals", "decisions", "distribution", "audit-order-isolation", "freeze", "live-audit", "live-enable", "live-status"):
         sub.add_parser(name)
     args = p.parse_args(); config = load_config(); store = OrchestrationStore(RUNTIME)
     if args.command == "freeze": print(json.dumps(manifest(config), indent=2)); return
@@ -677,9 +762,10 @@ def main() -> None:
             rows = [dict(x, classification=corrections.get(x["signal_id"], "UNCLASSIFIED")) for x in rows]
         print(json.dumps(rows, indent=2)); return
     if args.command == "startup-audit":
-        mode = args.mode or ("REAL_EXECUTION" if config.get("execution_mode") == "REAL_EXECUTION" else "SHADOW")
+        mode = args.mode or os.environ.get("ORCHESTRATOR_MODE", "SHADOW").strip().upper()
         print(json.dumps(startup_audit(config, mode), indent=2, default=str)); return
     if args.command == "shadow-stop": STOP.write_text(now()); print("Shadow orchestrator stop requested"); return
+    if args.command == "primary-stop": PRIMARY_STOP.write_text(now()); print("Primary orchestrator stop requested"); return
     if args.command == "real-stop": REAL_STOP.write_text(now()); print("Real orchestrator stop requested"); return
     if args.command in ("status", "health"):
         state = store.load_state(); value = {"version": VERSION, "status": state.get("status"),
@@ -692,7 +778,9 @@ def main() -> None:
         if args.command == "health":
             value["broker"] = operational_health(store, config)
         print(json.dumps(value, indent=2, default=str)); return
-    run(args, "REAL_EXECUTION" if args.command == "real-start" else "SHADOW")
+    mode = {"shadow-start": "SHADOW", "primary-start": "PRIMARY",
+            "real-start": "REAL_EXECUTION"}[args.command]
+    run(args, mode)
 
 
 if __name__ == "__main__": main()

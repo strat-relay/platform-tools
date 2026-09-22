@@ -289,6 +289,8 @@ metadata:
   annotations:
     trading-platform.stratrelay.io/activation: "manual-cutover-only"
 data:
+  ORCHESTRATOR_MODE: PRIMARY
+  EXECUTION_AUTHORITY_MODE: DISABLED
   SIGNAL_AUTHORITY_MODE: DB_PRIMARY
   SIGNAL_DB_PRIMARY_ENABLED: "true"
   SIGNAL_JETSTREAM_PRIMARY_ENABLED: "true"

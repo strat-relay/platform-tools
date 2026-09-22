@@ -11,6 +11,13 @@ class SignalAuthorityMode(str, Enum):
     DB_PRIMARY = "DB_PRIMARY"
 
 
+class ExecutionAuthorityMode(str, Enum):
+    """Whether a separately managed execution service may act on routes."""
+
+    DISABLED = "DISABLED"
+    ENABLED = "ENABLED"
+
+
 def _bool(name: str) -> bool:
     value = os.getenv(name, "false").strip().lower()
     if value not in {"true", "false", "1", "0"}:
@@ -58,3 +65,15 @@ class SignalAuthorityFlags:
         # transition. The transactional outbox remains pending for relay retry.
         # Keep the parameter for callers that report transport health, but do
         # not turn transient transport availability into a persistence gate.
+
+
+def execution_authority_mode_from_env(*, required: bool = False) -> ExecutionAuthorityMode:
+    configured = os.getenv("EXECUTION_AUTHORITY_MODE")
+    if configured is None or not configured.strip():
+        if required:
+            raise ValueError("EXECUTION_AUTHORITY_MODE must be explicitly set")
+        return ExecutionAuthorityMode.DISABLED
+    try:
+        return ExecutionAuthorityMode(configured.strip().upper())
+    except ValueError as exc:
+        raise ValueError("EXECUTION_AUTHORITY_MODE must be DISABLED or ENABLED") from exc
