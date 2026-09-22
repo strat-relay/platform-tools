@@ -23,9 +23,14 @@ observability paths and audit list/detail explicitly return 503 unavailable;
 execution collection/metrics return inactive with zero counts; connections
 report execution INACTIVE. An unknown `/api/v1` route returns canonical 404.
 The Console origin's public CORS preflight returns 204 with credentialed
-allow-origin, methods, and headers. The Console's shared query panel maps
-degraded/unavailable envelopes to an explicit degraded state rather than
-rendering a fabricated empty result.
+allow-origin, methods, and headers. Live browser checks showed Signals (9
+rows), Overview (SAFE), Strategies (one configured strategy), and Events
+(18 rows) load. Strategy detail remains rendered when observability returns
+503 and the browser reported no JavaScript errors, but its unavailable panel
+still uses a `Loading…` description; this is a pre-existing Console UX
+follow-up, not an API authority fallback. The Console Audit tab displays its
+own empty state without calling `/audit`; the public `/audit` API itself
+correctly returns explicit 503 unavailable.
 
 The runtime remains PRIMARY / DB_PRIMARY / DISABLED, port 22348 is not
 listening, and the cloudflared egress policy retains its narrow TCP 22351
