@@ -6,6 +6,7 @@ import unittest
 from postgres.config import PostgresConfig
 from postgres.db import MIGRATIONS, apply_migrations, connect, transaction
 from postgres.phase6 import Phase6Store, canonical_hash
+from context_structure_retrace_outcome_projector import project_entry_only_outcomes
 
 
 def _database_available() -> bool:
@@ -43,6 +44,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
     def test_migrations_are_idempotent_and_checksummed(self):
         self.assertEqual(apply_migrations(self.conn), [])
+
+    def test_context_outcome_projector_records_cutoff_metadata_idempotently(self):
+        cutoff_id = f"test-outcome-cutoff-{uuid.uuid4().hex}"
+        env = {"ENTRY_OUTCOME_SIGNAL_CUTOFF_ID": cutoff_id}
+        first = project_entry_only_outcomes({"positions": {}}, environ=env)
+        second = project_entry_only_outcomes({"positions": {}}, environ=env)
+        self.assertEqual(first, {"matched": 0, "projected": 0, "unchanged": 0, "unmatched": 0})
+        self.assertEqual(second, first)
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT value FROM platform.system_metadata WHERE key=%s",
+                        ("context.entry_only_outcome_cutoff",))
+            metadata = cur.fetchone()[0]
+            self.assertEqual(metadata["signal_cutoff_id"], cutoff_id)
+            cur.execute("DELETE FROM platform.system_metadata WHERE key=%s",
+                        ("context.entry_only_outcome_cutoff",))
+        self.conn.commit()
 
     def test_transaction_rolls_back(self):
         try:

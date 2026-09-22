@@ -89,7 +89,8 @@ def project_entry_only_outcomes(
                 cur.execute(
                     """INSERT INTO platform.system_metadata(key, value, updated_at)
                        VALUES (%s, jsonb_build_object('cutoff_utc', %s::timestamptz,
-                           'signal_cutoff_id', %s, 'strategy_id', %s, 'outcome_type', %s), %s)
+                           'signal_cutoff_id', %s::text, 'strategy_id', %s::text,
+                           'outcome_type', %s::text), %s)
                        ON CONFLICT (key) DO NOTHING""",
                     (METADATA_KEY, cutoff, cutoff_id, STRATEGY_ID, OUTCOME_TYPE, now()),
                 )
