@@ -150,13 +150,22 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(execution_routes[0]["reason"], "EXECUTION_AUTHORITY_DISABLED")
 
     def test_primary_poll_uses_canonical_publisher_without_provider_or_signal_file(self):
+        from datetime import datetime, timezone
+        from dataclasses import replace
         class Adapter:
             def discover_new_signals(self, seen):
-                return [signal()]
+                return [replace(signal(), created_at="2026-09-22T00:01:00Z",
+                                signal_timestamp="2026-09-22T00:01:00Z",
+                                decision_time="2026-09-22T00:01:00Z")]
         class Publisher:
             def __init__(self): self.published = []
+            cutoff_utc = datetime(2026, 9, 22, 0, 0, tzinfo=timezone.utc)
             def existing_signal_ids(self): return set()
-            def publish(self, value): self.published.append(value); return (value, True)
+            def publish(self, value):
+                if value.signal_timestamp < self.cutoff_utc.isoformat():
+                    raise RuntimeError("pre-cutoff signal must not be persisted")
+                self.published.append(value)
+                return (value, True)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             store = OrchestrationStore(root / "orchestration")
@@ -170,6 +179,18 @@ class OrchestratorTests(unittest.TestCase):
             self.assertEqual(count, 1)
             self.assertEqual(len(publisher.published), 1)
             self.assertFalse((root / "orchestration" / "signals.jsonl").exists())
+
+    def test_primary_discovery_boundary_uses_t0_without_rewriting_historical_manifest(self):
+        from datetime import datetime, timezone
+        class Publisher:
+            cutoff_utc = datetime(2026, 9, 22, 5, 0, tzinfo=timezone.utc)
+        historical = {"freeze_timestamp": "2026-09-20T22:23:35.948579+00:00",
+                      "mode": "SHADOW", "source_hash": "unchanged"}
+        effective = so.manifest_for_orchestration_mode(historical, "PRIMARY", Publisher())
+        self.assertEqual(effective["freeze_timestamp"], "2026-09-22T05:00:00Z")
+        self.assertEqual(historical["freeze_timestamp"], "2026-09-20T22:23:35.948579+00:00")
+        self.assertEqual(effective["source_hash"], historical["source_hash"])
+        self.assertIs(so.manifest_for_orchestration_mode(historical, "SHADOW", None), historical)
 
     def test_real_route_is_disposition_only_and_keeps_broker_writes_outside_orchestrator(self):
         with tempfile.TemporaryDirectory() as td:

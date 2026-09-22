@@ -1,0 +1,11 @@
+.git
+.claude
+.venv
+__pycache__
+.pytest_cache
+.mypy_cache
+runtime
+.env
+.env.*
+*.py[cod]
+.DS_Store

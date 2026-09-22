@@ -121,6 +121,19 @@ def manifest(config: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def manifest_for_orchestration_mode(value: dict[str, Any], orchestration_mode: str,
+                                    canonical_publisher: CanonicalSignalPublisher | None) -> dict[str, Any]:
+    """Use the authority cutoff as PRIMARY's discovery boundary, not SHADOW's old freeze."""
+    if orchestration_mode != "PRIMARY":
+        return value
+    if canonical_publisher is None:
+        raise RuntimeError("PRIMARY requires CanonicalSignalPublisher for its discovery boundary")
+    cutoff_utc = canonical_publisher.cutoff_utc.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    # Keep the persisted historical manifest immutable. This in-memory copy
+    # prevents pre-T0 strategy state from being rediscovered as new signals.
+    return {**value, "freeze_timestamp": cutoff_utc}
+
+
 def event(store: OrchestrationStore, event_type: str, signal: StrategySignal | None = None,
           payload: dict[str, Any] | None = None, correlation_id: str | None = None, causation_id: str | None = None) -> None:
     row = {"event_id": stable_id("EVT", {"type": event_type, "signal": signal.signal_id if signal else None,
@@ -686,7 +699,7 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
                               execution_authority_mode=execution_authority_mode)
         if not audit["pass"]:
             raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {audit}")
-        mf = manifest(config)
+        mf = manifest_for_orchestration_mode(manifest(config), orchestration_mode, canonical_publisher)
         stop_path = {"SHADOW": STOP, "PRIMARY": PRIMARY_STOP,
                      "REAL_EXECUTION": REAL_STOP}[orchestration_mode]
         acquire_lock(); state = store.load_state(); state["status"] = "ACTIVE"; store.save_state(state); stop_path.unlink(missing_ok=True)
