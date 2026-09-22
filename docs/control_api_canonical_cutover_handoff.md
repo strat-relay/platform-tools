@@ -1,14 +1,41 @@
 # Control API canonical cutover handoff
 
 Date: 2026-09-22
-Baseline: `4d665b82172ae9075c2d3929a898325dff868c7a`
+Implementation source: `c2f037491be4711a7b53879133814d0a4fedc6fd`
+Deployment manifest commit: `04f18b15e66e72af4599c32cab4732aa5cf74d60`
 
-Implementation and local contract tests are present, but production
-deployment/public verification are **not complete**. The local Kubernetes
-GET endpoint responds, while both server-side dry-run requests timed out
-reading API responses. No image was built/pushed and no workload/router or
-NetworkPolicy was changed. Do not treat the routes below as deployed until a
-later rollout and public verification succeed.
+The canonical Control API cutover is deployed and externally verified.
+The API rollout initially waited for a terminating old pod to release the
+namespace's full quota; it then completed without changing quota. Both
+workloads use immutable image digests:
+
+- Control API: `localhost:5001/trading-platform-control-api@sha256:49e6ea1176ca0a12ad77ad89d9e892a6a3586bfd2bc9f386972092dca8d6828f`
+- Router: `localhost:5001/trading-platform-api-router@sha256:d90610a197bee0f46217613013f9b1757d79cb1631c8fcc87adabfb220de6254`
+
+Public verification on 2026-09-22 confirmed `/system` and `/safety` report
+PRIMARY / DB_PRIMARY / DISABLED, with execution INACTIVE, `real_execution_mode_active=false`,
+and `broker_write_path_active=false`. `/system` reports the orchestrator
+heartbeat UNKNOWN rather than fabricating ACTIVE. Public signal IDs exactly
+matched a fresh read-only PostgreSQL query (9 IDs, schema 012); canonical
+signal detail and PostgreSQL-backed event list/detail passed. Strategy list
+and detail read the active mounted platform config. The three strategy
+observability paths and audit list/detail explicitly return 503 unavailable;
+execution collection/metrics return inactive with zero counts; connections
+report execution INACTIVE. An unknown `/api/v1` route returns canonical 404.
+The Console origin's public CORS preflight returns 204 with credentialed
+allow-origin, methods, and headers. The Console's shared query panel maps
+degraded/unavailable envelopes to an explicit degraded state rather than
+rendering a fabricated empty result.
+
+The runtime remains PRIMARY / DB_PRIMARY / DISABLED, port 22348 is not
+listening, and the cloudflared egress policy retains its narrow TCP 22351
+router permission. The platform API and router each have one ready replica;
+namespace quota remains at its pre-existing 10-pod / 3600m CPU limit. No
+Cloudflare origin, authority mode, P4 state, or broker state was changed.
+The legacy `control-api` deployment remains ready but is no longer selected
+for public `/api/v1/*` routes; its process retirement remains deferred. No
+canonical optimization register is present in this lineage, so Control API
+items and legacy retirement are handed off for later register reconciliation.
 
 This cutover changes route authority, not trading behavior. The existing
 `platform-signals-api` pod now also serves the Platform Control API; a
