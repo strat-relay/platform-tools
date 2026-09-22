@@ -9,9 +9,9 @@ COPY requirements-postgres.txt /tmp/requirements-postgres.txt
 RUN pip install --no-cache-dir --disable-pip-version-check \
     -r /tmp/requirements-postgres.txt
 
-# This image carries only the two Context runner files updated for outcome
-# projection. The init container copies these onto the existing runtime PVC;
-# it does not replace the orchestrator, runner ledger, or other live files.
+# This image carries the outcome-enabled runner, projector, and the runner's
+# existing report-format import dependency. The init container copies only
+# these files onto the existing PVC; it does not replace other live files.
 COPY context_structure_retrace_forward.py /outcome-overlay/
 COPY context_structure_retrace_outcome_projector.py /outcome-overlay/
 COPY strategy_report_format.py /outcome-overlay/

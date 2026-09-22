@@ -2,10 +2,11 @@
 
 The API image uses `deploy/platform_api/Dockerfile` and includes migration 015.
 The Context runner overlay is a separate, deliberately small image built with
-this Dockerfile. The overlay image installs psycopg and carries only the
-updated Context runner plus the post-checkpoint projector. Its init container
-copies those two files to the existing runtime PVC; it must not copy a full
-platform source tree over the live shared runtime.
+this Dockerfile. The overlay image installs psycopg and carries the updated
+Context runner, post-checkpoint projector, and the runner's existing
+`strategy_report_format.py` import dependency. Its init container copies only
+these files to the existing runtime PVC; it must not copy a full platform
+source tree over the live shared runtime.
 
 At rollout, configure `ENTRY_OUTCOME_SIGNAL_CUTOFF_ID` to the verified
 post-T0 canonical EntrySignal cutoff. The runner projects only EntrySignals
@@ -20,6 +21,6 @@ No broker or execution endpoint is added.
 
 `patch_context_runtime.py` updates only the `initialize-runtime-tree` and
 `context-paper` containers in the shared Deployment. Its init command copies
-only the two outcome-enabled runner files to the PVC; it deliberately leaves
+only the required runner files to the PVC; it deliberately leaves
 the orchestrator, Context ledger, and other files untouched. Use a digest-pinned
 image and the verified EntrySignal cutoff ID when invoking it.
