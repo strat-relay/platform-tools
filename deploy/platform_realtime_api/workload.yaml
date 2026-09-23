@@ -1,0 +1,102 @@
+# Prepared for deployment (mission CLAUDE-V1.3-CONSOLE-REALTIME-WEBSOCKET-ARCHITECTURE section
+# 20 explicitly authorizes deploying this Console/API realtime path once isolated verification
+# passes). A separate process/pod from `platform-signals-api` (the existing synchronous stdlib
+# HTTP server) - this keeps every already-working REST route completely untouched; the new
+# asyncio/WebSocket code is fully isolated in its own deployment, so a bug here cannot affect
+# REST availability, and a rollback is just deleting this one Deployment.
+#
+# Read-only: connects to PostgreSQL with readonly=True (platform_api/realtime.py) and to NATS
+# JetStream with its own ephemeral (non-durable) subscriptions only - never writes to Postgres,
+# never a durable JetStream consumer, never touches EXECUTION or the 22348 bridge listener.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-realtime-api
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: platform-realtime-api
+    app.kubernetes.io/part-of: trading-platform
+    app.kubernetes.io/component: platform-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # matches the namespace's tight ResourceQuota (see docs/p4_broker_symbol_adapter_fix_handoff.md) - a RollingUpdate surge pod cannot be admitted
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-realtime-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-realtime-api
+        app.kubernetes.io/part-of: trading-platform
+        app.kubernetes.io/component: platform-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: realtime
+          image: localhost:5001/trading-platform-realtime-api@sha256:REPLACE_WITH_VERIFIED_DIGEST
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 22352
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+          env:
+            - name: PLATFORM_API_CORS_ORIGINS
+              value: "https://console.stratrelay.app"
+            - name: PLATFORM_REALTIME_PORT
+              value: "22352"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 150m
+              memory: 192Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-realtime-api
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: platform-realtime-api
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: platform-realtime-api
+  ports:
+    - name: http
+      port: 22352
+      targetPort: http
+      protocol: TCP

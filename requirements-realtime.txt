@@ -1,0 +1,7 @@
+# platform_api.realtime only - the Console WebSocket realtime path (mission
+# CLAUDE-V1.3-CONSOLE-REALTIME-WEBSOCKET-ARCHITECTURE). A small, single-purpose WebSocket
+# protocol implementation (RFC 6455), not an application framework - chosen over hand-rolling
+# frame masking/handshake/ping-pong ourselves, which is exactly the kind of protocol-correctness-
+# and security-sensitive code a focused, widely-used library does far more safely than a bespoke
+# implementation would.
+websockets>=16,<17
