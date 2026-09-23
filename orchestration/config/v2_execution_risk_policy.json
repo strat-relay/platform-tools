@@ -1,0 +1,9 @@
+{
+  "_comment": "V2 personal execution risk policy (architecture/v2-execution). Ships BLOCKED (enabled=false) by design - see docs/v2_execution/README.md 'Before activation'. This file must be reviewed and explicitly approved by Caleb before enabled may become true. It is NOT a place to put a live account id, symbol list, or volume cap without that review - execution_v2/risk.py refuses to validate anything else while enabled=false, and refuses to start with financially meaningful defaults once enabled=true is set without every other field also being explicit.",
+  "version": 1,
+  "enabled": false,
+  "max_volume": null,
+  "allowed_symbols": null,
+  "allowed_accounts": [],
+  "max_signal_age_seconds": null
+}
