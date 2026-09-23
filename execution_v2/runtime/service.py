@@ -87,8 +87,13 @@ async def subscribe_consumer(js: Any, consumer: ExecutionSignalConsumer, *, cons
     # safely persist.
     async def _on_message(msg: Any) -> None:
         from ..intent import EntrySignalRecordMissing
+        from ..worker import ExecutionAuthorityDisabled
         try:
             consumer.handle_payload(msg.data)
+            await msg.ack()
+        except ExecutionAuthorityDisabled:
+            # Disabled production infrastructure must consume the durable signal without
+            # redelivery churn.  No intent, fence, bridge call, or broker effect is created.
             await msg.ack()
         except EntrySignalRecordMissing:
             await msg.nak()
