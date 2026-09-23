@@ -93,20 +93,23 @@ class V2RiskExecutionApi:
                     "degraded": False, "read_only": False, "data": data, "unavailable": []}
 
     def save(self, body_bytes: bytes | None) -> tuple[int, dict[str, Any]]:
+        # 400 responses here deliberately never set "degraded": true - that field means "a
+        # backend source is unavailable", not "the request you sent was invalid". Matches the
+        # existing convention documented in src/api/envelope.ts's own docstring (a 400 example
+        # carries no "degraded" key), so classifyEnvelope's "error" branch (-> BackendApiError),
+        # not its "degraded" branch (-> DegradedDataError), is what the Console actually sees.
         if not body_bytes or len(body_bytes) > MAX_BODY_BYTES:
             return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
-                        "degraded": True, "error": "INVALID_REQUEST_BODY",
-                        "message": "request body must be a non-empty JSON object, within size limits",
-                        "unavailable": []}
+                        "error": "INVALID_REQUEST_BODY",
+                        "message": "request body must be a non-empty JSON object, within size limits"}
         try:
             submitted = json.loads(body_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
-                        "degraded": True, "error": "INVALID_JSON", "message": str(exc), "unavailable": []}
+                        "error": "INVALID_JSON", "message": str(exc)}
         if not isinstance(submitted, dict):
             return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
-                        "degraded": True, "error": "INVALID_REQUEST_BODY", "message": "body must be a JSON object",
-                        "unavailable": []}
+                        "error": "INVALID_REQUEST_BODY", "message": "body must be a JSON object"}
 
         # Account identity is never accepted from the request body (mission section 6: not a
         # plain-text field) - the currently effective policy's own allowed_accounts carries over
@@ -135,9 +138,7 @@ class V2RiskExecutionApi:
             saved = write_policy_override(merged, connect_fn=self._connect)
         except RiskPolicyError as exc:
             return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
-                        "degraded": True, "error": "POLICY_VALIDATION_FAILED", "message": str(exc),
-                        "unavailable": [{"code": "POLICY_VALIDATION_FAILED", "source": "execution_v2_risk_policy",
-                                        "message": str(exc)}]}
+                        "error": "POLICY_VALIDATION_FAILED", "message": str(exc)}
         data = _policy_to_wire(saved, source="postgres_override")
         data["executionAuthorityMode"] = self.execution_authority_mode()
         return 200, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "ACTIVE",
