@@ -49,7 +49,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: runtime
-          image: localhost:5001/trading-platform-runtime@sha256:cf2e9dc28e0a7c398629080e7d5b6e3770d7e0f3519cb516282d3272f49ab15a
+          image: localhost:5001/trading-platform-runtime@sha256:25aeaaadb40f62e6b6285a0b6cc23abf54d54bfd447f5dfcd759e9a4ece1696e
           imagePullPolicy: IfNotPresent
           command: [python, -m, execution_v2.runtime]
           envFrom:
