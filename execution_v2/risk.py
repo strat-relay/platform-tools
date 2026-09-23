@@ -95,11 +95,29 @@ def load_risk_policy(path: Path | str = DEFAULT_RISK_POLICY_PATH) -> RiskPolicy:
     if not isinstance(enabled, bool):
         raise RiskPolicyError("enabled must be an explicit boolean")
     if not enabled:
-        # Fail closed without validating the rest: a blocked policy needs no other field to be
-        # "correct" yet - this is exactly the "non-executable/blocked configuration" the mission
-        # requires when no approved live sizing configuration exists.
-        return RiskPolicy(version=version, enabled=False, max_volume=0.0, allowed_symbols=(),
-                          allowed_accounts=(), max_signal_age_seconds=0.0, source=str(policy_path))
+        # Preserve explicitly reviewed disabled-policy values for observability, but never make
+        # them executable: the evaluator still returns RISK_POLICY_DISABLED before using them.
+        accounts = raw.get("allowed_accounts") if isinstance(raw.get("allowed_accounts"), list) else []
+        symbols = raw.get("allowed_symbols") if isinstance(raw.get("allowed_symbols"), list) else []
+        strategies = raw.get("allowed_strategies") if isinstance(raw.get("allowed_strategies"), list) else []
+        def disabled_number(name: str, default: float = 0.0) -> float:
+            value = raw.get(name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else default
+        def disabled_int(name: str) -> int:
+            value = raw.get(name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+        return RiskPolicy(version=version, enabled=False, max_volume=disabled_number("max_volume"),
+                          allowed_symbols=tuple(str(s) for s in symbols if isinstance(s, str)),
+                          allowed_accounts=tuple(str(a) for a in accounts if isinstance(a, str)),
+                          max_signal_age_seconds=disabled_number("max_signal_age_seconds"),
+                          source=str(policy_path), allowed_strategies=tuple(str(s) for s in strategies if isinstance(s, str)),
+                          risk_per_trade=disabled_number("risk_per_trade"),
+                          max_daily_loss=disabled_number("max_daily_loss"),
+                          max_concurrent_positions=disabled_int("max_concurrent_positions"),
+                          max_concurrent_orders=disabled_int("max_concurrent_orders"),
+                          max_account_exposure=disabled_number("max_account_exposure"),
+                          duplicate_position_policy=str(raw.get("duplicate_position_policy") or "REJECT_SAME_ACCOUNT_SYMBOL_DIRECTION_STRATEGY"),
+                          canary_max_new_executions=disabled_int("canary_max_new_executions"))
     max_volume = _finite_positive(raw.get("max_volume"), "max_volume")
     max_age = _finite_positive(raw.get("max_signal_age_seconds"), "max_signal_age_seconds")
     accounts = raw.get("allowed_accounts")
