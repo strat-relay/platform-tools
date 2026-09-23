@@ -26,7 +26,8 @@ def policy(**overrides) -> RiskPolicy:
 
 def valid_record(**overrides) -> dict:
     record = {"instrument": "EURUSD", "direction": "LONG", "entry_price": 1.1000,
-             "stop_price": 1.0950, "target_price": 1.1100, "decision_time": NOW}
+             "stop_price": 1.0950, "target_price": 1.1100, "decision_time": NOW,
+             "signal_emitted_at": NOW}
     record.update(overrides)
     return record
 
@@ -78,7 +79,7 @@ class CheckEligibilityTests(unittest.TestCase):
         self.assertEqual(result.reason, "INVALID_TARGET_GEOMETRY")
 
     def test_blocked_on_stale_signal(self):
-        stale_record = valid_record(decision_time=NOW - timedelta(hours=2))
+        stale_record = valid_record(signal_emitted_at=NOW - timedelta(hours=2))
         result = check_eligibility(stale_record, risk_policy=policy(max_signal_age_seconds=60.0),
                                    account_id=ACCOUNT, now_utc=NOW)
         self.assertEqual(result.reason, "STALE_SIGNAL")
@@ -89,7 +90,8 @@ class CreateExecutionIntentTests(unittest.TestCase):
         conn = FakeConnection()
         fields = dict(signal_id=signal_id, strategy_id="STRAT1", strategy_version=1, strategy_ref="strat-ref",
                      instrument="EURUSD", direction="LONG", decision_time=NOW, entry_price=1.1000,
-                     stop_price=1.0950, target_price=1.1100, entry_signal_hash=entry_signal_hash)
+                     stop_price=1.0950, target_price=1.1100, signal_emitted_at=NOW,
+                     entry_signal_hash=entry_signal_hash)
         fields.update(overrides)
         conn.seed_entry_signal(**fields)
         return conn

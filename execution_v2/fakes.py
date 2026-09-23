@@ -21,7 +21,7 @@ class StaleFencingGeneration(RuntimeError):
 
 
 _ENTRY_SIGNAL_COLUMNS = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
-                        "direction", "decision_time", "entry_price", "stop_price", "target_price",
+                        "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
                         "entry_signal_hash")
 
 _INTENT_COLUMNS = ("execution_intent_id", "entry_signal_id", "entry_signal_hash", "strategy_id",

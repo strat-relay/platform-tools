@@ -82,28 +82,29 @@ def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, accoun
             return EligibilityResult(False, "INVALID_TARGET_GEOMETRY")
         if record["direction"] == "SHORT" and target_price >= entry_price:
             return EligibilityResult(False, "INVALID_TARGET_GEOMETRY")
-    decision_time = record.get("decision_time")
-    if decision_time is not None:
-        decided = decision_time if isinstance(decision_time, datetime) else datetime.fromisoformat(str(decision_time).replace("Z", "+00:00"))
-        if decided.tzinfo is None:
-            decided = decided.replace(tzinfo=timezone.utc)
-        age_seconds = (now_utc - decided).total_seconds()
-        if age_seconds > risk_policy.max_signal_age_seconds:
-            return EligibilityResult(False, "STALE_SIGNAL")
+    emitted_at = record.get("signal_emitted_at")
+    if emitted_at is None:
+        return EligibilityResult(False, "MISSING_SIGNAL_EMITTED_AT")
+    emitted = emitted_at if isinstance(emitted_at, datetime) else datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00"))
+    if emitted.tzinfo is None:
+        emitted = emitted.replace(tzinfo=timezone.utc)
+    age_seconds = (now_utc - emitted).total_seconds()
+    if age_seconds > risk_policy.max_signal_age_seconds:
+        return EligibilityResult(False, "STALE_SIGNAL")
     return EligibilityResult(True, None)
 
 
 def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute("""SELECT signal_id, strategy_id, strategy_version, strategy_ref, instrument,
-                             direction, decision_time, entry_price, stop_price, target_price,
+                             direction, decision_time, signal_emitted_at, entry_price, stop_price, target_price,
                              entry_signal_hash
                       FROM strategy.entry_signals WHERE signal_id=%s""", (signal_id,))
         row = cur.fetchone()
     if row is None:
         return None
     keys = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
-            "direction", "decision_time", "entry_price", "stop_price", "target_price",
+            "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
             "entry_signal_hash")
     return dict(zip(keys, row))
 

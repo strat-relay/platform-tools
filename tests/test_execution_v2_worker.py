@@ -33,7 +33,7 @@ def seeded_conn(signal_id="SIG1", entry_signal_hash="hash-1") -> FakeConnection:
     conn = FakeConnection()
     conn.seed_entry_signal(signal_id=signal_id, strategy_id="STRAT1", strategy_version=1,
                            strategy_ref="strat-ref", instrument="EURUSD", direction="LONG",
-                           decision_time=NOW, entry_price=1.1000, stop_price=1.0950,
+                           decision_time=NOW, signal_emitted_at=NOW, entry_price=1.1000, stop_price=1.0950,
                            target_price=1.1100, entry_signal_hash=entry_signal_hash)
     return conn
 

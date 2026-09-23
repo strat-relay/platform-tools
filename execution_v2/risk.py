@@ -11,6 +11,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -177,10 +178,13 @@ def evaluate_candidate(record: Mapping[str, Any], *, policy: RiskPolicy, account
     entry, stop = record.get("entry_price"), record.get("stop_price")
     if entry is None or stop is None or float(entry) <= 0 or float(stop) <= 0:
         return RiskDecision(False, "INVALID_GEOMETRY")
-    decision_time = record.get("decision_time")
-    if decision_time is None:
-        return RiskDecision(False, "MISSING_DECISION_TIME")
-    age = (now_utc - decision_time).total_seconds()
+    signal_emitted_at = record.get("signal_emitted_at")
+    if signal_emitted_at is None:
+        return RiskDecision(False, "MISSING_SIGNAL_EMITTED_AT")
+    emitted = signal_emitted_at if isinstance(signal_emitted_at, datetime) else datetime.fromisoformat(str(signal_emitted_at).replace("Z", "+00:00"))
+    if emitted.tzinfo is None:
+        emitted = emitted.replace(tzinfo=timezone.utc)
+    age = (now_utc - emitted).total_seconds()
     if age > policy.max_signal_age_seconds:
         return RiskDecision(False, "STALE_SIGNAL")
     if "equity" not in account or any(key not in broker for key in ("tick_size", "tick_value", "volume_min", "volume_max", "volume_step")):

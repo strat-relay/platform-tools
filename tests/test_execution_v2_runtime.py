@@ -135,6 +135,7 @@ def _worker(*, bridge: Any = None) -> ExecutionWorker:
     conn = FakeConnection()
     conn.seed_entry_signal(signal_id="SIG1", strategy_id="STRAT1", strategy_version=1, strategy_ref="strat-ref",
                            instrument="EURUSD", direction="LONG", decision_time=datetime.now(timezone.utc),
+                           signal_emitted_at=datetime.now(timezone.utc),
                            entry_price=1.1000, stop_price=1.0950, target_price=1.1100, entry_signal_hash="h1")
     keys = {"k1": b"0" * 32}
     if bridge is None:

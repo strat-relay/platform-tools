@@ -38,7 +38,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
     def candidate(self, **overrides):
         value = {"strategy_id": "STRAT", "strategy_version": "V1", "strategy_ref": "STRAT@V1:param-a",
                  "instrument": "EURUSD", "entry_price": 1.10, "stop_price": 1.095,
-                 "decision_time": NOW}
+                 "decision_time": NOW, "signal_emitted_at": NOW}
         value.update(overrides)
         return value
 
@@ -89,7 +89,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
                     "volume_min": .01, "volume_max": 100, "volume_step": .01}, account={"equity": 1000})
         self.assertEqual(evaluate_candidate(self.candidate(), now_utc=NOW, state={}, **args).reason,
                          "RISK_STATE_UNAVAILABLE")
-        self.assertEqual(evaluate_candidate(self.candidate(decision_time=NOW - timedelta(seconds=61)),
+        self.assertEqual(evaluate_candidate(self.candidate(signal_emitted_at=NOW - timedelta(seconds=61)),
                                              now_utc=NOW, state=self.state(), **args).reason, "STALE_SIGNAL")
 
     def test_valid_candidate_is_sized_without_exceeding_cap(self):
@@ -120,7 +120,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
         conn = FakeConnection()
         conn.seed_entry_signal(signal_id="SIG-WIRED", strategy_id="STRAT", strategy_version="V1",
                                strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
-                               decision_time=NOW, entry_price=1.10, stop_price=1.095,
+                               decision_time=NOW, signal_emitted_at=NOW, entry_price=1.10, stop_price=1.095,
                                target_price=1.11, entry_signal_hash="hash")
         result = create_execution_intent(
             conn, signal_id="SIG-WIRED", account_id="188428665", risk_policy=policy, now_utc=NOW,
@@ -138,7 +138,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
         conn = FakeConnection()
         conn.seed_entry_signal(signal_id="SIG-NO-STATE", strategy_id="STRAT", strategy_version="V1",
                                strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
-                               decision_time=NOW, entry_price=1.10, stop_price=1.095,
+                               decision_time=NOW, signal_emitted_at=NOW, entry_price=1.10, stop_price=1.095,
                                target_price=1.11, entry_signal_hash="hash")
         result = create_execution_intent(conn, signal_id="SIG-NO-STATE", account_id="188428665",
                                          risk_policy=policy, now_utc=NOW,
