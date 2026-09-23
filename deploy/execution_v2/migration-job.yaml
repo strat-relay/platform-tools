@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: localhost:5001/trading-platform-runtime@sha256:d412095f414f01c08dcb978d34b488808d5f6f2c0749096992ef6cfe2aee4f93
+          image: localhost:5001/trading-platform-runtime@sha256:cf2e9dc28e0a7c398629080e7d5b6e3770d7e0f3519cb516282d3272f49ab15a
           imagePullPolicy: IfNotPresent
           command: [python, -m, postgres.migrate]
           envFrom:
