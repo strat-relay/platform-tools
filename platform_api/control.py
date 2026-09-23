@@ -17,6 +17,7 @@ from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 
 SCHEMA_VERSION = "012"
+TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
 LIMIT = 100
 
 
@@ -196,6 +197,103 @@ class PlatformControlRepository:
             },
         }
 
+    def _trade_management_query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        """Read the P4 observability tables in a read-only transaction.
+
+        This deliberately has its own schema gate: an older database remains a source-unavailable
+        response, while a migrated database with zero rows is a healthy empty state.
+        """
+        try:
+            with self._connect(readonly=True) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s",
+                                (TRADE_MANAGEMENT_SCHEMA_VERSION,))
+                    if cur.fetchone() is None:
+                        raise CanonicalSourceUnavailable(
+                            f"canonical PostgreSQL requires schema {TRADE_MANAGEMENT_SCHEMA_VERSION}")
+                    cur.execute(sql, params)
+                    return [_row_dict(cur, row) for row in cur.fetchall()]
+        except CanonicalSourceUnavailable:
+            raise
+        except Exception as exc:
+            raise CanonicalSourceUnavailable("canonical PostgreSQL trade management source unavailable") from exc
+
+    def trade_manager_summary(self) -> dict[str, Any]:
+        rows = self._trade_management_query("""
+            SELECT
+              (SELECT count(*) FROM trade_management.managed_trade) AS total_managed_trades,
+              (SELECT count(*) FROM trade_management.managed_trade WHERE state = 'OPEN') AS open_managed_trades,
+              (SELECT max(observed_at) FROM trade_management.trade_observation) AS latest_observation_at,
+              (SELECT max(decision_time) FROM trade_management.trade_manager_decision) AS latest_decision_at,
+              (SELECT count(*) FROM trade_management.trade_observation) AS observation_count,
+              (SELECT count(*) FROM trade_management.trade_manager_decision) AS decision_count,
+              (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'PUBLISHED') AS published_decision_count,
+              (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'WITHHELD') AS withheld_decision_count,
+              (SELECT json_agg(v ORDER BY v.tm_version_id)
+                 FROM (SELECT tm_version_id, evaluator_id, label, status
+                         FROM trade_management.trade_manager_version) v) AS policy_versions
+        """)
+        return rows[0]
+
+    def managed_trades(self, limit: int, offset: int, trade_id: str | None = None) -> list[dict[str, Any]]:
+        where = "WHERE mt.managed_trade_id = %s" if trade_id else ""
+        params: tuple[Any, ...] = (trade_id,) if trade_id else (limit, offset)
+        tail = "" if trade_id else " LIMIT %s OFFSET %s"
+        return self._trade_management_query(f"""
+            SELECT mt.managed_trade_id, mt.entry_signal_id, mt.strategy_id,
+                   mt.strategy_version, mt.strategy_ref, mt.instrument, mt.direction,
+                   mt.decision_time AS opened_at, mt.reference_entry_price AS entry,
+                   mt.initial_stop, mt.initial_target AS target, mt.state,
+                   mt.tm_version_id, mt.binding_resolution, mt.evidence_mode,
+                   mt.eligibility, mt.eligibility_reason, mt.record_mode,
+                   mt.last_observation_seq, mt.created_at,
+                   tv.label AS policy_label,
+                   obs.observation_id AS latest_observation_id,
+                   obs.observation_seq AS latest_observation_seq,
+                   obs.observed_at AS latest_observation_at,
+                   obs.effective_at AS latest_observation_effective_at,
+                   obs.data_status AS observation_data_status,
+                   dec.decision_id AS latest_decision_id,
+                   dec.action AS latest_decision,
+                   dec.reason_codes AS latest_reason_codes,
+                   dec.decision_time AS latest_decision_at,
+                   dec.persisted_at AS latest_decision_persisted_at,
+                   dec.data_status AS decision_data_status,
+                   pub.outcome AS publication_outcome,
+                   pub.reason AS publication_reason,
+                   pub.evaluated_at AS publication_evaluated_at
+            FROM trade_management.managed_trade mt
+            LEFT JOIN trade_management.trade_manager_version tv ON tv.tm_version_id = mt.tm_version_id
+            LEFT JOIN LATERAL (
+              SELECT o.* FROM trade_management.trade_observation o
+              WHERE o.managed_trade_id = mt.managed_trade_id
+              ORDER BY o.observation_seq DESC LIMIT 1
+            ) obs ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT d.* FROM trade_management.trade_manager_decision d
+              WHERE d.managed_trade_id = mt.managed_trade_id
+              ORDER BY d.observation_seq DESC, d.persisted_at DESC LIMIT 1
+            ) dec ON TRUE
+            LEFT JOIN trade_management.publication_decision pub ON pub.decision_id = dec.decision_id
+            {where}
+            ORDER BY mt.created_at DESC, mt.managed_trade_id
+            {tail}
+        """, params)
+
+    def trade_decisions(self, trade_id: str) -> list[dict[str, Any]]:
+        return self._trade_management_query("""
+            SELECT d.decision_id, d.managed_trade_id, d.observation_id,
+                   d.observation_seq, d.action, d.parameters, d.reason_codes,
+                   d.decision_trace_ref, d.decision_time, d.persisted_at,
+                   d.data_status, d.record_mode, p.outcome AS publication_outcome,
+                   p.reason AS publication_reason, p.evaluated_at AS publication_evaluated_at
+            FROM trade_management.trade_manager_decision d
+            LEFT JOIN trade_management.publication_decision p ON p.decision_id = d.decision_id
+            WHERE d.managed_trade_id = %s
+            ORDER BY d.observation_seq DESC, d.persisted_at DESC
+        """, (trade_id,))
+
 
 class PlatformControlApi:
     V2_RISK_POLICY_PATH = "/api/v1/v2-execution/risk-policy"
@@ -276,13 +374,23 @@ class PlatformControlApi:
             if path == "/api/v1/system":
                 authority = self._authority(self.environ)
                 db = self._database()
+                try:
+                    tm = self.repository.trade_manager_summary()
+                    trade_manager = {
+                        "status": "ACTIVE",
+                        "source": "canonical_postgres",
+                        "managed_trade_count": tm["total_managed_trades"],
+                        "open_managed_trade_count": tm["open_managed_trades"],
+                    }
+                except CanonicalSourceUnavailable:
+                    trade_manager = {"status": "UNKNOWN", "reason": "canonical Trade Manager observability unavailable"}
                 runtime = "ACTIVE" if db["orchestrator_running"] else "UNKNOWN"
                 state = {**authority, "components": {
                     "orchestrator": {"status": runtime, "configured_mode": authority["orchestrator_mode"]},
                     "postgresql": {"status": "ACTIVE", "schema_version": SCHEMA_VERSION},
                     "signal_authority": {"status": "ACTIVE" if authority["signal_authority_mode"] == "DB_PRIMARY" else "DEGRADED"},
                     "jetstream": {"status": "UNKNOWN", "reason": "health is not asserted by the Control API"},
-                    "trade_manager": {"status": "UNKNOWN", "reason": "no current canonical runtime instance"},
+                    "trade_manager": trade_manager,
                     "execution": {"status": "INACTIVE" if authority["execution_authority_mode"] == "DISABLED" else "UNKNOWN"}},
                     "canonical_outbox_event_count": db["outbox_count"], "canonical_inbox_event_count": db["inbox_count"]}
                 return 200, self._body(state, source="canonical_platform")
@@ -352,6 +460,22 @@ class PlatformControlApi:
                 self._database()
                 return 200, self._body({"data_channel": {"status": "UNAVAILABLE", "source": "mt5_bridge_read_only"},
                                         "execution_channel": {"status": "INACTIVE", "reason": "execution authority disabled"}}, source="platform_and_bridge", status="DEGRADED")
+            if path == "/api/v1/trade-manager/summary":
+                summary = self.repository.trade_manager_summary()
+                return 200, self._body(summary, source="canonical_postgres")
+            if path.startswith("/api/v1/managed-trades/") and path.endswith("/decisions"):
+                trade_id = unquote(path[len("/api/v1/managed-trades/"):-len("/decisions")].strip("/"))
+                rows = self.repository.trade_decisions(trade_id)
+                return 200, self._body(rows, source="canonical_postgres")
+            if path == "/api/v1/managed-trades" or (path.startswith("/api/v1/managed-trades/") and not path.endswith("/decisions")):
+                suffix = path[len("/api/v1/managed-trades/"):] if path.startswith("/api/v1/managed-trades/") else None
+                limit = min(max(int(query.get("limit", LIMIT)), 1), 500)
+                offset = max(int(query.get("offset", 0)), 0)
+                rows = self.repository.managed_trades(limit, offset, unquote(suffix) if suffix else None)
+                if suffix and not rows:
+                    return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND",
+                                           message=f"managed trade {unquote(suffix)} not found")
+                return 200, self._body(rows[0] if suffix else rows, source="canonical_postgres")
             broker_paths = {"/api/v1/broker/account", "/api/v1/broker/positions", "/api/v1/broker/pending-orders",
                             "/api/v1/broker/history-orders", "/api/v1/broker/deals", "/api/v1/broker/symbols",
                             "/api/v1/broker/exposure", "/api/v1/exposure"}
