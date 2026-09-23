@@ -115,12 +115,12 @@ class ActivationBoundaryAndBootstrapTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(js.add_stream_calls, ["TRADING_OBSERVATION"])
         self.assertNotIn("TRADING_CORE", js.streams)  # never created by this runtime
 
-    async def test_trading_core_subject_definition_is_unchanged_by_this_branch(self):
-        # The exact same assertion the pre-P4.2 test suite made about TRADING_CORE's own
-        # subjects, re-affirmed here: this branch's contracts.py edit never adds to it.
-        self.assertTrue(all(s.startswith(("strategy.", "signal.")) for s in STREAMS["TRADING_CORE"]["subjects"]))
-        self.assertNotIn("trade.opened.v1", STREAMS["TRADING_CORE"]["subjects"])
-        self.assertNotIn("trade.decision.made.v1", STREAMS["TRADING_CORE"]["subjects"])
+    async def test_trading_core_subject_definition_has_explicit_management_subjects(self):
+        # Management lifecycle subjects are explicit core routes. Observation remains isolated
+        # on TRADING_OBSERVATION so stream subject sets do not overlap.
+        self.assertIn("trade.opened.v1", STREAMS["TRADING_CORE"]["subjects"])
+        self.assertIn("trade.decision.made.v1", STREAMS["TRADING_CORE"]["subjects"])
+        self.assertNotIn("trade.observation.recorded.v1", STREAMS["TRADING_CORE"]["subjects"])
 
 
 class DuplicateAndRedeliveryTests(unittest.IsolatedAsyncioTestCase):

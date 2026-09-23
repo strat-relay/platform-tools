@@ -19,25 +19,18 @@ SUBJECTS = frozenset({
     "execution.result.recorded.v1",
     "broker.state.updated.v1",
     "ownership.changed.v1",
-    # P4.2 (architecture/p4-2-managed-trade, architecture/p4-2-runtime). Registered as valid
-    # event identity (EventEnvelope construction validates against this set) but deliberately
-    # NOT assigned to any stream below: production ship-first decision (docs/engineering/
-    # OPTIMIZATION_REGISTER.md) is that TRADING_CORE MUST REMAIN UNCHANGED for the first P4.2
-    # vertical slice, and neither trade.opened.v1 nor trade.decision.made.v1 is consumed by
-    # anything in this slice (only trade.observation.recorded.v1 is, by TM-NONE). Both are
-    # still recorded durably in platform.outbox_events by trade_management/managed_trade.py
-    # and tm_none.py - just not relayed to JetStream yet. See
-    # docs/p4_2_managed_trade/03_RUNTIME.md "Event stream topology".
+    # P4.2 management events are explicit versioned subjects.  They are not wildcarded:
+    # stream ownership must remain auditable and non-overlapping.
     "trade.opened.v1",
     "trade.observation.recorded.v1",
     "trade.decision.made.v1",
 })
 
 STREAMS = {
-    # Unchanged (byte-identical subject derivation) since before P4.2: TRADING_CORE MUST
-    # REMAIN UNCHANGED for the first P4.2 production deployment (architecture/p4-2-runtime
-    # ship-first decision) - P4 consumes signal.entry.created.v1 from here but never adds to it.
-    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal.")))),
+    # Core carries strategy, signal, and explicit management lifecycle subjects.  Do not use
+    # a trade.> wildcard: TRADING_OBSERVATION owns the observation subject separately.
+    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal."))
+                                                    or x in {"trade.opened.v1", "trade.decision.made.v1"})),
                      "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
     "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.")))),
                    "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
