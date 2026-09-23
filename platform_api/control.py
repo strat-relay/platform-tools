@@ -17,6 +17,7 @@ from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 
 SCHEMA_VERSION = "012"
+EXECUTION_RUNTIME_COMPONENT = "execution_v2"
 LIMIT = 100
 
 
@@ -45,6 +46,43 @@ class PlatformControlRepository:
             (SELECT count(*) FROM platform.inbox_events) AS inbox_count,
             (SELECT count(*) FROM platform.runtime_instances WHERE component = 'orchestrator' AND status = 'RUNNING') AS orchestrator_running""")
         return rows[0]
+
+    def execution_runtime_status(self) -> dict[str, Any]:
+        """Read the V2 runtime's effective, persisted status projection."""
+        rows = self.query("""SELECT instance_id, status, last_heartbeat_at, metadata
+            FROM platform.runtime_instances
+            WHERE component = %s
+            ORDER BY last_heartbeat_at DESC, instance_id ASC
+            LIMIT 1""", (EXECUTION_RUNTIME_COMPONENT,))
+        if not rows:
+            raise CanonicalSourceUnavailable("V2 execution runtime status is unavailable")
+        runtime = rows[0]
+        metadata = runtime.get("metadata") or {}
+        policy = metadata.get("risk_policy") or {}
+        canary_key = metadata.get("canary_key")
+        canary = None
+        if canary_key:
+            canary_rows = self.query("""SELECT max_new_executions, consumed
+                FROM execution_v2.canary_state WHERE canary_key = %s""", (canary_key,))
+            if canary_rows:
+                canary = canary_rows[0]
+        max_new = int((canary or {}).get("max_new_executions")
+                      or policy.get("canary_max_new_executions") or 0)
+        consumed = int((canary or {}).get("consumed") or 0)
+        worker_status = "HEALTHY" if runtime.get("status") == "RUNNING" else "DOWN"
+        if runtime.get("last_heartbeat_at") is None:
+            worker_status = "DEGRADED"
+        return {
+            "instance_id": runtime.get("instance_id"),
+            "worker_status": worker_status,
+            "execution_authority_mode": metadata.get("execution_authority_mode", "UNKNOWN"),
+            "account_id": metadata.get("account_id"),
+            "risk_policy": policy,
+            "canary": {"max_new_executions": max_new, "consumed": consumed,
+                       "remaining": max(0, max_new - consumed)},
+            "execution_bridge": metadata.get("execution_bridge") or {"status": "UNKNOWN"},
+            "broker_account": metadata.get("broker_account") or {"status": "UNKNOWN"},
+        }
 
     def events(self, limit: int, offset: int, event_id: str | None = None) -> list[dict[str, Any]]:
         if event_id is not None:
@@ -225,6 +263,20 @@ class PlatformControlApi:
                 "signal_authority_mode": env.get("SIGNAL_AUTHORITY_MODE", "UNKNOWN"),
                 "execution_authority_mode": env.get("EXECUTION_AUTHORITY_MODE", "UNKNOWN")}
 
+    def _execution_state(self) -> dict[str, Any]:
+        runtime = self.repository.execution_runtime_status()
+        policy = dict(runtime.get("risk_policy") or {})
+        policy.setdefault("enabled", False)
+        return {
+            "execution_authority_mode": runtime["execution_authority_mode"],
+            "risk_policy": policy,
+            "canary": runtime["canary"],
+            "execution_worker": {"status": runtime["worker_status"]},
+            "execution_bridge": runtime["execution_bridge"],
+            "broker_account": runtime["broker_account"],
+            "source": "canonical_execution_runtime",
+        }
+
     def _database(self) -> dict[str, Any]:
         return self.repository.platform_status()
 
@@ -259,8 +311,10 @@ class PlatformControlApi:
                 return 200, {"status": "ready", "service": "platform-control-api",
                              "source": "canonical_postgres", "schema_version": SCHEMA_VERSION}
             if path == "/api/v1/system":
-                authority = self._authority(self.environ)
                 db = self._database()
+                execution = self._execution_state()
+                authority = {**self._authority(self.environ),
+                             "execution_authority_mode": execution["execution_authority_mode"]}
                 runtime = "ACTIVE" if db["orchestrator_running"] else "UNKNOWN"
                 state = {**authority, "components": {
                     "orchestrator": {"status": runtime, "configured_mode": authority["orchestrator_mode"]},
@@ -268,26 +322,30 @@ class PlatformControlApi:
                     "signal_authority": {"status": "ACTIVE" if authority["signal_authority_mode"] == "DB_PRIMARY" else "DEGRADED"},
                     "jetstream": {"status": "UNKNOWN", "reason": "health is not asserted by the Control API"},
                     "trade_manager": {"status": "UNKNOWN", "reason": "no current canonical runtime instance"},
-                    "execution": {"status": "INACTIVE" if authority["execution_authority_mode"] == "DISABLED" else "UNKNOWN"}},
+                    "execution": {"status": "ACTIVE" if authority["execution_authority_mode"] == "ENABLED" else "INACTIVE",
+                                   **execution}},
                     "canonical_outbox_event_count": db["outbox_count"], "canonical_inbox_event_count": db["inbox_count"]}
                 return 200, self._body(state, source="canonical_platform")
             if path == "/api/v1/safety":
-                authority = self._authority(self.environ)
                 self._database()  # Canonical-source reachability/schema is required to make this assertion.
+                execution = self._execution_state()
+                authority = {**self._authority(self.environ),
+                             "execution_authority_mode": execution["execution_authority_mode"]}
                 safe = (authority == {"orchestrator_mode": "PRIMARY", "signal_authority_mode": "DB_PRIMARY",
                                      "execution_authority_mode": "DISABLED"}
                         and self.environ.get("SIGNAL_DB_PRIMARY_ENABLED", "").lower() == "true")
                 if not safe:
                     data = {**authority, "status": "BLOCKED", "execution_enabled": False,
                             "real_execution_mode_active": False, "broker_write_path_active": False,
-                            "blockers": ["CANONICAL_AUTHORITY_CONFIGURATION_NOT_CONFIRMED"]}
+                            "blockers": ["CANONICAL_AUTHORITY_CONFIGURATION_NOT_CONFIRMED"],
+                            "execution": execution}
                     return 200, self._body(data, source="canonical_platform", status="DEGRADED")
                 data = {**authority, "status": "SAFE", "execution_enabled": False,
                         "real_execution": {"armed": False, "mode": "DISABLED"},
                         "canonical_order_send_gate": {"effective": "DISABLED"},
                         "execution_consumer": {"status": "INACTIVE"},
                         "real_execution_mode_active": False, "broker_write_path_active": False,
-                        "blockers": []}
+                        "blockers": [], "execution": execution}
                 return 200, self._body(data, source="canonical_platform")
             if path == "/api/v1/strategies" or path.startswith("/api/v1/strategies/"):
                 strategies = self._strategies()

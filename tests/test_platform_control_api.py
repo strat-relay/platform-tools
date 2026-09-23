@@ -21,6 +21,18 @@ class FakeRepository:
         self._ok()
         return {"outbox_count": 18, "inbox_count": 0, "orchestrator_running": 0}
 
+    def execution_runtime_status(self):
+        return {
+            "instance_id": "execution-v2-test",
+            "worker_status": "HEALTHY",
+            "execution_authority_mode": "DISABLED",
+            "account_id": "188428665",
+            "risk_policy": {"enabled": False, "canary_max_new_executions": 1},
+            "canary": {"max_new_executions": 1, "consumed": 0, "remaining": 1},
+            "execution_bridge": {"status": "HEALTHY"},
+            "broker_account": {"status": "CONNECTED", "account": "******8665", "currency": "USD"},
+        }
+
     def events(self, limit, offset, event_id=None):
         self._ok()
         rows = [{"event_id": "evt-1", "event_type": "signal.entry.created.v1",
@@ -70,6 +82,32 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(body["data"]["execution_authority_mode"], "DISABLED")
         self.assertEqual(body["data"]["components"]["execution"]["status"], "INACTIVE")
         self.assertEqual(body["data"]["components"]["orchestrator"]["status"], "UNKNOWN")
+
+    def test_system_projects_effective_v2_runtime_state_not_api_pod_environment(self):
+        api = self.make_api(env={"EXECUTION_AUTHORITY_MODE": "DISABLED"})
+        api.repository.execution_runtime_status = lambda: {
+            "instance_id": "execution-v2-live",
+            "worker_status": "HEALTHY",
+            "execution_authority_mode": "ENABLED",
+            "account_id": "188428665",
+            "risk_policy": {
+                "enabled": True, "risk_per_trade": 0.005, "max_volume": 0.01,
+                "max_signal_age_seconds": 60, "max_daily_loss": 10,
+                "max_concurrent_positions": 1, "max_concurrent_orders": 1,
+                "allowed_accounts": ["188428665"],
+                "allowed_strategies": ["CONTEXT_STRUCTURE_RETRACE_V1@V1"],
+                "allowed_symbols": ["XAUUSD", "BTCUSD", "USDJPY", "EURUSD"],
+                "canary_max_new_executions": 1,
+            },
+            "canary": {"max_new_executions": 1, "consumed": 0, "remaining": 1},
+            "execution_bridge": {"status": "HEALTHY"},
+            "broker_account": {"status": "CONNECTED", "account": "******8665", "currency": "USD"},
+        }
+        status, body = api.execute("GET", "/api/v1/system")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["execution_authority_mode"], "ENABLED")
+        self.assertEqual(body["data"]["components"]["execution"]["risk_policy"]["max_volume"], 0.01)
+        self.assertEqual(body["data"]["components"]["execution"]["canary"]["remaining"], 1)
 
     def test_readiness_requires_canonical_postgres(self):
         self.assertEqual(self.make_api().execute("GET", "/readyz")[0], 200)

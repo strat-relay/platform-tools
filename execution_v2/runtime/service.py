@@ -13,8 +13,10 @@ anything it imports (proven statically by
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
+import urllib.request
 from typing import Any
 
 from postgres.db import connect, transaction
@@ -37,24 +39,27 @@ class RuntimeContext:
     RuntimeContext split)."""
 
     def __init__(self, *, conn: Any, js: Any, config: RuntimeConfig, health: HealthState,
-                consumer: ExecutionSignalConsumer) -> None:
+                consumer: ExecutionSignalConsumer, status_metadata: dict[str, Any] | None = None) -> None:
         self.conn = conn
         self.js = js
         self.config = config
         self.health = health
         self.consumer = consumer
+        self.status_metadata = status_metadata or {}
 
 
-def register_runtime_instance(conn: Any, *, instance_id: str, component: str = "execution_v2") -> None:
+def register_runtime_instance(conn: Any, *, instance_id: str, component: str = "execution_v2",
+                              metadata: dict[str, Any] | None = None) -> None:
     """platform.ownership_leases.holder_instance_id is a real FK to platform.runtime_instances
     (discovered only against real PostgreSQL - fakes.py does not model this FK). A worker must
     register itself before it can ever acquire a fence generation."""
     with transaction(conn):
         with conn.cursor() as cur:
-            cur.execute("""INSERT INTO platform.runtime_instances (instance_id, component, status)
-                          VALUES (%s, %s, 'RUNNING')
-                          ON CONFLICT (instance_id) DO UPDATE SET status='RUNNING', last_heartbeat_at=now()""",
-                       (instance_id, component))
+            cur.execute("""INSERT INTO platform.runtime_instances (instance_id, component, status, metadata)
+                          VALUES (%s, %s, 'RUNNING', %s::jsonb)
+                          ON CONFLICT (instance_id) DO UPDATE SET status='RUNNING',
+                            last_heartbeat_at=now(), metadata=EXCLUDED.metadata""",
+                       (instance_id, component, json.dumps(metadata or {})))
 
 
 async def ensure_execution_stream(js: Any) -> None:
@@ -106,7 +111,8 @@ async def subscribe_consumer(js: Any, consumer: ExecutionSignalConsumer, *, cons
 
 
 async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
-    register_runtime_instance(ctx.conn, instance_id=ctx.config.holder_instance_id)
+    register_runtime_instance(ctx.conn, instance_id=ctx.config.holder_instance_id,
+                              metadata=ctx.status_metadata)
     await ensure_execution_stream(ctx.js)
     await bootstrap_consumer(ctx.js, consumer_name=CONSUMER_NAME)
     ctx.health.mark_ready("nats")
@@ -145,7 +151,42 @@ async def main_async() -> None:
                              risk_context_provider=risk_context_provider)
     consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode)
 
-    ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer)
+    bridge_status = "UNKNOWN"
+    try:
+        health_url = config.bridge_fence_url.rsplit("/mcp", 1)[0] + "/health"
+        request = urllib.request.Request(health_url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=3) as response:
+            health_payload = json.loads(response.read().decode("utf-8"))
+        bridge_status = "HEALTHY" if health_payload.get("ok") is True else "DEGRADED"
+    except (OSError, ValueError, json.JSONDecodeError):
+        bridge_status = "DEGRADED"
+
+    ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer,
+                         status_metadata={
+                             "execution_authority_mode": config.execution_authority_mode.value,
+                             "account_id": config.account_id,
+                             "canary_key": worker.resource,
+                             "risk_policy": {
+                                 "enabled": risk_policy.enabled,
+                                 "version": risk_policy.version,
+                                 "risk_per_trade": risk_policy.risk_per_trade,
+                                 "max_volume": risk_policy.max_volume,
+                                 "max_signal_age_seconds": risk_policy.max_signal_age_seconds,
+                                 "max_daily_loss": risk_policy.max_daily_loss,
+                                 "max_concurrent_positions": risk_policy.max_concurrent_positions,
+                                 "max_concurrent_orders": risk_policy.max_concurrent_orders,
+                                 "allowed_accounts": list(risk_policy.allowed_accounts),
+                                 "allowed_strategies": list(risk_policy.allowed_strategies),
+                                 "allowed_symbols": list(risk_policy.allowed_symbols or ()),
+                                 "canary_max_new_executions": risk_policy.canary_max_new_executions,
+                             },
+                             "execution_bridge": {"status": bridge_status},
+                             "broker_account": {
+                                 "status": "CONNECTED" if bridge_status == "HEALTHY" else "UNAVAILABLE",
+                                 "account": "*" * max(0, len(config.account_id) - 4) + config.account_id[-4:],
+                                 "currency": None,
+                             },
+                         })
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
