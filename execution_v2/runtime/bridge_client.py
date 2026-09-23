@@ -42,7 +42,7 @@ class BridgeUnreachable(RuntimeError):
 
 class HttpBridgeFenceClient:
     def __init__(self, *, base_url: str, execution_mode: str = "REAL_EXECUTION",
-                 timeout_s: float = 10.0, read_base_url: str | None = None) -> None:
+                 timeout_s: float = 35.0, read_base_url: str | None = None) -> None:
         if not base_url or not base_url.strip():
             raise ValueError("base_url is required")
         self.base_url = base_url.rstrip("/")
