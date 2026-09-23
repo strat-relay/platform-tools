@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from execution_v2.risk import RiskPolicyError, evaluate_candidate, load_risk_policy
+from execution_v2.fakes import FakeConnection
+from execution_v2.intent import create_execution_intent
 
 
 NOW = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
@@ -95,7 +97,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
         decision = evaluate_candidate(self.candidate(), policy=policy, account_id="188428665", now_utc=NOW,
                                       broker={"tick_size": .00001, "tick_value": 1, "volume_min": .01,
                                               "volume_max": 100, "volume_step": .01},
-                                      account={"equity": 2000}, state=self.state())
+                                      account={"equity": 1000}, state=self.state())
         self.assertTrue(decision.permitted)
         self.assertLessEqual(decision.volume, .05)
         self.assertLessEqual(decision.risk_amount, 5.000001)
@@ -112,6 +114,39 @@ class LiveRiskPolicyTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertEqual(evaluate_candidate(self.candidate(), state=self.state(**{field: 999}), **args).reason,
                                  reason)
+
+    def test_intent_persists_evaluator_volume_not_flat_cap(self):
+        policy = self.write_policy(valid_policy())
+        conn = FakeConnection()
+        conn.seed_entry_signal(signal_id="SIG-WIRED", strategy_id="STRAT", strategy_version="V1",
+                               strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
+                               decision_time=NOW, entry_price=1.10, stop_price=1.095,
+                               target_price=1.11, entry_signal_hash="hash")
+        result = create_execution_intent(
+            conn, signal_id="SIG-WIRED", account_id="188428665", risk_policy=policy, now_utc=NOW,
+            risk_context_provider=lambda record: {"broker": {"tick_size": .00001, "tick_value": 1,
+                "volume_min": .01, "volume_max": 100, "volume_step": .01},
+                "account": {"equity": 2000}, "state": self.state()},
+        )
+        self.assertTrue(result.eligible)
+        row = conn.tables["execution_v2.execution_intent"][result.execution_intent_id]
+        self.assertEqual(row["approved_volume"], .02)
+        self.assertEqual(row["risk_fraction"], .005)
+
+    def test_intent_rejects_when_broker_state_is_unavailable(self):
+        policy = self.write_policy(valid_policy())
+        conn = FakeConnection()
+        conn.seed_entry_signal(signal_id="SIG-NO-STATE", strategy_id="STRAT", strategy_version="V1",
+                               strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
+                               decision_time=NOW, entry_price=1.10, stop_price=1.095,
+                               target_price=1.11, entry_signal_hash="hash")
+        result = create_execution_intent(conn, signal_id="SIG-NO-STATE", account_id="188428665",
+                                         risk_policy=policy, now_utc=NOW,
+                                         risk_context_provider=lambda record: (_ for _ in ()).throw(RuntimeError("unavailable")))
+        self.assertFalse(result.eligible)
+        self.assertEqual(result.reason, "RISK_STATE_UNAVAILABLE")
+        row = conn.tables["execution_v2.execution_intent"][result.execution_intent_id]
+        self.assertEqual(row["status"], "BLOCKED")
 
 
 if __name__ == "__main__":

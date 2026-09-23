@@ -71,7 +71,8 @@ def request_fingerprint(*, instrument: str, direction: str, volume: float, stop_
 
 class ExecutionWorker:
     def __init__(self, conn: Any, *, fence_authority: FenceAuthority, bridge: BridgeFence,
-                holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy) -> None:
+                holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
+                risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> None:
         if mode not in ("demo", "real"):
             raise ValueError("mode must be 'demo' or 'real'")
         self.conn = conn
@@ -81,7 +82,18 @@ class ExecutionWorker:
         self.account_id = account_id
         self.mode = mode
         self.risk_policy = risk_policy
+        self.risk_context_provider = risk_context_provider
         self.resource = f"execution:{mode}:{account_id}"
+
+    def _acquire_canary_slot(self, idempotency_key: str) -> bool:
+        if not self.risk_policy.enabled or self.risk_policy.canary_max_new_executions <= 0:
+            return True
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT execution_v2.acquire_canary_slot(%s,%s,%s)",
+                            (self.resource, idempotency_key, self.risk_policy.canary_max_new_executions))
+                row = cur.fetchone()
+        return bool(row and row[0])
 
     def _read_generation(self) -> int:
         with self.conn.cursor() as cur:
@@ -184,7 +196,8 @@ class ExecutionWorker:
 
         now_utc = now_utc or datetime.now(timezone.utc)
         intent_result = create_execution_intent(self.conn, signal_id=signal_id, account_id=self.account_id,
-                                                risk_policy=self.risk_policy, now_utc=now_utc)
+                                                risk_policy=self.risk_policy, now_utc=now_utc,
+                                                risk_context_provider=self.risk_context_provider)
         if intent_result.status == "QUARANTINED" or not intent_result.eligible:
             return ExecutionOutcome("BLOCKED", intent_result, None, None, intent_result.reason)
 
@@ -241,6 +254,14 @@ class ExecutionWorker:
             with self.conn.cursor() as cur:
                 cur.execute("SELECT platform.assert_generation(%s,%s)", (self.resource, generation))
             self._set_attempt_state(att_id, "SENDING", sending=True)
+
+        # Claim the durable slot immediately before the broker boundary. A conservative
+        # reservation is intentional: an ambiguous/failed first attempt must never permit a
+        # second blind live attempt.
+        if not self._acquire_canary_slot(att_id):
+            with transaction(self.conn):
+                self._set_attempt_state(att_id, "FENCED", terminal=True)
+            return ExecutionOutcome("BLOCKED", intent_result, att_id, None, "CANARY_LIMIT_EXCEEDED")
 
         fingerprint = request_fingerprint(instrument=broker_symbol, direction=intent["direction"],
                                           volume=float(intent["approved_volume"]), stop_price=float(intent["stop_price"]),

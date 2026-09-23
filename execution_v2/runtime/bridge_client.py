@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from ..bridge_fence_errors import (BridgeFenceError, ExpiredAuthorization, ExpiredGrant,
@@ -147,6 +148,55 @@ class HttpBridgeFenceClient:
             raise BridgeUnreachable(f"bridge read {tool} failed: {result}")
         text = result.get("content", [{}])[0].get("text", "null")
         return json.loads(text)
+
+    def read_risk_context(self, *, broker_symbol: str, as_of: datetime | None = None) -> dict[str, Any]:
+        """Read the bounded broker facts required by the V2 evaluator.
+
+        Any malformed/missing broker fact raises and therefore fails the caller closed. This
+        deliberately does not cache account, position, order, or history state.
+        """
+        account = self._read_tool("mt5_account_info", {})
+        symbol = self._read_tool("mt5_symbol_info", {"symbol": broker_symbol})
+        positions = self._read_tool("mt5_positions", {})
+        orders = self._read_tool("mt5_orders", {})
+        history = self._read_tool("mt5_history", {"limit": 500})
+        if not isinstance(account, dict) or not isinstance(symbol, dict):
+            raise BridgeUnreachable("broker account/symbol metadata is malformed")
+        required_symbol = ("tick_size", "tick_value", "min_lot", "max_lot", "lot_step")
+        if any(symbol.get(k) is None for k in required_symbol) or account.get("equity") is None:
+            raise BridgeUnreachable("broker sizing metadata is incomplete")
+        now = as_of or datetime.now(timezone.utc)
+        day = now.date()
+        if not isinstance(history, list):
+            raise BridgeUnreachable("broker history is unavailable")
+        daily_loss = 0.0
+        for row in history:
+            if not isinstance(row, dict):
+                raise BridgeUnreachable("broker history row is malformed")
+            stamp = row.get("time") or row.get("timestamp") or row.get("close_time")
+            pnl = row.get("profit")
+            if stamp is None or pnl is None:
+                raise BridgeUnreachable("broker history lacks loss-accounting fields")
+            try:
+                when = datetime.fromtimestamp(float(stamp), tz=timezone.utc) if isinstance(stamp, (int, float)) else datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+                if when.date() == day:
+                    daily_loss += min(0.0, float(pnl) + float(row.get("commission", 0) or 0) + float(row.get("swap", 0) or 0))
+            except (TypeError, ValueError):
+                raise BridgeUnreachable("broker history timestamp is malformed")
+        position_rows = positions if isinstance(positions, list) else positions.get("positions") if isinstance(positions, dict) else None
+        order_rows = orders if isinstance(orders, list) else orders.get("orders") if isinstance(orders, dict) else None
+        if not isinstance(position_rows, list) or not isinstance(order_rows, list):
+            raise BridgeUnreachable("broker positions/orders are malformed")
+        if position_rows:
+            raise BridgeUnreachable("open-position exposure cannot be calculated safely")
+        return {
+            "account": {"equity": float(account["equity"])},
+            "broker": {"tick_size": float(symbol["tick_size"]), "tick_value": float(symbol["tick_value"]),
+                        "volume_min": float(symbol["min_lot"]), "volume_max": float(symbol["max_lot"]),
+                        "volume_step": float(symbol["lot_step"])},
+            "state": {"daily_loss": abs(daily_loss), "concurrent_positions": len(position_rows),
+                      "concurrent_orders": len(order_rows), "account_exposure": 0.0, "canary_used": 0},
+        }
 
     @classmethod
     def _find_correlation(cls, value: Any, token: str) -> dict[str, Any] | None:

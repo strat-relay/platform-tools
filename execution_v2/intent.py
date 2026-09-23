@@ -25,7 +25,7 @@ from core.strategies.evaluation import canonical_bytes
 from postgres.db import transaction
 
 from .ids import execution_intent_id as _execution_intent_id
-from .risk import RiskPolicy
+from .risk import RiskPolicy, evaluate_candidate
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
 
@@ -116,7 +116,8 @@ def _compute_volume(record: dict[str, Any], risk_policy: RiskPolicy) -> float:
 
 
 def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_policy: RiskPolicy,
-                            now_utc: datetime, claimed_entry_signal_hash: str | None = None) -> IntentResult:
+                            now_utc: datetime, claimed_entry_signal_hash: str | None = None,
+                            risk_context_provider: Any | None = None) -> IntentResult:
     with transaction(conn):
         record = _load_entry_signal(conn, signal_id)
         if record is None:
@@ -133,7 +134,29 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
         eligibility = check_eligibility(record, risk_policy=risk_policy, account_id=account_id, now_utc=now_utc)
         intent_id = _execution_intent_id(entry_signal_id=signal_id, account_id=account_id)
         status = "PENDING" if eligibility.eligible else "BLOCKED"
-        volume = _compute_volume(record, risk_policy) if eligibility.eligible else 0.0
+        volume = 0.0
+        risk_fraction = None
+        if eligibility.eligible and risk_policy.risk_per_trade > 0:
+            if risk_context_provider is None:
+                eligibility = EligibilityResult(False, "RISK_STATE_UNAVAILABLE")
+                status = "BLOCKED"
+            else:
+                try:
+                    context = risk_context_provider(record)
+                    decision = evaluate_candidate(record, policy=risk_policy, account_id=account_id,
+                                                  now_utc=now_utc, broker=context["broker"],
+                                                  account=context["account"], state=context["state"])
+                    if not decision.permitted:
+                        eligibility = EligibilityResult(False, decision.reason)
+                        status = "BLOCKED"
+                    else:
+                        volume = float(decision.volume)
+                        risk_fraction = risk_policy.risk_per_trade
+                except Exception:
+                    eligibility = EligibilityResult(False, "RISK_STATE_UNAVAILABLE")
+                    status = "BLOCKED"
+        elif eligibility.eligible:
+            volume = _compute_volume(record, risk_policy)
 
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO execution_v2.execution_intent
@@ -148,9 +171,7 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                         record["strategy_version"], record["strategy_ref"], record["instrument"],
                         record["direction"], record["entry_price"], record["stop_price"], record["target_price"],
                         max(volume, 0.000001) if eligibility.eligible else 0.000001,  # CHECK (approved_volume > 0)
-                        None,  # risk_fraction: reserved for future sizing sophistication (mission section 1
-                               # "Do NOT implement sophisticated position sizing"); this slice uses a flat
-                               # max_volume cap only (RiskPolicy has no fraction concept) - never computed here.
+                        risk_fraction,
                         risk_policy.version if eligibility.eligible else None,
                         account_id, intent_id, status, eligibility.reason))
             inserted = cur.fetchone()

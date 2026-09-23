@@ -173,12 +173,14 @@ def evaluate_candidate(record: Mapping[str, Any], *, policy: RiskPolicy, account
     risk_budget = equity * policy.risk_per_trade
     per_lot_risk = abs(float(entry) - float(stop)) / tick_size * tick_value
     raw = risk_budget / per_lot_risk if per_lot_risk > 0 else 0.0
-    if raw < minimum:
+    if raw + 1e-9 < minimum:
         return RiskDecision(False, "MINIMUM_LOT_EXCEEDS_RISK_LIMIT")
-    volume = math.floor(min(raw, policy.max_volume, maximum) / step) * step
+    # Add only a representational epsilon before flooring; the post-normalization risk check
+    # remains authoritative and prevents rounding upward past the monetary ceiling.
+    volume = math.floor((min(raw, policy.max_volume, maximum) / step) + 1e-9) * step
     if volume < minimum or volume <= 0:
         return RiskDecision(False, "VOLUME_BELOW_BROKER_MINIMUM")
     risk_amount = volume * per_lot_risk
-    if risk_amount > risk_budget:
+    if risk_amount > risk_budget + 1e-9:
         return RiskDecision(False, "NORMALIZED_VOLUME_EXCEEDS_RISK_LIMIT")
     return RiskDecision(True, volume=volume, risk_amount=risk_amount)

@@ -22,6 +22,7 @@ from postgres.db import connect, transaction
 from ..fence import FenceAuthority
 from ..risk import load_risk_policy
 from ..worker import ExecutionWorker
+from ..symbols import resolve_broker_symbol
 from .bridge_client import HttpBridgeFenceClient
 from .config import CONSUMER_NAME, STREAM, SUBJECT, RuntimeConfig
 from .consumer import ExecutionSignalConsumer
@@ -133,9 +134,14 @@ async def main_async() -> None:
     bridge = HttpBridgeFenceClient(base_url=config.bridge_fence_url,
                                    execution_mode=f"{config.bridge_mode.upper()}_EXECUTION")
     risk_policy = load_risk_policy(config.risk_policy_path)
+    def risk_context_provider(record: dict[str, Any]) -> dict[str, Any]:
+        broker_symbol = resolve_broker_symbol(record["instrument"], account_id=config.account_id,
+                                              mode=config.bridge_mode)
+        return bridge.read_risk_context(broker_symbol=broker_symbol)
     worker = ExecutionWorker(conn, fence_authority=fence_authority, bridge=bridge,
                              holder_instance_id=config.holder_instance_id, account_id=config.account_id,
-                             mode=config.bridge_mode, risk_policy=risk_policy)
+                             mode=config.bridge_mode, risk_policy=risk_policy,
+                             risk_context_provider=risk_context_provider)
     consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode)
 
     ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer)
