@@ -28,6 +28,8 @@ metadata:
     app.kubernetes.io/part-of: trading-platform
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: execution-v2-runtime
