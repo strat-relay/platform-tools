@@ -61,7 +61,7 @@ spec:
               drop: [ALL]
           resources:
             requests:
-              cpu: 25m
+              cpu: 50m  # the namespace's LimitRange enforces a 50m minimum per container
               memory: 64Mi
             limits:
               cpu: 150m

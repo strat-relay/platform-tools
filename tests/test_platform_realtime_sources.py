@@ -8,7 +8,7 @@ import asyncio
 import json
 import unittest
 
-from platform_api.realtime_envelope import RESOURCE_SIGNALS, RESOURCE_TRADE_MANAGEMENT
+from platform_api.realtime_envelope import RESOURCE_SIGNALS, RESOURCE_SYSTEM, RESOURCE_TRADE_MANAGEMENT
 from platform_api.realtime_hub import RealtimeHub
 from platform_api.realtime_sources import BoundedChangePoller, NatsObservationSource, NatsSignalSource
 
@@ -102,6 +102,8 @@ class BoundedChangePollerTests(unittest.IsolatedAsyncioTestCase):
                 return tables.get("managed_trade", [])
             if "ENTRY_SIGNALS" in upper:
                 return tables.get("signals", [])
+            if "RUNTIME_INSTANCES" in upper:
+                return tables.get("orchestrator", [])
             return []
         return query
 
@@ -158,6 +160,40 @@ class BoundedChangePollerTests(unittest.IsolatedAsyncioTestCase):
         replay = hub.replay_since(RESOURCE_SIGNALS, 0)
         self.assertEqual(replay[0]["type"], "signal.outcome_changed")
         self.assertEqual(replay[0]["payload"]["terminalState"], "ENTRY_ONLY")
+
+
+class SystemStatusPollerTests(unittest.IsolatedAsyncioTestCase):
+    def _query_fn(self, running: list[int]):
+        def query(sql: str, params) -> list[dict]:
+            if "RUNTIME_INSTANCES" not in sql.upper():
+                return []
+            return [{"orchestrator_running": running.pop(0)}]
+        return query
+
+    async def test_first_observation_never_emits_no_prior_baseline(self):
+        hub = RealtimeHub()
+        poller = BoundedChangePoller(hub, self._query_fn([1]))
+        await poller.tick()
+        self.assertEqual(hub.current_sequence(RESOURCE_SYSTEM), 0)
+
+    async def test_a_real_transition_emits_system_status_changed(self):
+        hub = RealtimeHub()
+        running = [1, 0]  # up, then down
+        poller = BoundedChangePoller(hub, self._query_fn(running))
+        await poller.tick()
+        await poller.tick()
+        replay = hub.replay_since(RESOURCE_SYSTEM, 0)
+        self.assertEqual(len(replay), 1)
+        self.assertEqual(replay[0]["type"], "system.status_changed")
+        self.assertEqual(replay[0]["payload"]["running"], False)
+
+    async def test_no_change_between_ticks_emits_nothing(self):
+        hub = RealtimeHub()
+        poller = BoundedChangePoller(hub, self._query_fn([1, 1, 1]))
+        await poller.tick()
+        await poller.tick()
+        await poller.tick()
+        self.assertEqual(hub.current_sequence(RESOURCE_SYSTEM), 0)
 
 
 if __name__ == "__main__":

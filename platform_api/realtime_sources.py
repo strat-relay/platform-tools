@@ -23,6 +23,14 @@ Ground truth, checked directly against this repository before writing anything h
     ticks - see `RealtimeEvent.stable_event_id()`'s deterministic derivation).
   - Signal *outcome* changes (`strategy.entry_signals.terminal_state`) have no dedicated
     canonical event either, so `BoundedChangePoller` also covers those, for the same reason.
+  - "System status" (mission section 11) deliberately watches only `platform.runtime_instances`'s
+    orchestrator RUNNING/not-RUNNING transition, not `platform.outbox_events`/`inbox_events`
+    counts - those change on essentially every signal/observation and would make "system"
+    indistinguishable from the other two resources' own noise. Orchestrator up/down is genuinely
+    slow-changing and operator-relevant, so it is the one thing on this channel treated as an
+    event; everything else `/api/v1/system` reports stays snapshot-on-demand (mission section 11
+    "document a bounded fallback rather than silently keeping rapid polling" - the Console's own
+    manual refresh IS that documented fallback for the rest of `/api/v1/system`'s fields).
 
 This module intentionally never touches the WebSocket transport (`realtime.py`) or the hub's
 internal sequencing (`realtime_hub.py`) beyond calling `hub.publish(RealtimeEvent(...))` - it
@@ -35,7 +43,7 @@ import json
 import logging
 from typing import Any, Callable
 
-from .realtime_envelope import RESOURCE_SIGNALS, RESOURCE_TRADE_MANAGEMENT, RealtimeEvent
+from .realtime_envelope import RESOURCE_SIGNALS, RESOURCE_SYSTEM, RESOURCE_TRADE_MANAGEMENT, RealtimeEvent
 from .realtime_hub import RealtimeHub
 
 log = logging.getLogger("platform_api.realtime.sources")
@@ -187,6 +195,7 @@ class BoundedChangePoller:
         self._last_decision_at: str | None = None
         self._last_publication_at: str | None = None
         self._signal_terminal_states: dict[str, str] = {}
+        self._orchestrator_running: int | None = None
         self._stop = False
 
     def stop(self) -> None:
@@ -205,6 +214,7 @@ class BoundedChangePoller:
         self._poll_decisions()
         self._poll_publications()
         self._poll_signal_outcomes()
+        self._poll_system_status()
 
     def _poll_managed_trades(self) -> None:
         sql = """SELECT managed_trade_id, entry_signal_id, instrument, direction, state,
@@ -261,6 +271,22 @@ class BoundedChangePoller:
                     resource=RESOURCE_SIGNALS, resource_id=signal_id,
                     payload=_signal_outcome_payload(signal_id, terminal_state)))
             self._signal_terminal_states[signal_id] = terminal_state
+
+    def _poll_system_status(self) -> None:
+        # Only the orchestrator's own RUNNING/not-RUNNING transition - see module docstring for
+        # why outbox/inbox counts are deliberately excluded from this channel.
+        sql = """SELECT count(*) AS orchestrator_running FROM platform.runtime_instances
+                 WHERE component = 'orchestrator' AND status = 'RUNNING'"""
+        rows = self._query(sql, ())
+        if not rows:
+            return
+        running = int(rows[0]["orchestrator_running"])
+        if self._orchestrator_running is not None and running != self._orchestrator_running:
+            self.hub.publish(RealtimeEvent(
+                type="system.status_changed", occurred_at=_iso_now(),
+                resource=RESOURCE_SYSTEM, resource_id="orchestrator",
+                payload={"component": "orchestrator", "running": running > 0}))
+        self._orchestrator_running = running
 
 
 def _iso_now() -> str:
