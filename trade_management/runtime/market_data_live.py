@@ -11,12 +11,35 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Protocol
 
 from trade_management.market_data import BarWindow, MarketQuote
 
 PROVIDER_ID = "mt5-bridge-research-22347"
+
+
+class MarketDataError(RuntimeError):
+    """Base class for a failed read-only market-data observation."""
+
+
+class BrokerSymbolUnavailable(MarketDataError):
+    """The resolved broker symbol is not available at the broker boundary."""
+
+
+class QuoteUnavailable(MarketDataError):
+    """The bridge answered, but no usable quote was available."""
+
+
+class BridgeReadFailed(MarketDataError):
+    """The read-only bridge could not complete the request."""
+
+
+class MalformedBridgeQuote(MarketDataError):
+    """The bridge response did not contain a valid bid/ask quote."""
 
 
 class ReadOnlyBridgeClient(Protocol):
@@ -26,6 +49,42 @@ class ReadOnlyBridgeClient(Protocol):
 
     def quote(self, symbol: str) -> dict[str, Any]: ...
     def rates(self, symbol: str, timeframe: str, limit: int = 20) -> Any: ...
+
+
+def _broker_symbol_map() -> dict[str, str]:
+    """Read the existing explicit platform mapping authority.
+
+    The mapping is configuration, not a suffix convention.  An optional JSON override is
+    provided for account-specific deployments and is deliberately validated as a complete
+    canonical-to-broker mapping.
+    """
+    raw = os.environ.get("P4_BROKER_SYMBOL_MAP_JSON", "").strip()
+    if raw:
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise MarketDataError("invalid P4_BROKER_SYMBOL_MAP_JSON") from exc
+        if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) and v
+                                                   for k, v in value.items()):
+            raise MarketDataError("P4_BROKER_SYMBOL_MAP_JSON must contain string pairs")
+        return value
+    config_path = Path(__file__).resolve().parents[2] / "orchestration" / "config" / "platform.json"
+    try:
+        value = json.loads(config_path.read_text(encoding="utf-8")).get("symbol_mappings", {})
+    except (OSError, json.JSONDecodeError) as exc:
+        raise MarketDataError(f"platform symbol mapping unavailable: {config_path}") from exc
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) and v
+                                               for k, v in value.items()):
+        raise MarketDataError("platform symbol_mappings must contain string pairs")
+    return value
+
+
+def resolve_broker_symbol(canonical_instrument: str) -> str:
+    try:
+        return _broker_symbol_map()[canonical_instrument]
+    except KeyError as exc:
+        raise BrokerSymbolUnavailable(
+            f"no broker symbol mapping for canonical instrument {canonical_instrument!r}") from exc
 
 
 def build_bridge_client(mcp_url: str) -> ReadOnlyBridgeClient:
@@ -49,8 +108,26 @@ class LiveMarketDataProvider:
         self.provider_id = provider_id
 
     def quote(self, instrument: str) -> MarketQuote:
-        raw = self.client.quote(instrument)
-        bid, ask = float(raw["bid"]), float(raw["ask"])
+        broker_symbol = resolve_broker_symbol(instrument)
+        try:
+            raw = self.client.quote(broker_symbol)
+        except Exception as exc:
+            from contracts.mt5_bridge.errors import BridgeReadTimeout, BridgeToolError, BridgeTransportError
+            if isinstance(exc, BridgeReadTimeout):
+                raise BridgeReadFailed(f"BRIDGE_TIMEOUT:{exc}") from exc
+            if isinstance(exc, BridgeToolError) and re.search(r"symbol|instrument|not found|unknown", str(exc), re.I):
+                raise BrokerSymbolUnavailable(f"BROKER_SYMBOL_UNAVAILABLE:{broker_symbol}:{exc}") from exc
+            if isinstance(exc, (BridgeToolError, BridgeTransportError)):
+                raise QuoteUnavailable(f"QUOTE_UNAVAILABLE:{broker_symbol}:{exc}") from exc
+            raise BridgeReadFailed(f"BRIDGE_READ_FAILED:{broker_symbol}:{exc}") from exc
+        if not isinstance(raw, dict) or raw.get("error"):
+            raise QuoteUnavailable(f"QUOTE_UNAVAILABLE:{broker_symbol}")
+        try:
+            bid, ask = float(raw["bid"]), float(raw["ask"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MalformedBridgeQuote(f"MALFORMED_BRIDGE_QUOTE:{broker_symbol}") from exc
+        if not (bid >= 0 and ask >= bid):
+            raise MalformedBridgeQuote(f"MALFORMED_BRIDGE_QUOTE:{broker_symbol}")
         source_timestamp = raw.get("timestamp") or raw.get("time")
         if not source_timestamp:
             age_ms = float(raw.get("quote_age_ms") or 0)
@@ -61,7 +138,18 @@ class LiveMarketDataProvider:
                           data_status="FORWARD")
 
     def bars(self, instrument: str, *, timeframe: str = "M5") -> BarWindow | None:
-        raw = self.client.rates(instrument, timeframe, limit=1)
+        broker_symbol = resolve_broker_symbol(instrument)
+        try:
+            raw = self.client.rates(broker_symbol, timeframe, limit=1)
+        except Exception as exc:
+            from contracts.mt5_bridge.errors import BridgeReadTimeout, BridgeToolError, BridgeTransportError
+            if isinstance(exc, BridgeReadTimeout):
+                raise BridgeReadFailed(f"BRIDGE_TIMEOUT:{exc}") from exc
+            if isinstance(exc, BridgeToolError) and re.search(r"symbol|instrument|not found|unknown", str(exc), re.I):
+                raise BrokerSymbolUnavailable(f"BROKER_SYMBOL_UNAVAILABLE:{broker_symbol}:{exc}") from exc
+            if isinstance(exc, (BridgeToolError, BridgeTransportError)):
+                raise QuoteUnavailable(f"BARS_UNAVAILABLE:{broker_symbol}:{exc}") from exc
+            raise BridgeReadFailed(f"BRIDGE_READ_FAILED:{broker_symbol}:{exc}") from exc
         rows = raw if isinstance(raw, list) else raw.get("rates") if isinstance(raw, dict) else None
         if not rows:
             return None
