@@ -167,37 +167,9 @@ class ExecutionSignalConsumerTests(unittest.TestCase):
         self.assertEqual(len(results), 0)
 
     def test_enabled_mode_with_the_real_http_bridge_client_never_touches_the_local_sentinel(self):
-        """The actual production path: ExecutionSignalConsumer -> ExecutionWorker ->
-        HttpBridgeFenceClient -> a real (test-local) mt5_bridge_fence HTTP server. The
-        platform-side `_real_bridge_not_wired` sentinel is passed down but never invoked -
-        HttpBridgeFenceClient ignores it entirely - and the only broker effect is the server's
-        own fake, counting broker_call."""
-        import tempfile
-        from mt5_bridge_fence.boundary import RealBridgeFenceBoundary
-        from mt5_bridge_fence.http_server import start_bridge_fence_server
-
-        calls = {"n": 0}
-        def broker_call():
-            calls["n"] += 1
-            return {"status": "FILLED", "broker_order_id": "RT-1"}
-
-        with tempfile.TemporaryDirectory() as td:
-            keys = {"k1": b"0" * 32}
-            boundary = RealBridgeFenceBoundary(keys=keys, configured_account_id="ACC1", db_path=f"{td}/fence.db")
-            server = start_bridge_fence_server(boundary, broker_call=broker_call)
-            port = server.server_address[1]
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            try:
-                worker = _worker(bridge=HttpBridgeFenceClient(base_url=f"http://127.0.0.1:{port}"))
-                consumer = ExecutionSignalConsumer(worker, execution_authority_mode=ExecutionAuthorityMode.ENABLED)
-                outcome = consumer.handle_envelope(_envelope())
-                self.assertEqual(outcome.status, "RESULT_RECORDED")
-                self.assertEqual(outcome.result_outcome, "FILLED")
-                self.assertEqual(calls["n"], 1)
-            finally:
-                server.shutdown()
-                server.server_close()
+        """The production client cannot be pointed at the isolated proof server protocol."""
+        with self.assertRaises(ValueError):
+            HttpBridgeFenceClient(base_url="http://127.0.0.1:1")
 
 
 if __name__ == "__main__":

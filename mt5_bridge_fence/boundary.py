@@ -86,7 +86,9 @@ class RealBridgeFenceBoundary:
                              generation=grant.generation, cancelled=cancelled)
 
     def submit(self, *, authorization: WriteAuthorization, request_fingerprint: str,
-              broker_call: Callable[[], dict[str, Any]]) -> SubmitResult:
+               broker_call: Callable[[], dict[str, Any]],
+               request_args: dict[str, Any] | None = None) -> SubmitResult:
+        del request_args
         existing = self.store.get_ledger_entry(authorization.attempt_id)
         if existing is not None:
             # Durable, unconditional idempotency: no re-verification, no second broker call,

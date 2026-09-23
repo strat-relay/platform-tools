@@ -93,7 +93,8 @@ class BridgeFenceSimulator:
         return AdvanceResult(accepted=True, bridge_epoch=self.bridge_epoch, generation=state.generation, cancelled=cancelled)
 
     def submit(self, *, authorization: WriteAuthorization, request_fingerprint: str,
-              broker_call: Callable[[], dict[str, Any]]) -> SubmitResult:
+               broker_call: Callable[[], dict[str, Any]],
+               request_args: dict[str, Any] | None = None) -> SubmitResult:
         """Idempotent on `authorization.attempt_id`: a second call with the same attempt_id
         never re-verifies or re-dispatches - it returns the existing ledger entry unchanged
         (mission section 7: duplicate delivery must never produce two broker orders)."""

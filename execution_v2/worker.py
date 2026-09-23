@@ -30,6 +30,8 @@ from .ids import attempt_id as _attempt_id
 from .ids import execution_result_id as _execution_result_id
 from .intent import EntrySignalRecordMissing, IntentResult, create_execution_intent
 from .risk import RiskPolicy
+from .symbols import (canonical_request_fingerprint, canonical_request_text, correlation_comment,
+                      resolve_broker_symbol)
 
 TOOL = "mt5_canonical_order_send"
 RESULT_EVENT_TYPE = "execution.result.recorded.v1"
@@ -58,8 +60,12 @@ class ExecutionOutcome:
 
 def request_fingerprint(*, instrument: str, direction: str, volume: float, stop_price: float,
                         target_price: float | None) -> str:
-    payload = {"instrument": instrument, "direction": direction, "volume": volume,
-              "stop_price": stop_price, "target_price": target_price}
+    # Normalize numeric wire values exactly as the bridge's independent verifier does before
+    # canonical JSON serialization.  This prevents an int/float spelling difference (4300 vs
+    # 4300.0) from making an otherwise identical signed request unverifiable.
+    payload = {"instrument": instrument, "direction": direction, "volume": float(volume),
+              "stop_price": float(stop_price),
+              "target_price": float(target_price) if target_price is not None else None}
     return hashlib.sha256(canonical_bytes(payload)).hexdigest()
 
 
@@ -186,6 +192,23 @@ class ExecutionWorker:
         intent = self._load_intent(execution_intent_id)
         att_id = _attempt_id(execution_intent_id=execution_intent_id)
 
+        # Resolve the canonical instrument before claiming an execution attempt.  A missing
+        # account-specific broker mapping is a deterministic configuration block, never a
+        # partially claimed attempt or a guessed suffix.
+        broker_symbol = resolve_broker_symbol(intent["instrument"], account_id=self.account_id, mode=self.mode)
+        order_args = {
+            "schema_version": 1, "action": 1, "magic": 0, "symbol": broker_symbol,
+            "volume": float(intent["approved_volume"]),
+            "price": float(intent["requested_entry_price"] or 0.0),
+            "sl": float(intent["stop_price"]), "tp": float(intent["target_price"] or 0.0),
+            "deviation": 50, "type": 0 if intent["direction"] == "LONG" else 1,
+            "type_filling": 1, "type_time": 0, "expiration": 0,
+            "comment": correlation_comment(att_id), "canonical_request_text": "",
+            "request_fingerprint": "", "idempotency_key": att_id,
+        }
+        order_args["canonical_request_text"] = canonical_request_text(order_args)
+        order_args["request_fingerprint"] = canonical_request_fingerprint(order_args)
+
         existing_attempt = self._load_attempt(execution_intent_id)
         if existing_attempt is not None and existing_attempt["state"] in _TERMINAL_ATTEMPT_STATES:
             with self.conn.cursor() as cur:
@@ -219,7 +242,7 @@ class ExecutionWorker:
                 cur.execute("SELECT platform.assert_generation(%s,%s)", (self.resource, generation))
             self._set_attempt_state(att_id, "SENDING", sending=True)
 
-        fingerprint = request_fingerprint(instrument=intent["instrument"], direction=intent["direction"],
+        fingerprint = request_fingerprint(instrument=broker_symbol, direction=intent["direction"],
                                           volume=float(intent["approved_volume"]), stop_price=float(intent["stop_price"]),
                                           target_price=float(intent["target_price"]) if intent["target_price"] is not None else None)
         authorization = self.fence_authority.mint_authorization(resource=self.resource, generation=generation,
@@ -228,7 +251,7 @@ class ExecutionWorker:
 
         try:
             submit_result = self.bridge.submit(authorization=authorization, request_fingerprint=fingerprint,
-                                               broker_call=broker_call)
+                                               broker_call=broker_call, request_args=order_args)
         except (WrongAccount, InvalidSignature, RequestFingerprintMismatch) as exc:
             # The bridge's own independent verification rejected the request outright (never
             # reached broker_call) - this is exactly the OD-06 guarantee working as intended
