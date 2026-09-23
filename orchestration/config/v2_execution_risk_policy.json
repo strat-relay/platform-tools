@@ -8,7 +8,7 @@
   "allowed_strategies": ["CONTEXT_STRUCTURE_RETRACE_V1@V1"],
   "risk_per_trade": 0.005,
   "max_signal_age_seconds": 60,
-  "max_daily_loss": 10,
+  "max_daily_loss": 100,
   "max_concurrent_positions": 1,
   "max_concurrent_orders": 1,
   "max_account_exposure": 50,
