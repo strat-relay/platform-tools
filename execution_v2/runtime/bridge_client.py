@@ -171,6 +171,8 @@ class HttpBridgeFenceClient:
             raise BridgeUnreachable("broker sizing metadata is incomplete")
         now = as_of or datetime.now(timezone.utc)
         day = now.date()
+        if isinstance(history, dict):
+            history = history.get("deals") or history.get("history") or history.get("rows")
         if not isinstance(history, list):
             raise BridgeUnreachable("broker history is unavailable")
         daily_loss = 0.0
