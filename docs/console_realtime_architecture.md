@@ -271,7 +271,7 @@ render). Logging is per-connect/disconnect/drop, never per-message.
 
 ## 19. Tests
 
-Backend (`trading-platform`, `tests/test_platform_realtime_*.py`, 40 tests): hub sequencing/
+Backend (`trading-platform`, `tests/test_platform_realtime_*.py`, 29 tests): hub sequencing/
 resume/gap-detection/backpressure-isolation, source translation honesty (NATS events translated
 correctly; bounded-poller change detection; the same underlying change never gets two different
 derived eventIds), a real end-to-end `websockets` client/server pair (subscribe/resume/resync/
