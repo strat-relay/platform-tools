@@ -331,8 +331,8 @@ class PlatformControlApi:
                 execution = self._execution_state()
                 authority = {**self._authority(self.environ),
                              "execution_authority_mode": execution["execution_authority_mode"]}
-                safe = (authority == {"orchestrator_mode": "PRIMARY", "signal_authority_mode": "DB_PRIMARY",
-                                     "execution_authority_mode": "DISABLED"}
+                safe = (authority["orchestrator_mode"] == "PRIMARY"
+                        and authority["signal_authority_mode"] == "DB_PRIMARY"
                         and self.environ.get("SIGNAL_DB_PRIMARY_ENABLED", "").lower() == "true")
                 if not safe:
                     data = {**authority, "status": "BLOCKED", "execution_enabled": False,
@@ -340,11 +340,16 @@ class PlatformControlApi:
                             "blockers": ["CANONICAL_AUTHORITY_CONFIGURATION_NOT_CONFIRMED"],
                             "execution": execution}
                     return 200, self._body(data, source="canonical_platform", status="DEGRADED")
-                data = {**authority, "status": "SAFE", "execution_enabled": False,
-                        "real_execution": {"armed": False, "mode": "DISABLED"},
-                        "canonical_order_send_gate": {"effective": "DISABLED"},
-                        "execution_consumer": {"status": "INACTIVE"},
-                        "real_execution_mode_active": False, "broker_write_path_active": False,
+                armed = (execution["execution_authority_mode"] == "ENABLED"
+                         and bool(execution["risk_policy"].get("enabled"))
+                         and execution["canary"].get("remaining", 0) > 0)
+                data = {**authority, "status": "ARMED" if armed else "SAFE",
+                        "execution_enabled": execution["execution_authority_mode"] == "ENABLED",
+                        "real_execution": {"armed": armed, "mode": execution["execution_authority_mode"]},
+                        "canonical_order_send_gate": {"effective": execution["execution_authority_mode"]},
+                        "execution_consumer": {"status": execution["execution_worker"]["status"]},
+                        "real_execution_mode_active": execution["execution_authority_mode"] == "ENABLED",
+                        "broker_write_path_active": execution["execution_authority_mode"] == "ENABLED",
                         "blockers": [], "execution": execution}
                 return 200, self._body(data, source="canonical_platform")
             if path == "/api/v1/strategies" or path.startswith("/api/v1/strategies/"):
