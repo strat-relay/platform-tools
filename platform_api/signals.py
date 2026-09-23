@@ -257,11 +257,11 @@ class UnifiedPlatformApi:
         self.signals = signals or PlatformSignalApi()
         self.control_api = control_api or PlatformControlApi()
 
-    def execute(self, method: str, target: str) -> tuple[int, dict[str, Any]]:
+    def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         path = urlsplit(target).path.rstrip("/") or "/"
         if path == "/api/v1/signals" or path.startswith("/api/v1/signals/"):
             return self.signals.execute(method, target)
-        return self.control_api.execute(method, target)
+        return self.control_api.execute(method, target, body)
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -312,8 +312,21 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
             self._send(status, body)
 
         def do_POST(self) -> None:
-            status, body = instance.execute("POST", self.path)
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            # Bounded read: never trust a client-supplied Content-Length to buffer unlimited
+            # bytes into memory - platform_api/v2_risk.py separately enforces its own body size
+            # limit on top of this.
+            raw_body = self.rfile.read(min(length, 1_048_576)) if length > 0 else None
+            status, body = instance.execute("POST", self.path, raw_body)
             self._send(status, body)
+
+        # Paths that accept POST in addition to GET - kept as an explicit, narrow allowlist here
+        # too so a browser's CORS preflight never promises more than the actual route dispatch
+        # (PlatformControlApi.execute) is willing to accept.
+        _POST_ALLOWED_PATHS = frozenset({"/api/v1/v2-execution/risk-policy"})
 
         def do_OPTIONS(self) -> None:
             path = urlsplit(self.path).path.rstrip("/") or "/"
@@ -325,8 +338,9 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
             if not origin or origin not in origins:
                 self._send(403, {"error": "CORS_ORIGIN_DENIED"})
                 return
+            allowed_methods = {"GET", "OPTIONS"} | ({"POST"} if path in self._POST_ALLOWED_PATHS else set())
             requested_method = self.headers.get("Access-Control-Request-Method", "GET").upper()
-            if requested_method not in {"GET", "OPTIONS"}:
+            if requested_method not in allowed_methods:
                 self._send(403, {"error": "CORS_METHOD_DENIED"})
                 return
             requested_headers = {
@@ -339,7 +353,7 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
                 self._send(403, {"error": "CORS_HEADERS_DENIED"})
                 return
             self._send(204, extra_headers=[
-                ("Access-Control-Allow-Methods", "GET, OPTIONS"),
+                ("Access-Control-Allow-Methods", ", ".join(sorted(allowed_methods))),
                 ("Access-Control-Allow-Headers", "Authorization, Content-Type"),
                 ("Access-Control-Max-Age", "600"),
             ])
