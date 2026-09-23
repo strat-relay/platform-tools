@@ -36,6 +36,21 @@ def _authorization_from_json(body: dict[str, Any]) -> WriteAuthorization:
                               exp=body["exp"], key_id=body["key_id"], sig=body["sig"])
 
 
+def _authorization_from_headers(headers: Any) -> WriteAuthorization:
+    values = {"resource": headers.get("X-Fence-Resource"),
+              "generation": headers.get("X-Fence-Generation"),
+              "attempt_id": headers.get("X-Fence-Attempt-Id"),
+              "tool": headers.get("X-Fence-Tool"),
+              "request_fingerprint": headers.get("X-Fence-Request-Fingerprint"),
+              "scope_class": headers.get("X-Fence-Scope-Class"),
+              "exp": headers.get("X-Fence-Exp"), "key_id": headers.get("X-Fence-Key-Id"),
+              "sig": headers.get("X-Fence-Sig")}
+    if any(value is None for value in values.values()):
+        raise KeyError("missing signed fence header")
+    values["generation"] = int(values["generation"])
+    return WriteAuthorization(**values)
+
+
 def _make_handler(boundary: RealBridgeFenceBoundary, broker_call: Callable[[], dict[str, Any]]) -> type:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: Any) -> None:  # silence stdlib per-request logging
@@ -106,6 +121,36 @@ def _make_handler(boundary: RealBridgeFenceBoundary, broker_call: Callable[[], d
                     return
                 self._respond(200, {"attempt_id": result.attempt_id, "state": result.state,
                                     "broker_response": result.broker_response})
+                return
+
+            if self.path == "/mcp":
+                try:
+                    method = body.get("method")
+                    params = body.get("params") or {}
+                    name = params.get("name")
+                    if method != "tools/call" or not name:
+                        raise ValueError("only JSON-RPC tools/call is supported")
+                    if name in {"mt5_history", "mt5_orders", "mt5_positions"}:
+                        payload = []
+                    elif name == "mt5_canonical_order_send":
+                        authorization = _authorization_from_headers(self.headers)
+                        fingerprint = self.headers.get("X-Fence-Request-Fingerprint")
+                        result = boundary.submit(authorization=authorization,
+                                                 request_fingerprint=fingerprint or "",
+                                                 broker_call=broker_call,
+                                                 request_args=params.get("arguments") or {})
+                        payload = {"id": result.broker_response.get("request_id") if result.broker_response else None,
+                                   "state": result.state, "broker_response": result.broker_response}
+                    else:
+                        raise ValueError(f"unsupported tool {name}")
+                    self._respond(200, {"jsonrpc": "2.0", "id": body.get("id"),
+                                        "result": {"content": [{"type": "text", "text": json.dumps(payload)}]}})
+                except BridgeFenceError as exc:
+                    self._respond(200, {"jsonrpc": "2.0", "id": body.get("id"),
+                                        "result": {"isError": True, "content": [{"type": "text",
+                                        "text": f"{type(exc).__name__}: {exc}"}]}})
+                except (KeyError, TypeError, ValueError) as exc:
+                    self._respond(400, {"error": "MalformedRequest", "message": str(exc)})
                 return
 
             self._respond(404, {"error": "NotFound"})

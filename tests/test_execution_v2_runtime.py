@@ -30,7 +30,7 @@ REQUIRED_ENV = {
     "NATS_URL": "nats://localhost:4222",
     "V2_EXECUTION_ACCOUNT_ID": "ACC1",
     "V2_FENCE_SIGNING_KEY": "x" * 32,
-    "V2_BRIDGE_FENCE_URL": "http://127.0.0.1:59999",
+    "V2_BRIDGE_FENCE_URL": "http://127.0.0.1:59999/mcp",
     "POD_NAME": "execution-v2-test-pod",
 }
 
@@ -113,7 +113,12 @@ class RuntimeConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeConfigError):
                 RuntimeConfig.from_env()
 
-    def test_fails_closed_if_bridge_fence_url_targets_the_live_order_port(self):
+    def test_accepts_the_real_fenced_bridge_mcp_endpoint(self):
+        env = dict(REQUIRED_ENV, V2_BRIDGE_FENCE_URL="http://192.168.1.166:22348/mcp")
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(RuntimeConfig.from_env().bridge_fence_url, env["V2_BRIDGE_FENCE_URL"])
+
+    def test_fails_closed_without_the_real_bridge_mcp_path(self):
         env = dict(REQUIRED_ENV, V2_BRIDGE_FENCE_URL="http://192.168.1.166:22348")
         with mock.patch.dict(os.environ, env, clear=True):
             with self.assertRaises(RuntimeConfigError):

@@ -98,7 +98,7 @@ class _LiveBridge:
 
     @property
     def base_url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
+        return f"http://127.0.0.1:{self.port}/mcp"
 
     def client(self) -> HttpBridgeFenceClient:
         return HttpBridgeFenceClient(base_url=self.base_url)
@@ -314,14 +314,17 @@ class RealBridgeIsolatedE2ETests(unittest.TestCase):
         auth = FenceAuthority(keys=KEYS, active_key_id="k1")
         resource = "execution:demo:ACC1"
 
-        gen1 = client.advance_fence(auth.mint_grant(resource=resource, generation=1, holder="worker-a"))
+        current_auth = auth.mint_authorization(resource=resource, generation=2, attempt_id="ATT_CURRENT_RB",
+                                               tool="mt5_canonical_order_send", request_fingerprint="fp-current")
+        client.submit(authorization=current_auth, request_fingerprint="fp-current", broker_call=_never_called,
+                      request_args={"symbol": "EURUSD", "volume": 0.01})
         stale_auth = auth.mint_authorization(resource=resource, generation=1, attempt_id="ATT_STALE_RB",
                                              tool="mt5_canonical_order_send", request_fingerprint="fp")
-        client.advance_fence(auth.mint_grant(resource=resource, generation=2, holder="worker-b"))
 
-        result = client.submit(authorization=stale_auth, request_fingerprint="fp", broker_call=_never_called)
+        result = client.submit(authorization=stale_auth, request_fingerprint="fp", broker_call=_never_called,
+                               request_args={"symbol": "EURUSD", "volume": 0.01})
         self.assertEqual(result.state, "CANCELLED_FENCED")
-        self.assertEqual(live.calls, 0)
+        self.assertEqual(live.calls, 1)
 
     def test_expired_fence_zero_effect(self):
         live = self._live_bridge()
@@ -344,7 +347,8 @@ class RealBridgeIsolatedE2ETests(unittest.TestCase):
         import dataclasses
         tampered = dataclasses.replace(write_auth, generation=999)
         with self.assertRaises(Exception):  # InvalidSignature, propagated across the real HTTP call
-            client.submit(authorization=tampered, request_fingerprint="fp", broker_call=_never_called)
+            client.submit(authorization=tampered, request_fingerprint="fp", broker_call=_never_called,
+                          request_args={"symbol": "EURUSD", "volume": 0.01})
         self.assertEqual(live.calls, 0)
 
     def test_wrong_account_zero_effect(self):
@@ -356,7 +360,8 @@ class RealBridgeIsolatedE2ETests(unittest.TestCase):
         write_auth = auth.mint_authorization(resource=resource, generation=1, attempt_id="ATT_WRONGACC_RB",
                                              tool="mt5_canonical_order_send", request_fingerprint="fp")
         with self.assertRaises(WrongAccount):
-            client.submit(authorization=write_auth, request_fingerprint="fp", broker_call=_never_called)
+            client.submit(authorization=write_auth, request_fingerprint="fp", broker_call=_never_called,
+                          request_args={"symbol": "EURUSD", "volume": 0.01})
         self.assertEqual(live.calls, 0)
 
     def test_fingerprint_mismatch_zero_effect(self):
@@ -368,7 +373,8 @@ class RealBridgeIsolatedE2ETests(unittest.TestCase):
         write_auth = auth.mint_authorization(resource=resource, generation=1, attempt_id="ATT_FPMISMATCH_RB",
                                              tool="mt5_canonical_order_send", request_fingerprint="fp-original")
         with self.assertRaises(RequestFingerprintMismatch):
-            client.submit(authorization=write_auth, request_fingerprint="fp-different", broker_call=_never_called)
+            client.submit(authorization=write_auth, request_fingerprint="fp-different", broker_call=_never_called,
+                          request_args={"symbol": "EURUSD", "volume": 0.01})
         self.assertEqual(live.calls, 0)
 
     def test_authority_disabled_zero_effect_through_the_real_bridge(self):

@@ -15,7 +15,8 @@
 # The real bridge-side fence/idempotency implementation this client would eventually reach
 # (mt5_bridge_fence/) has never been deployed anywhere - see docs/v2_execution/README.md
 # "Before activation" for what must happen first, and note the NetworkPolicy in this directory
-# grants this pod no egress path to the live MT5 bridge host at all (neither 22347 nor 22348).
+# the bridge egress is declared separately and narrowly in network-policy.yaml; this workload
+# still remains at replicas: 0 until separately authorized.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -60,7 +61,8 @@ spec:
             # (execution_v2/runtime/config.py) - this env block never overrides it.
             - {name: V2_EXECUTION_ACCOUNT_ID, value: "REPLACE_BEFORE_ACTIVATION"}  # see README.md
             - {name: V2_EXECUTION_BRIDGE_MODE, value: "demo"}   # "demo" | "real" - the fence resource namespace, not a live switch
-            - {name: V2_BRIDGE_FENCE_URL, value: "http://REPLACE_BEFORE_ACTIVATION:0"}  # the real bridge's fence endpoint; see README.md - deliberately invalid until supplied
+            - {name: V2_BRIDGE_FENCE_URL, value: "http://REPLACE_BEFORE_ACTIVATION:0/mcp"}  # real bridge endpoint; invalid until supplied
+            - {name: V2_BROKER_SYMBOL_MAP_JSON, value: "REPLACE_BEFORE_ACTIVATION"}  # explicit canonical->broker map; missing/invalid fails closed
             - {name: V2_EXECUTION_HEALTH_PORT, value: "8082"}
             - name: POD_NAME
               valueFrom:

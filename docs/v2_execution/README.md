@@ -357,8 +357,8 @@ docker rm -f v2audit-pg v2audit-nats && docker network rm v2audit-net
 - A real `execution-v2-fence-signing-key` Secret must be provisioned, and the resource-quota
   patch in `deploy/execution_v2/resource-quota-patch.README.md` computed from the then-current
   live cluster state (no live-cluster read has been performed by any mission to date).
-- A `NetworkPolicy` egress rule from `execution-v2-runtime` to the deployed bridge service must
-  be added alongside deploying that service - not present in `deploy/execution_v2/network-policy.yaml`
-  today, deliberately.
+- The deployment-plan `NetworkPolicy` contains only a narrow egress rule to the bridge host
+  (`192.168.1.166/32`, TCP 22348); it has not been applied. Verify the actual bridge address and
+  policy enforcement before any separately authorized activation.
 - `EXECUTION_AUTHORITY_MODE=ENABLED` must be set via its own separate, explicitly-authorized
   change - never bundled into any implementation mission's artifacts.

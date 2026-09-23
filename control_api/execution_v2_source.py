@@ -1,9 +1,8 @@
-"""Prepared (NOT wired, NOT deployed) canonical PostgreSQL read path for `/executions` (mission
-section 16). `control_api/app.py`'s current `/executions` route reads the legacy filesystem
-sources (`execution_intents`/`execution_decisions`/`execution_skips` JSONL, via `self.sources.
-rows(...)`) - this module is deliberately additive and separate, not a modification of that route,
-so this mission's "do not deploy" instruction is satisfied by construction: nothing here is
-imported or called from `control_api/app.py` yet.
+"""Canonical PostgreSQL read path for `/executions`, behind an explicit opt-in.
+
+`control_api/app.py` keeps the legacy filesystem route by default. Setting
+`CONTROL_API_EXECUTION_SOURCE=canonical` selects this read-only projection; no legacy execution
+authority is restored and no write path is exposed.
 
 ## Integration point (for whoever wires this in, under its own separately-authorized change)
 
@@ -18,10 +17,8 @@ sources. The prepared integration is:
     if resource == "executions":
         ... existing legacy-source code, UNCHANGED ...
 
-`CONTROL_API_EXECUTION_SOURCE` defaults unset (legacy path), so wiring this module in changes
-nothing about current behavior until a separate, explicit change also sets that variable - mission
-section 16's "no legacy filesystem execution-state fallback" applies once that switch is flipped,
-not before. No such wiring is performed by this mission.
+`CONTROL_API_EXECUTION_SOURCE` defaults unset (legacy path), so current production behavior is
+unchanged unless the explicit switch is set.
 
 ## Truthful inactive-state contract (mission section 16)
 

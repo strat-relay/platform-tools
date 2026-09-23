@@ -172,6 +172,30 @@ class ControlApi:
                 "unavailable": [reason], "read_only": True}
         return 503, {key: value for key, value in body.items() if value is not None}
 
+    def _canonical_execution_summary(self) -> tuple[int, dict[str, Any]]:
+        """Read canonical V2 execution state only behind an explicit opt-in.
+
+        The default route remains the existing legacy read path. This seam is read-only and does
+        not restore legacy execution authority or infer capability from row counts.
+        """
+        try:
+            from postgres.config import PostgresConfig
+            from postgres.db import connect
+            from control_api.execution_v2_source import read_execution_v2_summary
+            config = PostgresConfig.from_env()
+            config.require_explicit_target()
+            conn = connect(config, readonly=True)
+            try:
+                mode = os.getenv("EXECUTION_AUTHORITY_MODE", "DISABLED").strip().upper()
+                account_id = os.getenv("V2_EXECUTION_ACCOUNT_ID") or None
+                return 200, self._envelope(read_execution_v2_summary(
+                    conn, execution_authority_mode=mode, account_id=account_id))
+            finally:
+                conn.close()
+        except Exception as exc:
+            return 503, {"error": "CANONICAL_EXECUTION_SOURCE_UNAVAILABLE",
+                         "message": str(exc), "degraded": True, "read_only": True}
+
     def _validate_query(self, resource: str, query: dict[str, list[str]]) -> tuple[int, dict[str, Any]] | None:
         unsupported = next((key for key in query if key not in QUERY_PARAMETERS.get(resource, set())), None)
         if unsupported is not None:
@@ -459,6 +483,8 @@ class ControlApi:
                 return 200, self._envelope(self._public_row(rows[0], resource))
             return 200, self._envelope([self._public_row(row, resource) for row in rows])
         if resource == "executions" and identifier == "metrics":
+            if os.getenv("CONTROL_API_EXECUTION_SOURCE", "").strip().lower() == "canonical":
+                return self._canonical_execution_summary()
             try:
                 intents = self.sources.rows("execution_intents")
                 decisions = self.sources.rows("execution_decisions")
@@ -474,6 +500,8 @@ class ControlApi:
                 "rejected": sum(1 for row in decisions if "REJECT" in str(row.get("decision", ""))),
                 "blocked": len(self.sources.rows("execution_skips"))})
         if resource == "executions":
+            if os.getenv("CONTROL_API_EXECUTION_SOURCE", "").strip().lower() == "canonical":
+                return self._canonical_execution_summary()
             try:
                 rows = self.sources.rows("execution_intents") + self.sources.rows("execution_decisions") + self.sources.rows("execution_skips")
             except SourceReadError as exc:

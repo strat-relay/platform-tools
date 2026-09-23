@@ -52,26 +52,6 @@ class HttpBridgeFenceClient:
         self.execution_mode = execution_mode
         self.timeout_s = timeout_s
 
-    def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
-        data = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(f"{self.base_url}{path}", data=data, method="POST",
-                                         headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            try:
-                payload = json.loads(exc.read().decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                raise BridgeUnreachable(f"bridge returned unparseable error response (HTTP {exc.code})") from exc
-            error_name = payload.get("error")
-            error_cls = _ERROR_CLASSES.get(error_name)
-            if error_cls is not None:
-                raise error_cls(payload.get("message", error_name))
-            raise BridgeUnreachable(f"bridge returned unrecognized error {error_name!r} (HTTP {exc.code})")
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-            raise BridgeUnreachable(f"bridge at {self.base_url} is unreachable: {exc}") from exc
-
     def advance_fence(self, grant: FenceGrant) -> AdvanceResult:
         # The real bridge has no separate grant endpoint.  It validates the generation from the
         # authorization header during the subsequent /mcp call.  Keep this method for the shared
@@ -84,6 +64,8 @@ class HttpBridgeFenceClient:
         del broker_call
         if not request_args:
             raise ValueError("request_args are required for the real /mcp bridge")
+        if authorization.request_fingerprint != request_fingerprint:
+            raise RequestFingerprintMismatch("authorization is not bound to this exact request")
         headers = {"Content-Type": "application/json"}
         headers["X-Execution-Mode"] = self.execution_mode
         header_values = {
@@ -95,6 +77,9 @@ class HttpBridgeFenceClient:
         auth = authorization.to_dict()
         for field, name in header_values.items():
             headers[name] = str(auth[field])
+        # The signed authorization is bound to the exact request. Send the caller-supplied
+        # fingerprint independently so the bridge can reject any mismatch before dispatch.
+        headers["X-Fence-Request-Fingerprint"] = str(request_fingerprint)
         body = {"jsonrpc": "2.0", "id": authorization.attempt_id,
                 "method": "tools/call", "params": {"name": authorization.tool,
                 "arguments": dict(request_args)}}
@@ -111,7 +96,10 @@ class HttpBridgeFenceClient:
             return SubmitResult(authorization.attempt_id,
                                 "DISPATCHED" if state == "COMPLETED" else state,
                                 broker_response)
-        return SubmitResult(authorization.attempt_id, "DISPATCHED",
+        broker_response = payload.get("broker_response")
+        if broker_response is not None:
+            return SubmitResult(authorization.attempt_id, "DISPATCHED", broker_response)
+        return SubmitResult(authorization.attempt_id, payload.get("state") or "DISPATCHED",
                             {"status": "SUBMITTED", "request_id": payload.get("id") or payload.get("request_id"),
                              "correlation_token": request_args.get("comment")})
 

@@ -2,10 +2,8 @@
 
 Fails closed before connecting to anything if required configuration is missing or unsafe
 (`RuntimeConfig.from_env()`, called first inside `service.main_async()`). Starts exactly one
-component: the durable entry-signal consumer driving `ExecutionWorker`. The bridge it talks to is
-always the in-process simulator (`BridgeFenceSimulator`) - never a real MT5 transport - regardless
-of `EXECUTION_AUTHORITY_MODE`, until a future, separate mission wires the real bridge (see
-docs/v2_execution/README.md "Before activation").
+component: the durable entry-signal consumer driving `ExecutionWorker`. Its bridge dependency is
+always the signed HTTP `/mcp` client; the test-only simulator is never production-wired.
 """
 from __future__ import annotations
 

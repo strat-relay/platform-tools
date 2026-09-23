@@ -1,16 +1,8 @@
 # Narrow network access for the execution_v2 runtime and its one-off migration job.
 # The namespace-wide default-deny-ingress policy remains in force for all other traffic.
 #
-# Deliberately UNLIKE trade_management's network policy: there is NO egress rule to
-# 192.168.1.166 (the MT5 bridge host) at all, on any port, and no egress rule to any bridge fence
-# endpoint either. execution_v2/runtime/service.py now wires a real HTTP client
-# (execution_v2.runtime.bridge_client.HttpBridgeFenceClient) that WOULD need an egress rule once
-# a real bridge fence service exists to reach it - that service does not exist yet (mt5_bridge_fence/
-# has never been deployed anywhere; see docs/v2_execution/README.md "Before activation"), so no
-# such rule is added here. Adding one is a future, separate, explicit change alongside deploying
-# the bridge-side service itself - never bundled into scaling this Deployment up. Until then this
-# pod has no network path to any bridge at all, so a code-level mistake could not reach one even
-# if one were made (mission sections 6/14: DO NOT USE 22348, and 22347 is not read by this package).
+# The future bridge egress is intentionally narrow: one host and the fenced execution MCP port.
+# This manifest is a deployment plan only; it has not been applied to production.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -60,6 +52,11 @@ spec:
       ports:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.166/32
+      ports:
+        - {port: 22348, protocol: TCP}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

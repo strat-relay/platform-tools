@@ -114,9 +114,21 @@ class RealBridgeFenceBoundary:
             return SubmitResult(authorization.attempt_id, "EXPIRED_BEFORE_DISPATCH")
 
         state = self.store.get_fence_state(authorization.resource)
-        fence_ok = (state is not None and state["generation"] == authorization.generation
-                   and state["grant_expires_at"] is not None
-                   and now <= datetime.fromisoformat(state["grant_expires_at"]))
+        if state is not None and authorization.generation < state["generation"]:
+            fence_ok = False
+        else:
+            # The production MCP bridge receives no separate advance-fence request. A valid
+            # signed authorization advances the durable generation atomically at the boundary;
+            # a lower generation is rejected above. The authorization expiry bounds this inline
+            # grant for the single dispatch.
+            if state is None or authorization.generation > state["generation"]:
+                self.store.upsert_fence_state(resource=authorization.resource,
+                                               generation=authorization.generation, holder="signed-platform",
+                                               grant_expires_at=authorization.exp, advanced_at=now_iso)
+                state = self.store.get_fence_state(authorization.resource)
+            fence_ok = (state is not None and state["generation"] == authorization.generation
+                       and state["grant_expires_at"] is not None
+                       and now <= datetime.fromisoformat(state["grant_expires_at"]))
         if not fence_ok:
             self.store.upsert_ledger_entry(attempt_id=authorization.attempt_id, resource=authorization.resource,
                                            state="CANCELLED_FENCED", broker_response=None, now=now_iso)

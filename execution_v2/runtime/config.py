@@ -70,8 +70,8 @@ class RuntimeConfig:
         if not bridge_fence_url or not bridge_fence_url.strip():
             raise RuntimeConfigError("V2_BRIDGE_FENCE_URL is required - no real bridge is configured")
         bridge_fence_url = bridge_fence_url.strip()
-        if ":22348" in bridge_fence_url:
-            raise RuntimeConfigError("V2_BRIDGE_FENCE_URL must not target the live order-submission port (22348)")
+        if not bridge_fence_url.endswith("/mcp"):
+            raise RuntimeConfigError("V2_BRIDGE_FENCE_URL must target the real bridge /mcp endpoint")
 
         # FenceAuthority.from_env() already fails closed on a missing/short key; re-validate here
         # too so RuntimeConfig.from_env() alone (without constructing a FenceAuthority) is enough
