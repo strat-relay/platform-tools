@@ -39,6 +39,25 @@ class FakeRepository:
                 "mt5_order_send_attempted": 0, "broker_orders_accepted": 0,
                 "broker_fills_observed": 0, "rejected": 0, "blocked": 0}
 
+    def trade_manager_summary(self):
+        self._ok()
+        return {"total_managed_trades": 0, "open_managed_trades": 0,
+                "latest_observation_at": None, "latest_decision_at": None,
+                "observation_count": 0, "decision_count": 0,
+                "published_decision_count": 0, "withheld_decision_count": 0,
+                "policy_versions": []}
+
+    def managed_trades(self, limit, offset, trade_id=None):
+        self._ok()
+        rows = [{"managed_trade_id": "MT_1", "entry_signal_id": "SIG_1",
+                 "strategy_id": "S", "instrument": "XAUUSD", "direction": "LONG",
+                 "state": "OPEN"}]
+        return [row for row in rows if trade_id is None or row["managed_trade_id"] == trade_id]
+
+    def trade_decisions(self, trade_id):
+        self._ok()
+        return []
+
 
 class PlatformControlApiTests(unittest.TestCase):
     def make_api(self, *, env=None, unavailable=False):
@@ -153,6 +172,22 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(body["data"]["data_channel"]["status"], "UNAVAILABLE")
         self.assertEqual(body["data"]["execution_channel"]["status"], "INACTIVE")
 
+    def test_trade_manager_empty_state_is_healthy_and_postgres_sourced(self):
+        status, body = self.make_api().execute("GET", "/api/v1/trade-manager/summary")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "canonical_postgres")
+        self.assertEqual(body["data"]["total_managed_trades"], 0)
+        status, body = self.make_api().execute("GET", "/api/v1/managed-trades")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"], [{"managed_trade_id": "MT_1", "entry_signal_id": "SIG_1",
+                                         "strategy_id": "S", "instrument": "XAUUSD", "direction": "LONG",
+                                         "state": "OPEN"}])
+
+    def test_trade_manager_database_failure_is_unavailable(self):
+        status, body = self.make_api(unavailable=True).execute("GET", "/api/v1/managed-trades")
+        self.assertEqual(status, 503)
+        self.assertEqual(body["status"], "UNAVAILABLE")
+
     def test_reports_are_explicitly_unavailable_not_falsely_empty(self):
         for path in ("/api/v1/reports", "/api/v1/reports/report-1"):
             status, body = self.make_api().execute("GET", path)
@@ -172,7 +207,9 @@ class PlatformControlApiTests(unittest.TestCase):
                  "/api/v1/broker/account", "/api/v1/broker/positions", "/api/v1/broker/pending-orders",
                  "/api/v1/broker/history-orders", "/api/v1/broker/deals", "/api/v1/broker/symbols",
                  "/api/v1/broker/exposure", "/api/v1/exposure", "/api/v1/connections", "/api/v1/reports",
-                 "/api/v1/reports/r", "/api/v1/strategies/S/instances", "/api/v1/strategies/S/shadow"]
+                 "/api/v1/reports/r", "/api/v1/strategies/S/instances", "/api/v1/strategies/S/shadow",
+                 "/api/v1/trade-manager/summary", "/api/v1/managed-trades", "/api/v1/managed-trades/MT_1",
+                 "/api/v1/managed-trades/MT_1/decisions"]
         for path in paths:
             with self.subTest(path=path):
                 status, body = api.execute("GET", path)
