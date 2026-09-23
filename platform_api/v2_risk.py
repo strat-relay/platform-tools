@@ -87,7 +87,8 @@ class V2RiskExecutionApi:
                                         configured_max=policy.canary_max_new_executions)
         data = _policy_to_wire(policy, source=source)
         data["executionAuthorityMode"] = self.execution_authority_mode()
-        data["canary"] = canary
+        data["canary"] = {"maxNewExecutions": canary["max_new_executions"], "consumed": canary["consumed"],
+                          "remaining": canary["remaining"]} if canary else None
         return 200, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "ACTIVE",
                     "degraded": False, "read_only": False, "data": data, "unavailable": []}
 
