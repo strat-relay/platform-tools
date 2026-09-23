@@ -102,6 +102,14 @@ class LiveMarketDataProviderTests(unittest.TestCase):
         with self.assertRaises(MalformedBridgeQuote):
             LiveMarketDataProvider(Missing()).quote("XAUUSD")
 
+    def test_epoch_bridge_timestamp_is_normalized_for_postgres(self):
+        class Epoch(FakeReadOnlyBridge):
+            def quote(self, symbol):
+                return {"bid": 100.0, "ask": 100.2, "time": 1790156058}
+
+        quote = LiveMarketDataProvider(Epoch()).quote("XAUUSD")
+        self.assertEqual(quote.source_timestamp, "2026-09-23T09:34:18.000Z")
+
 
 if __name__ == "__main__":
     unittest.main()

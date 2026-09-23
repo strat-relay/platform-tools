@@ -87,6 +87,23 @@ def resolve_broker_symbol(canonical_instrument: str) -> str:
             f"no broker symbol mapping for canonical instrument {canonical_instrument!r}") from exc
 
 
+def _normalize_source_timestamp(value: Any) -> str:
+    """Convert bridge epoch seconds to the ISO timestamp contract used by Postgres."""
+    if isinstance(value, bool):
+        raise MalformedBridgeQuote("MALFORMED_BRIDGE_QUOTE:timestamp")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        if not text:
+            raise MalformedBridgeQuote("MALFORMED_BRIDGE_QUOTE:timestamp")
+        return text
+    try:
+        return datetime.fromtimestamp(numeric, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    except (OverflowError, OSError, ValueError) as exc:
+        raise MalformedBridgeQuote("MALFORMED_BRIDGE_QUOTE:timestamp") from exc
+
+
 def build_bridge_client(mcp_url: str) -> ReadOnlyBridgeClient:
     """Constructs the real `Mt5ReadClient`. Isolated in its own function (rather than imported
     at module scope by callers) so tests exercise `LiveMarketDataProvider` against a fake
@@ -133,7 +150,7 @@ class LiveMarketDataProvider:
             age_ms = float(raw.get("quote_age_ms") or 0)
             observed_at = datetime.now(timezone.utc) - timedelta(milliseconds=age_ms)
             source_timestamp = observed_at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        return MarketQuote(instrument=instrument, bid=bid, ask=ask, source_timestamp=str(source_timestamp),
+        return MarketQuote(instrument=instrument, bid=bid, ask=ask, source_timestamp=_normalize_source_timestamp(source_timestamp),
                           provider_id=self.provider_id, feed_id=raw.get("feed_id"),
                           data_status="FORWARD")
 
