@@ -3,7 +3,15 @@
   "version": 1,
   "enabled": false,
   "max_volume": null,
-  "allowed_symbols": null,
+  "allowed_symbols": [],
   "allowed_accounts": [],
-  "max_signal_age_seconds": null
+  "allowed_strategies": [],
+  "risk_per_trade": null,
+  "max_signal_age_seconds": null,
+  "max_daily_loss": null,
+  "max_concurrent_positions": null,
+  "max_concurrent_orders": null,
+  "max_account_exposure": null,
+  "duplicate_position_policy": null,
+  "canary_max_new_executions": null
 }

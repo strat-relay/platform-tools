@@ -58,6 +58,9 @@ def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, accoun
         return EligibilityResult(False, "RISK_POLICY_DISABLED")
     if account_id not in risk_policy.allowed_accounts:
         return EligibilityResult(False, "ACCOUNT_NOT_ALLOWED")
+    strategy_ref = record.get("strategy_ref") or f"{record.get('strategy_id')}@{record.get('strategy_version')}"
+    if risk_policy.allowed_strategies and strategy_ref not in risk_policy.allowed_strategies:
+        return EligibilityResult(False, "STRATEGY_NOT_ALLOWED")
     if risk_policy.allowed_symbols is not None and record["instrument"] not in risk_policy.allowed_symbols:
         return EligibilityResult(False, "SYMBOL_NOT_ALLOWED")
     if record.get("direction") not in ("LONG", "SHORT"):

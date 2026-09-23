@@ -35,6 +35,37 @@ from __future__ import annotations
 from typing import Any
 
 
+def _masked_account(account_id: str | None) -> str | None:
+    if not account_id:
+        return None
+    return "*" * max(0, len(account_id) - 4) + account_id[-4:]
+
+
+def _risk_policy_summary() -> dict[str, Any]:
+    """Safe, non-secret policy projection; invalid/missing policy is reported as disabled."""
+    try:
+        from execution_v2.risk import load_risk_policy
+        policy = load_risk_policy()
+        return {
+            "enabled": policy.enabled,
+            "version": policy.version,
+            "allowed_accounts": [_masked_account(a) for a in policy.allowed_accounts],
+            "allowed_strategies": list(policy.allowed_strategies),
+            "allowed_symbols": list(policy.allowed_symbols or ()),
+            "risk_per_trade": policy.risk_per_trade if policy.enabled else None,
+            "max_volume": policy.max_volume if policy.enabled else None,
+            "max_signal_age_seconds": policy.max_signal_age_seconds if policy.enabled else None,
+            "max_daily_loss": policy.max_daily_loss if policy.enabled else None,
+            "max_concurrent_positions": policy.max_concurrent_positions if policy.enabled else None,
+            "max_concurrent_orders": policy.max_concurrent_orders if policy.enabled else None,
+            "max_account_exposure": policy.max_account_exposure if policy.enabled else None,
+            "duplicate_position_policy": policy.duplicate_position_policy,
+            "canary_max_new_executions": policy.canary_max_new_executions if policy.enabled else None,
+        }
+    except Exception as exc:
+        return {"enabled": False, "status": "UNAVAILABLE", "reason": type(exc).__name__}
+
+
 def read_execution_v2_summary(conn: Any, *, execution_authority_mode: str, account_id: str | None = None) -> dict[str, Any]:
     """Read-only. Never writes. `conn` is any object exposing psycopg's `cursor()`/`fetchall()`
     surface (the same interface `execution_v2/fakes.py::FakeConnection` and a real `psycopg.
@@ -71,4 +102,5 @@ def read_execution_v2_summary(conn: Any, *, execution_authority_mode: str, accou
         "results_by_outcome": result_outcome_counts,
         "reconciliation_findings_open": reconciliation_findings,
         "broker_writes": execution_authority_mode == "ENABLED",  # matches HealthState.execution_status()
+        "risk_policy": _risk_policy_summary(),
     }
