@@ -33,6 +33,7 @@ class RuntimeConfig:
     account_id: str
     bridge_mode: str  # "demo" | "real" - the resource namespace prefix, never a live-vs-sim switch by itself
     bridge_fence_url: str  # the REAL bridge's fence-validation endpoint; no default, ever (see from_env)
+    read_bridge_url: str
     fence_signing_key: bytes
     fence_key_id: str
     risk_policy_path: str
@@ -72,6 +73,9 @@ class RuntimeConfig:
         bridge_fence_url = bridge_fence_url.strip()
         if not bridge_fence_url.endswith("/mcp"):
             raise RuntimeConfigError("V2_BRIDGE_FENCE_URL must target the real bridge /mcp endpoint")
+        read_bridge_url = os.getenv("V2_READ_BRIDGE_URL", bridge_fence_url).strip()
+        if not read_bridge_url.endswith("/mcp"):
+            raise RuntimeConfigError("V2_READ_BRIDGE_URL must target a bridge /mcp endpoint")
 
         # FenceAuthority.from_env() already fails closed on a missing/short key; re-validate here
         # too so RuntimeConfig.from_env() alone (without constructing a FenceAuthority) is enough
@@ -105,6 +109,6 @@ class RuntimeConfig:
                    nats_user=os.getenv("V2_NATS_USER") or os.getenv("P2_NATS_USER"),
                    nats_password=os.getenv("V2_NATS_PASSWORD") or os.getenv("P2_NATS_PASSWORD"),
                    execution_authority_mode=mode, account_id=account_id.strip(), bridge_mode=bridge_mode,
-                   bridge_fence_url=bridge_fence_url,
+                   bridge_fence_url=bridge_fence_url, read_bridge_url=read_bridge_url,
                    fence_signing_key=key_bytes, fence_key_id=key_id, risk_policy_path=risk_policy_path,
                    health_port=health_port, holder_instance_id=holder_instance_id.strip())

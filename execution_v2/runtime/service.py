@@ -132,6 +132,7 @@ async def main_async() -> None:
 
     fence_authority = FenceAuthority(keys={config.fence_key_id: config.fence_signing_key}, active_key_id=config.fence_key_id)
     bridge = HttpBridgeFenceClient(base_url=config.bridge_fence_url,
+                                   read_base_url=config.read_bridge_url,
                                    execution_mode=f"{config.bridge_mode.upper()}_EXECUTION")
     risk_policy = load_risk_policy(config.risk_policy_path)
     def risk_context_provider(record: dict[str, Any]) -> dict[str, Any]:

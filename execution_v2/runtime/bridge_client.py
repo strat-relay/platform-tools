@@ -42,7 +42,7 @@ class BridgeUnreachable(RuntimeError):
 
 class HttpBridgeFenceClient:
     def __init__(self, *, base_url: str, execution_mode: str = "REAL_EXECUTION",
-                 timeout_s: float = 10.0) -> None:
+                 timeout_s: float = 10.0, read_base_url: str | None = None) -> None:
         if not base_url or not base_url.strip():
             raise ValueError("base_url is required")
         self.base_url = base_url.rstrip("/")
@@ -52,6 +52,9 @@ class HttpBridgeFenceClient:
             raise ValueError("execution_mode must be an explicit bridge execution mode")
         self.execution_mode = execution_mode
         self.timeout_s = timeout_s
+        self.read_base_url = (read_base_url or self.base_url).rstrip("/")
+        if not self.read_base_url.endswith("/mcp"):
+            raise ValueError("read_base_url must target a bridge /mcp endpoint")
 
     def advance_fence(self, grant: FenceGrant) -> AdvanceResult:
         # The real bridge has no separate grant endpoint.  It validates the generation from the
@@ -104,10 +107,10 @@ class HttpBridgeFenceClient:
                             {"status": "SUBMITTED", "request_id": payload.get("id") or payload.get("request_id"),
                              "correlation_token": request_args.get("comment")})
 
-    def _mcp(self, body: dict[str, Any], *, headers: dict[str, str]) -> dict[str, Any]:
+    def _mcp(self, body: dict[str, Any], *, headers: dict[str, str], endpoint: str | None = None) -> dict[str, Any]:
         data = json.dumps(body).encode("utf-8")
         try:
-            req = urllib.request.Request(self.base_url, data=data, method="POST", headers=headers)
+            req = urllib.request.Request(endpoint or self.base_url, data=data, method="POST", headers=headers)
             with urllib.request.urlopen(req, timeout=self.timeout_s) as response:
                 return json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
@@ -142,7 +145,8 @@ class HttpBridgeFenceClient:
                               "method": "tools/call", "params": {"name": tool,
                               "arguments": arguments}},
                              headers={"Content-Type": "application/json",
-                                     "X-Execution-Mode": self.execution_mode})
+                                     "X-Execution-Mode": self.execution_mode},
+                             endpoint=self.read_base_url)
         result = response.get("result", {})
         if result.get("isError"):
             raise BridgeUnreachable(f"bridge read {tool} failed: {result}")
