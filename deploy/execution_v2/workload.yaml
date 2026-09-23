@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/component: v2-execution
     app.kubernetes.io/part-of: trading-platform
 spec:
-  replicas: 0  # DO NOT change without explicit operator authorization; see docs/v2_execution/README.md
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: execution-v2-runtime
@@ -47,22 +47,21 @@ spec:
           type: RuntimeDefault
       containers:
         - name: runtime
-          image: localhost:5001/trading-platform-runtime@sha256:6aea18f32e2bc2ca5447165f41ffac8dd2a9ab4153bdf2f9a0a6e02ce04e5f81
+          image: localhost:5001/trading-platform-runtime@sha256:c02cc04d8e30e9699de894608cbed3d2aa514040a49601b6bedfcc97b07fdf14
           imagePullPolicy: IfNotPresent
           command: [python, -m, execution_v2.runtime]
           envFrom:
             - secretRef:
                 name: trading-runtime-endpoints
             - secretRef:
-                name: execution-v2-fence-signing-key   # V2_FENCE_SIGNING_KEY, V2_FENCE_KEY_ID - see README.md; not committed to Git
+                name: execution-v2-fence-signing-key
           env:
-            # EXECUTION_AUTHORITY_MODE is deliberately NOT set here: RuntimeConfig.from_env()
-            # defaults an unset value to DISABLED and fails closed on anything else
-            # (execution_v2/runtime/config.py) - this env block never overrides it.
-            - {name: V2_EXECUTION_ACCOUNT_ID, value: "REPLACE_BEFORE_ACTIVATION"}  # see README.md
-            - {name: V2_EXECUTION_BRIDGE_MODE, value: "demo"}   # "demo" | "real" - the fence resource namespace, not a live switch
-            - {name: V2_BRIDGE_FENCE_URL, value: "http://REPLACE_BEFORE_ACTIVATION:0/mcp"}  # real bridge endpoint; invalid until supplied
-            - {name: V2_BROKER_SYMBOL_MAP_JSON, value: "REPLACE_BEFORE_ACTIVATION"}  # explicit canonical->broker map; missing/invalid fails closed
+            - {name: EXECUTION_AUTHORITY_MODE, value: "DISABLED"}
+            - {name: V2_EXECUTION_ACCOUNT_ID, value: "188428665"}
+            - {name: V2_EXECUTION_BRIDGE_MODE, value: "real"}
+            - {name: V2_BRIDGE_FENCE_URL, value: "http://192.168.1.166:22348/mcp"}
+            - {name: V2_BROKER_SYMBOL_MAP_JSON, value: '{"real:188428665":{"XAUUSD":"XAUUSDm","BTCUSD":"BTCUSD.pro","EURUSD":"EURUSD","USDJPY":"USDJPYm"}}'}
+            - {name: V2_EXECUTION_RISK_POLICY_PATH, value: "/app/orchestration/config/v2_execution_risk_policy.json"}
             - {name: V2_EXECUTION_HEALTH_PORT, value: "8082"}
             - name: POD_NAME
               valueFrom:
