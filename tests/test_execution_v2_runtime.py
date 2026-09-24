@@ -6,6 +6,7 @@ time - never inferring authority from the event itself.
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import unittest
@@ -169,8 +170,15 @@ class ExecutionSignalConsumerTests(unittest.TestCase):
         regression guard is exercised at all."""
         worker = _worker()
         consumer = ExecutionSignalConsumer(worker, execution_authority_mode=ExecutionAuthorityMode.ENABLED)
-        with self.assertRaises(RealBridgeNotWired):
-            consumer.handle_envelope(_envelope())
+        # ENABLED mode proceeds past intent creation into broker-symbol resolution
+        # (execution_v2/symbols.py), which fails closed without an explicit mapping - no default/
+        # inferred suffix, matching that module's own "no suffix convention is inferred here".
+        # "default" applies regardless of account/mode, same convention
+        # tests/test_execution_v2_symbols.py already establishes.
+        broker_symbol_map = json.dumps({"default": {"EURUSD": "EURUSDm"}})
+        with mock.patch.dict(os.environ, {"V2_BROKER_SYMBOL_MAP_JSON": broker_symbol_map}, clear=False):
+            with self.assertRaises(RealBridgeNotWired):
+                consumer.handle_envelope(_envelope())
         results = worker.conn.tables["execution_v2.execution_result"]
         self.assertEqual(len(results), 0)
 
