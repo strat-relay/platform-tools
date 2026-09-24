@@ -297,6 +297,7 @@ class PlatformControlRepository:
 
 class PlatformControlApi:
     V2_RISK_POLICY_PATH = "/api/v1/v2-execution/risk-policy"
+    V2_AUTHORITY_PATH = "/api/v1/v2-execution/authority"
 
     def __init__(self, repository: PlatformControlRepository | None = None,
                  environ: dict[str, str] | None = None,
@@ -310,6 +311,8 @@ class PlatformControlApi:
             from .v2_risk import V2RiskExecutionApi
             v2_risk_api = V2RiskExecutionApi(environ=self.environ)
         self.v2_risk_api = v2_risk_api
+        from .execution_authority import ExecutionAuthorityApi
+        self.execution_authority_api = ExecutionAuthorityApi(runtime_status_fn=self.repository.execution_runtime_status)
 
     @staticmethod
     def _body(data: Any = None, *, source: str, status: str = "ACTIVE",
@@ -332,10 +335,14 @@ class PlatformControlApi:
 
     def _execution_state(self) -> dict[str, Any]:
         runtime = self.repository.execution_runtime_status()
+        from execution_v2.authority_store import read_authority
+        authority = read_authority()
         policy = dict(runtime.get("risk_policy") or {})
         policy.setdefault("enabled", False)
         return {
-            "execution_authority_mode": runtime["execution_authority_mode"],
+            "execution_authority_mode": authority.get("state", "DISABLED"),
+            "authority_revision": authority.get("revision", 0),
+            "authority_source": authority.get("source", "POSTGRES"),
             "risk_policy": policy,
             "canary": runtime["canary"],
             "execution_worker": {"status": runtime["worker_status"]},
@@ -368,6 +375,11 @@ class PlatformControlApi:
         path = parsed.path.rstrip("/") or "/"
         if method == "POST" and path == self.V2_RISK_POLICY_PATH:
             return self.v2_risk_api.save(body)
+        if path == self.V2_AUTHORITY_PATH:
+            if method == "GET":
+                return self.execution_authority_api.read()
+            if method == "POST":
+                return self.execution_authority_api.save(body)
         if method != "GET":
             return 405, self._body(None, source="platform", status="UNAVAILABLE", error="READ_ONLY_API",
                                    message="GET only" if path != self.V2_RISK_POLICY_PATH else "GET or POST only")

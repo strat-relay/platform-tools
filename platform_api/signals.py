@@ -329,7 +329,8 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
         # Paths that accept POST in addition to GET - kept as an explicit, narrow allowlist here
         # too so a browser's CORS preflight never promises more than the actual route dispatch
         # (PlatformControlApi.execute) is willing to accept.
-        _POST_ALLOWED_PATHS = frozenset({"/api/v1/v2-execution/risk-policy"})
+        _POST_ALLOWED_PATHS = frozenset({"/api/v1/v2-execution/risk-policy",
+                                         "/api/v1/v2-execution/authority"})
 
         def do_OPTIONS(self) -> None:
             path = urlsplit(self.path).path.rstrip("/") or "/"

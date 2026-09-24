@@ -24,6 +24,7 @@ from postgres.db import connect, transaction
 from ..fence import FenceAuthority
 from ..risk import RiskPolicy
 from ..risk_policy_store import read_effective_policy
+from ..authority_store import read_authority
 from ..worker import ExecutionWorker
 from ..symbols import resolve_broker_symbol
 from .bridge_client import HttpBridgeFenceClient
@@ -126,7 +127,9 @@ async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
 
 async def main_async() -> None:
     config = RuntimeConfig.from_env()
-    health = HealthState(execution_authority_mode=config.execution_authority_mode.value, account_id=config.account_id)
+    authority_provider = lambda: read_authority().get("state", "DISABLED")
+    health = HealthState(execution_authority_mode=config.execution_authority_mode.value,
+                         account_id=config.account_id, authority_provider=authority_provider)
     start_health_server(health, port=config.health_port)
 
     conn = connect(config.postgres)
@@ -156,8 +159,10 @@ async def main_async() -> None:
                              holder_instance_id=config.holder_instance_id, account_id=config.account_id,
                              mode=config.bridge_mode, risk_policy=risk_policy,
                              risk_context_provider=risk_context_provider,
-                             risk_policy_provider=risk_policy_provider)
-    consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode)
+                             risk_policy_provider=risk_policy_provider,
+                             authority_provider=authority_provider)
+    consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode,
+                                       authority_provider=authority_provider)
 
     bridge_status = "UNKNOWN"
     try:
@@ -171,7 +176,7 @@ async def main_async() -> None:
 
     ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer,
                          status_metadata={
-                             "execution_authority_mode": config.execution_authority_mode.value,
+                             "execution_authority_mode": authority_provider(),
                              "account_id": config.account_id,
                              "canary_key": worker.resource,
                              "risk_policy": {

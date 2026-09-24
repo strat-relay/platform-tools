@@ -71,9 +71,10 @@ def request_fingerprint(*, instrument: str, direction: str, volume: float, stop_
 
 class ExecutionWorker:
     def __init__(self, conn: Any, *, fence_authority: FenceAuthority, bridge: BridgeFence,
-                holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
-                risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-                risk_policy_provider: Callable[[], RiskPolicy] | None = None) -> None:
+                 holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
+                 risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+                 risk_policy_provider: Callable[[], RiskPolicy] | None = None,
+                 authority_provider: Callable[[], str] | None = None) -> None:
         if mode not in ("demo", "real"):
             raise ValueError("mode must be 'demo' or 'real'")
         self.conn = conn
@@ -84,6 +85,7 @@ class ExecutionWorker:
         self.mode = mode
         self.risk_policy = risk_policy
         self.risk_policy_provider = risk_policy_provider
+        self.authority_provider = authority_provider
         self.risk_context_provider = risk_context_provider
         self.resource = f"execution:{mode}:{account_id}"
 
@@ -195,6 +197,8 @@ class ExecutionWorker:
         # "the broker" means for this call.
         if not execution_authority_enabled:
             raise ExecutionAuthorityDisabled("EXECUTION_AUTHORITY_MODE is not enabled")
+        if self.authority_provider is not None and self.authority_provider() != "ENABLED":
+            raise ExecutionAuthorityDisabled("PostgreSQL execution authority is not enabled")
 
         now_utc = now_utc or datetime.now(timezone.utc)
         if self.risk_policy_provider is not None:
@@ -245,6 +249,10 @@ class ExecutionWorker:
         except Exception as exc:
             return ExecutionOutcome("FENCED_OUT", intent_result, None, None, f"ownership acquisition failed: {exc}")
 
+        if self.authority_provider is not None and self.authority_provider() != "ENABLED":
+            return ExecutionOutcome("FENCED_OUT", intent_result, None, None,
+                                    "execution authority was disabled before fencing")
+
         attempt = self._claim_attempt(execution_intent_id=execution_intent_id, attempt_id=att_id, generation=generation)
         att_id = attempt["attempt_id"]
 
@@ -276,6 +284,12 @@ class ExecutionWorker:
         authorization = self.fence_authority.mint_authorization(resource=self.resource, generation=generation,
                                                                  attempt_id=att_id, tool=TOOL,
                                                                  request_fingerprint=fingerprint)
+
+        if self.authority_provider is not None and self.authority_provider() != "ENABLED":
+            with transaction(self.conn):
+                self._set_attempt_state(att_id, "FENCED", terminal=True)
+            return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None,
+                                    "execution authority was disabled before broker submission")
 
         try:
             submit_result = self.bridge.submit(authorization=authorization, request_fingerprint=fingerprint,
