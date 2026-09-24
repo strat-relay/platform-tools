@@ -87,6 +87,15 @@ def load_risk_policy(path: Path | str = DEFAULT_RISK_POLICY_PATH) -> RiskPolicy:
         raw = json.loads(policy_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RiskPolicyError(f"unable to load risk policy: {policy_path}: {exc}") from exc
+    return parse_policy_dict(raw, source=str(policy_path))
+
+
+def parse_policy_dict(raw: Any, *, source: str) -> RiskPolicy:
+    """The exact validation `load_risk_policy` has always applied, extracted so a second caller
+    (mission CLAUDE-V2-RISK-EXECUTION-CONSOLE's `risk_policy_store.py`, validating an
+    operator-submitted policy before it is ever persisted) can reuse it byte-for-byte rather than
+    re-implementing or drifting from it. `load_risk_policy` above is unchanged in behavior - it
+    only now delegates here instead of inlining this logic."""
     if not isinstance(raw, dict):
         raise RiskPolicyError("risk policy must be a JSON object")
     version = raw.get("version")
@@ -111,7 +120,7 @@ def load_risk_policy(path: Path | str = DEFAULT_RISK_POLICY_PATH) -> RiskPolicy:
                           allowed_symbols=tuple(str(s) for s in symbols if isinstance(s, str)),
                           allowed_accounts=tuple(str(a) for a in accounts if isinstance(a, str)),
                           max_signal_age_seconds=disabled_number("max_signal_age_seconds"),
-                          source=str(policy_path), allowed_strategies=tuple(str(s) for s in strategies if isinstance(s, str)),
+                          source=source, allowed_strategies=tuple(str(s) for s in strategies if isinstance(s, str)),
                           risk_per_trade=disabled_number("risk_per_trade"),
                           max_daily_loss=disabled_number("max_daily_loss"),
                           max_concurrent_positions=disabled_int("max_concurrent_positions"),
@@ -141,7 +150,7 @@ def load_risk_policy(path: Path | str = DEFAULT_RISK_POLICY_PATH) -> RiskPolicy:
         raise RiskPolicyError("duplicate_position_policy is invalid")
     return RiskPolicy(version=version, enabled=True, max_volume=max_volume,
                       allowed_symbols=tuple(symbols), allowed_accounts=tuple(accounts),
-                      max_signal_age_seconds=max_age, source=str(policy_path),
+                      max_signal_age_seconds=max_age, source=source,
                       allowed_strategies=tuple(strategies), risk_per_trade=risk_per_trade,
                       max_daily_loss=daily_loss, max_concurrent_positions=max_positions,
                       max_concurrent_orders=max_orders, max_account_exposure=exposure,
