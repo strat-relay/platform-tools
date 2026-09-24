@@ -8,6 +8,7 @@ import signal
 
 import nats
 
+from infrastructure.messaging.contracts import STREAMS
 from infrastructure.messaging.jetstream import JetStreamPublisher
 from infrastructure.messaging.outbox_relay import OutboxRelay
 from migration.flags import SignalAuthorityFlags, SignalAuthorityMode
@@ -50,7 +51,15 @@ async def serve(*, idle_seconds: float = 1.0, once: bool = False) -> None:
         if stop.is_set():
             return
         js = nc.jetstream()
-        await js.stream_info("TRADING_CORE")
+        # Reconcile only the existing core stream's explicit subject set.  This preserves every
+        # current subject and adds the two canonical P4 management subjects without creating or
+        # broadening any stream wildcard.  P4-owned TRADING_OBSERVATION remains owned by the P4
+        # runtime and is not created or modified by this relay.
+        core_info = await js.stream_info("TRADING_CORE")
+        current_subjects = set(core_info.config.subjects)
+        required_subjects = set(STREAMS["TRADING_CORE"]["subjects"])
+        if not required_subjects.issubset(current_subjects):
+            await js.update_stream(core_info.config.evolve(subjects=sorted(current_subjects | required_subjects)))
         relay = OutboxRelay(conn, JetStreamPublisher(js), owner=os.getenv("SIGNAL_OUTBOX_OWNER", "signal-outbox-relay"))
         if once:
             print(await relay.publish_batch())

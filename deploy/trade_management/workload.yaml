@@ -1,0 +1,100 @@
+# Single P4 runtime Deployment. Apply only after the P4 schema migrations and the activation
+# boundary snapshot have been recorded. This workload does not change orchestrator authority.
+#
+# One P4 pod runs all three components this vertical slice needs (mission's "ONE RUNTIME
+# WORKLOAD IF PRACTICAL" decision): the ManagedTrade opening consumer, the observation
+# scheduler loop, and the TM-NONE decision consumer - see trade_management/runtime/service.py.
+# No execution consumer, no REAL_EXECUTION, no Phase 7, no port 22348 anywhere in this manifest.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trade-management-runtime
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trade-management-runtime
+    app.kubernetes.io/component: p4-managed-trade
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trade-management-runtime
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trade-management-runtime
+        app.kubernetes.io/component: p4-managed-trade
+        app.kubernetes.io/part-of: trading-platform
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runtime
+          image: localhost:5001/trading-platform-runtime@sha256:6aea18f32e2bc2ca5447165f41ffac8dd2a9ab4153bdf2f9a0a6e02ce04e5f81
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, trade_management.runtime]
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+          env:
+            # EXECUTION_AUTHORITY_MODE is deliberately NOT set here: RuntimeConfig.from_env()
+            # defaults an unset value to DISABLED and fails closed if it is ever anything else
+            # (trade_management/runtime/config.py) - this env block never overrides it.
+            - {name: P4_OBSERVATION_INTERVAL_SECONDS, value: "30"}  # SHIP-FIRST value; see docs/engineering/OPTIMIZATION_REGISTER.md
+            - {name: P4_BRIDGE_MCP_URL, value: "http://192.168.1.166:22347/mcp"}  # existing read-only MT5 bridge, never 22348
+            - {name: P4_HEALTH_PORT, value: "8080"}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 150m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trade-management-runtime
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trade-management-runtime
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: trade-management-runtime
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

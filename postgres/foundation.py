@@ -12,7 +12,7 @@ from typing import Any, Mapping
 
 from core.strategies.evaluation import Evaluation, ReasonCode, canonical_bytes, default_reason_codes
 
-DATABASE_SCHEMA_VERSION = "012"
+DATABASE_SCHEMA_VERSION = "014"
 _UNSET = object()
 
 

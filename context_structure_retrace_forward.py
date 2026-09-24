@@ -1027,6 +1027,9 @@ def print_report(symbol: str | None = None, recent: int | None = None) -> None:
 def run(args: argparse.Namespace) -> None:
     manifest = assert_frozen(); acquire_lock(); STOP_FILE.unlink(missing_ok=True)
     state = load_state(); state["runner_status"] = "ACTIVE"; state["poll_interval_seconds"] = args.interval; state["prospective_boundary"] = manifest["freeze_timestamp"]; save_state(state); write_heartbeat(state)
+    # Outcome persistence is a post-checkpoint projection. It never runs in
+    # _process_bar() or participates in frozen ENTRY_ONLY decisions.
+    _project_entry_only_outcomes(state)
     stopping = {"value": False}
     def stop_handler(signum: int, frame: Any) -> None:
         stopping["value"] = True
@@ -1034,6 +1037,7 @@ def run(args: argparse.Namespace) -> None:
     try:
         while not stopping["value"] and not STOP_FILE.exists():
             poll(state, tuple(args.symbols), args.mcp_url, args.limit)
+            _project_entry_only_outcomes(state)
             if args.once: break
             for _ in range(max(1, args.interval)):
                 if stopping["value"] or STOP_FILE.exists(): break
@@ -1041,6 +1045,20 @@ def run(args: argparse.Namespace) -> None:
     finally:
         state["runner_status"] = "STOPPED"; state["stopped_at"] = now_iso(); save_state(state); write_heartbeat(state, "STOPPED"); SUMMARY.write_text(summary(state) + "\n", encoding="utf-8"); release_lock()
         print("CONTEXT_STRUCTURE_RETRACE_V1 paper runner stopped cleanly")
+
+
+def _project_entry_only_outcomes(state: dict[str, Any]) -> None:
+    """Best-effort projection after a poll; a PG outage never changes strategy decisions."""
+    if not os.getenv("ENTRY_OUTCOME_SIGNAL_CUTOFF_ID"):
+        return
+    try:
+        from context_structure_retrace_outcome_projector import project_entry_only_outcomes
+        result = project_entry_only_outcomes(state)
+        print(f"ENTRY_ONLY_OUTCOME_PROJECTION {json.dumps(result, sort_keys=True)}")
+    except Exception as exc:
+        # The next completed poll retries. The frozen runner remains live and
+        # its already-checkpointed state remains authoritative during an outage.
+        print(f"ENTRY_ONLY_OUTCOME_PROJECTION_UNAVAILABLE {type(exc).__name__}: {exc}")
 
 
 def stop() -> None:

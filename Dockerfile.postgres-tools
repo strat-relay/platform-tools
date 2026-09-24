@@ -4,4 +4,5 @@ WORKDIR /app
 COPY requirements-postgres.txt ./
 RUN pip install --no-cache-dir -r requirements-postgres.txt
 COPY postgres ./postgres
+COPY context_structure_retrace_outcome_projector.py ./
 COPY test_postgres_integration.py ./

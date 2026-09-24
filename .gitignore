@@ -27,3 +27,16 @@ artifacts/
 !deploy/**/*.json
 !contracts/**/*.json
 !postgres/**/*.json
+
+# The bare `runtime/` rule above is meant for the scratch TRADING_PLATFORM_RUNTIME_DIR data
+# directory, but is unanchored and also matches every domain package's own `runtime/` *code*
+# subpackage. Both of these are source code, not generated runtime data, and must stay tracked -
+# each needed `git add -f` to add at all the first time this was noticed (architecture/v2-execution,
+# architecture/p4-2-runtime), so both are re-included explicitly here to stop it recurring for a
+# future package. __pycache__ under either stays ignored, per the top-level rule.
+!trade_management/runtime/
+!trade_management/runtime/**
+trade_management/runtime/__pycache__/
+!execution_v2/runtime/
+!execution_v2/runtime/**
+execution_v2/runtime/__pycache__/

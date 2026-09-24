@@ -1,0 +1,51 @@
+# One-off canonical migration runner (applies 016/017 execution_v2 migrations along with any
+# other pending migration - python -m postgres.migrate is the same shared entrypoint every other
+# domain package's migration job uses; additive-only, no DROP/TRUNCATE in this migration).
+# Run and remove this Job before scaling the execution_v2 runtime up from replicas: 0.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: execution-v2-schema-migrations
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: execution-v2-migrations
+    app.kubernetes.io/component: v2-execution
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: execution-v2-migrations
+        app.kubernetes.io/component: v2-execution
+        app.kubernetes.io/part-of: trading-platform
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: localhost:5001/trading-platform-runtime@sha256:d412095f414f01c08dcb978d34b488808d5f6f2c0749096992ef6cfe2aee4f93
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, postgres.migrate]
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 150m
+              memory: 256Mi

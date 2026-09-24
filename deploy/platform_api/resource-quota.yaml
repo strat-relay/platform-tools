@@ -1,0 +1,14 @@
+# Add capacity for the isolated Platform Signals API and the small internal API
+# router. Request and memory quotas remain unchanged.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: trading-conservative
+  namespace: trading
+spec:
+  hard:
+    pods: "10"
+    limits.cpu: 3600m
+    limits.memory: 4Gi
+    requests.cpu: "1"
+    requests.memory: 2Gi
