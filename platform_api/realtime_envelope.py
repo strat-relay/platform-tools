@@ -47,6 +47,9 @@ RESOURCES = (RESOURCE_SIGNALS, RESOURCE_TRADE_MANAGEMENT, RESOURCE_SYSTEM)
 EVENT_TYPES = (
     "signal.created",              # a new canonical EntrySignal (real NATS event: signal.entry.created.v1)
     "signal.outcome_changed",      # entry_signals.terminal_state transitioned (bounded refresh - no canonical event exists)
+    "execution.intent.created.v1", # a durable V2 evaluation was recorded for a signal
+    "execution.result.recorded.v1", # a durable V2 execution result was recorded
+    "execution.evaluation.updated", # supplemental evaluation state changed
     "managed_trade.created",       # a new OPEN ManagedTrade appeared (bounded refresh - no canonical event exists)
     "trade_observation.created",   # real NATS event: trade.observation.recorded.v1
     "trade_manager_decision.created",   # bounded refresh - no canonical event exists

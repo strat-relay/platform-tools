@@ -177,6 +177,36 @@ class NatsSignalSource:
                 log.exception("failed to translate signal.entry.created.v1 for realtime delivery")
 
 
+class NatsExecutionSource:
+    """Ephemeral UI-only translations of the existing execution subjects."""
+
+    SUBJECTS = ("execution.intent.created.v1", "execution.result.recorded.v1")
+    STREAM = "EXECUTION"
+
+    def __init__(self, hub: RealtimeHub) -> None:
+        self.hub = hub
+
+    async def start(self, js: Any) -> None:
+        from nats.js.api import ConsumerConfig, DeliverPolicy
+        for subject in self.SUBJECTS:
+            config = ConsumerConfig(deliver_policy=DeliverPolicy.NEW, ack_policy=None, filter_subject=subject)
+            subscription = await js.subscribe(subject, stream=self.STREAM, config=config)
+            asyncio.ensure_future(self._consume(subscription, subject))
+
+    async def _consume(self, subscription: Any, subject: str) -> None:
+        async for msg in subscription.messages:
+            try:
+                envelope = json.loads(msg.data.decode("utf-8"))
+                payload = envelope.get("payload", {})
+                signal_id = payload.get("entry_signal_id") or envelope.get("correlation_id") or envelope.get("aggregate_id", "")
+                self.hub.publish(RealtimeEvent(
+                    type=subject, occurred_at=envelope.get("occurred_at", ""),
+                    resource=RESOURCE_SIGNALS, resource_id=signal_id,
+                    event_id=envelope.get("event_id"), payload=payload))
+            except Exception:
+                log.exception("failed to translate %s for realtime delivery", subject)
+
+
 class BoundedChangePoller:
     """The section-14-sanctioned fallback for state with no canonical event: ManagedTrade
     creation, TradeManagerDecision creation, PublicationDecision creation, and signal outcome

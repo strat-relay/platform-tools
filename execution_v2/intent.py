@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 from typing import Any
 
 from core.strategies.evaluation import canonical_bytes
@@ -26,6 +27,7 @@ from postgres.db import transaction
 
 from .ids import execution_intent_id as _execution_intent_id
 from .risk import RiskPolicy, evaluate_candidate
+from .risk_policy_store import policy_fingerprint
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
 
@@ -118,7 +120,8 @@ def _compute_volume(record: dict[str, Any], risk_policy: RiskPolicy) -> float:
 
 def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_policy: RiskPolicy,
                             now_utc: datetime, claimed_entry_signal_hash: str | None = None,
-                            risk_context_provider: Any | None = None) -> IntentResult:
+                            risk_context_provider: Any | None = None,
+                            blocked_reason: str | None = None) -> IntentResult:
     with transaction(conn):
         record = _load_entry_signal(conn, signal_id)
         if record is None:
@@ -132,26 +135,29 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                             canonical_bytes({"reason": "EVENT_HASH_MISMATCH", "signal_id": signal_id}).decode("utf-8")))
             return IntentResult(status="QUARANTINED", execution_intent_id=None, reason="EVENT_HASH_MISMATCH")
 
-        eligibility = check_eligibility(record, risk_policy=risk_policy, account_id=account_id, now_utc=now_utc)
+        eligibility = (EligibilityResult(False, blocked_reason) if blocked_reason else
+                       check_eligibility(record, risk_policy=risk_policy, account_id=account_id, now_utc=now_utc))
         intent_id = _execution_intent_id(entry_signal_id=signal_id, account_id=account_id)
         status = "PENDING" if eligibility.eligible else "BLOCKED"
         volume = 0.0
         risk_fraction = None
-        if eligibility.eligible and risk_policy.risk_per_trade > 0:
+        risk_context = None
+        risk_decision = None
+        if not blocked_reason and eligibility.eligible and risk_policy.risk_per_trade > 0:
             if risk_context_provider is None:
                 eligibility = EligibilityResult(False, "RISK_STATE_UNAVAILABLE")
                 status = "BLOCKED"
             else:
                 try:
-                    context = risk_context_provider(record)
-                    decision = evaluate_candidate(record, policy=risk_policy, account_id=account_id,
-                                                  now_utc=now_utc, broker=context["broker"],
-                                                  account=context["account"], state=context["state"])
-                    if not decision.permitted:
-                        eligibility = EligibilityResult(False, decision.reason)
+                    risk_context = risk_context_provider(record)
+                    risk_decision = evaluate_candidate(record, policy=risk_policy, account_id=account_id,
+                                                       now_utc=now_utc, broker=risk_context["broker"],
+                                                       account=risk_context["account"], state=risk_context["state"])
+                    if not risk_decision.permitted:
+                        eligibility = EligibilityResult(False, risk_decision.reason)
                         status = "BLOCKED"
                     else:
-                        volume = float(decision.volume)
+                        volume = float(risk_decision.volume)
                         risk_fraction = risk_policy.risk_per_trade
                 except Exception:
                     eligibility = EligibilityResult(False, "RISK_STATE_UNAVAILABLE")
@@ -166,7 +172,7 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                  target_price, approved_volume, risk_fraction, risk_policy_version, account_id, broker,
                  idempotency_key, status, block_reason)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'MARKET',%s,%s,%s,%s,%s,%s,%s,'MT5',%s,%s,%s)
-                ON CONFLICT (entry_signal_id) DO NOTHING
+                ON CONFLICT (entry_signal_id, account_id) DO NOTHING
                 RETURNING execution_intent_id""",
                        (intent_id, signal_id, record["entry_signal_hash"], record["strategy_id"],
                         record["strategy_version"], record["strategy_ref"], record["instrument"],
@@ -188,6 +194,63 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
         if inserted is None:
             return IntentResult(status="DUPLICATE", execution_intent_id=intent_id,
                                 eligible=eligibility.eligible, reason=eligibility.reason)
+
+        if risk_context is not None:
+            evidence = {
+                "execution_intent_id": intent_id,
+                "policy_version": risk_policy.version,
+                "policy_fingerprint": policy_fingerprint(risk_policy),
+                "risk_per_trade": risk_policy.risk_per_trade,
+                "account_equity": risk_context.get("account", {}).get("equity"),
+                "risk_budget_usd": (float(risk_context.get("account", {}).get("equity")) * risk_policy.risk_per_trade
+                                    if risk_context.get("account", {}).get("equity") is not None else None),
+                "stop_distance": abs(float(record["entry_price"]) - float(record["stop_price"])),
+                "broker_volume_min": risk_context.get("broker", {}).get("volume_min"),
+                "broker_volume_step": risk_context.get("broker", {}).get("volume_step"),
+                "broker_volume_max": risk_context.get("broker", {}).get("volume_max"),
+                "calculated_volume": risk_decision.volume if risk_decision else None,
+                "submitted_volume": volume if eligibility.eligible else None,
+                "estimated_loss_usd": risk_decision.risk_amount if risk_decision else None,
+                "daily_loss_used": risk_context.get("state", {}).get("daily_loss"),
+                "concurrent_positions_used": risk_context.get("state", {}).get("concurrent_positions"),
+                "concurrent_orders_used": risk_context.get("state", {}).get("concurrent_orders"),
+                "signal_age_seconds": (now_utc - (record["signal_emitted_at"] if isinstance(record["signal_emitted_at"], datetime)
+                                                   else datetime.fromisoformat(str(record["signal_emitted_at"]).replace("Z", "+00:00")))).total_seconds(),
+                "max_signal_age_seconds": risk_policy.max_signal_age_seconds,
+                "canary_consumed": risk_context.get("state", {}).get("canary_used"),
+                "canary_max": risk_policy.canary_max_new_executions,
+                "decision_reason": eligibility.reason,
+            }
+            # Supplemental evidence must never roll back the authoritative intent or cause a
+            # valid execution to be retried. A savepoint keeps a failed evidence insert isolated.
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SAVEPOINT execution_risk_evidence")
+                    cur.execute("""INSERT INTO execution_v2.execution_risk_evidence
+                        (execution_intent_id, policy_version, policy_fingerprint, risk_per_trade,
+                         account_equity, risk_budget_usd, stop_distance, broker_volume_min,
+                         broker_volume_step, broker_volume_max, calculated_volume, submitted_volume,
+                         estimated_loss_usd, daily_loss_used, concurrent_positions_used,
+                         concurrent_orders_used, signal_age_seconds, max_signal_age_seconds,
+                         canary_consumed, canary_max, decision_reason, diagnostics)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                        ON CONFLICT (execution_intent_id) DO NOTHING""",
+                               (evidence["execution_intent_id"], evidence["policy_version"], evidence["policy_fingerprint"],
+                                evidence["risk_per_trade"], evidence["account_equity"], evidence["risk_budget_usd"],
+                                evidence["stop_distance"], evidence["broker_volume_min"], evidence["broker_volume_step"],
+                                evidence["broker_volume_max"], evidence["calculated_volume"], evidence["submitted_volume"],
+                                evidence["estimated_loss_usd"], evidence["daily_loss_used"], evidence["concurrent_positions_used"],
+                                evidence["concurrent_orders_used"], evidence["signal_age_seconds"], evidence["max_signal_age_seconds"],
+                                evidence["canary_consumed"], evidence["canary_max"], evidence["decision_reason"],
+                                json.dumps({})))
+                    cur.execute("RELEASE SAVEPOINT execution_risk_evidence")
+            except Exception:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("ROLLBACK TO SAVEPOINT execution_risk_evidence")
+                        cur.execute("RELEASE SAVEPOINT execution_risk_evidence")
+                except Exception:
+                    pass
 
         payload = {"execution_intent_id": intent_id, "entry_signal_id": signal_id,
                   "strategy_ref": record["strategy_ref"], "instrument": record["instrument"],

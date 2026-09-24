@@ -23,6 +23,26 @@ def _fingerprint(raw: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _policy_raw(policy: RiskPolicy) -> dict[str, Any]:
+    return {"version": policy.version, "enabled": policy.enabled,
+            "allowed_accounts": list(policy.allowed_accounts),
+            "allowed_strategies": list(policy.allowed_strategies),
+            "allowed_symbols": list(policy.allowed_symbols or ()),
+            "risk_per_trade": policy.risk_per_trade, "max_volume": policy.max_volume,
+            "max_signal_age_seconds": policy.max_signal_age_seconds,
+            "max_daily_loss": policy.max_daily_loss,
+            "max_concurrent_positions": policy.max_concurrent_positions,
+            "max_concurrent_orders": policy.max_concurrent_orders,
+            "max_account_exposure": policy.max_account_exposure,
+            "duplicate_position_policy": policy.duplicate_position_policy,
+            "canary_max_new_executions": policy.canary_max_new_executions}
+
+
+def policy_fingerprint(policy: RiskPolicy) -> str:
+    """Return the same canonical fingerprint exposed by the policy API."""
+    return _fingerprint(_policy_raw(policy))
+
+
 def _read_row(cur: Any, *, for_update: bool = False) -> tuple[dict[str, Any], str]:
     suffix = " FOR UPDATE" if for_update else ""
     cur.execute("""SELECT policy_id, revision, version, enabled, risk_per_trade, max_volume,

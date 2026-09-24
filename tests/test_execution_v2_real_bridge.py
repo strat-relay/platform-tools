@@ -382,14 +382,13 @@ class RealBridgeIsolatedE2ETests(unittest.TestCase):
         self._seed_entry_signal(signal_id=signal_id, entry_signal_hash=f"h_{uuid.uuid4().hex}")
         live = self._live_bridge()
         worker = self._worker(live.client())
-        from execution_v2.worker import ExecutionAuthorityDisabled
-        with self.assertRaises(ExecutionAuthorityDisabled):
-            worker.process_signal(signal_id, execution_authority_enabled=False,
-                                  now_utc=datetime.now(timezone.utc), broker_call=_never_called)
+        outcome = worker.process_signal(signal_id, execution_authority_enabled=False,
+                                        now_utc=datetime.now(timezone.utc), broker_call=_never_called)
         self.assertEqual(live.calls, 0)
+        self.assertEqual(outcome.status, "BLOCKED")
         with self.conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM execution_v2.execution_intent WHERE entry_signal_id=%s", (signal_id,))
-            self.assertEqual(cur.fetchone()[0], 0)
+            cur.execute("SELECT block_reason FROM execution_v2.execution_intent WHERE entry_signal_id=%s", (signal_id,))
+            self.assertEqual(cur.fetchone()[0], "EXECUTION_AUTHORITY_DISABLED")
 
     def test_risk_disabled_zero_effect_through_the_real_bridge(self):
         signal_id = f"SIG_{uuid.uuid4().hex[:12]}"

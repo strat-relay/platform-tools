@@ -153,12 +153,14 @@ def _envelope() -> EventEnvelope:
 
 
 class ExecutionSignalConsumerTests(unittest.TestCase):
-    def test_disabled_mode_raises_before_touching_the_bridge_or_postgresql_writes(self):
+    def test_disabled_mode_persists_a_skipped_intent_without_bridge_access(self):
         worker = _worker()
         consumer = ExecutionSignalConsumer(worker, execution_authority_mode=ExecutionAuthorityMode.DISABLED)
-        with self.assertRaises(ExecutionAuthorityDisabled):
-            consumer.handle_envelope(_envelope())
-        self.assertEqual(len(worker.conn.tables["execution_v2.execution_intent"]), 0)
+        outcome = consumer.handle_envelope(_envelope())
+        self.assertEqual(outcome.status, "BLOCKED")
+        row = next(iter(worker.conn.tables["execution_v2.execution_intent"].values()))
+        self.assertEqual(row["block_reason"], "EXECUTION_AUTHORITY_DISABLED")
+        self.assertEqual(len(worker.conn.tables["execution_v2.execution_attempt"]), 0)
 
     def test_defense_in_depth_sentinel_fires_if_any_bridge_ever_invokes_broker_call_locally(self):
         """Not the primary safety mechanism (see RealBridgeNotWired's own docstring) - this

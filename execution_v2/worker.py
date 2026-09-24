@@ -7,10 +7,8 @@ bridge over HTTP; `bridge_fence_sim.BridgeFenceSimulator` is test-only and this 
 imports it) -> one submission attempt -> ExecutionResult -> canonical PostgreSQL persistence +
 JetStream event.
 
-The single authority check (`execution_authority_enabled`) is evaluated *before* anything else
-in `process_signal` and is the only thing that can make a broker effect possible - never an
-EntrySignal's existence, a ManagedTrade, a PostgreSQL lease, or bridge reachability alone
-(mission section 2).
+    Authority-disabled signals are durably recorded as BLOCKED intents before the worker returns;
+    the authority check still remains the only thing that can make a broker effect possible.
 """
 from __future__ import annotations
 
@@ -195,17 +193,28 @@ class ExecutionWorker:
         # for any caller that forgot to wire a real/simulated broker boundary. Every caller -
         # every test and the production runtime consumer alike - must say explicitly what
         # "the broker" means for this call.
-        if not execution_authority_enabled:
-            raise ExecutionAuthorityDisabled("EXECUTION_AUTHORITY_MODE is not enabled")
-        if self.authority_provider is not None and self.authority_provider() != "ENABLED":
-            raise ExecutionAuthorityDisabled("PostgreSQL execution authority is not enabled")
-
         now_utc = now_utc or datetime.now(timezone.utc)
         if self.risk_policy_provider is not None:
             try:
                 self.risk_policy = self.risk_policy_provider()
             except RiskPolicyError as exc:
-                return ExecutionOutcome("BLOCKED", None, None, None, f"RISK_POLICY_UNAVAILABLE: {exc}")
+                if execution_authority_enabled:
+                    return ExecutionOutcome("BLOCKED", None, None, None, f"RISK_POLICY_UNAVAILABLE: {exc}")
+
+        authority_disabled = not execution_authority_enabled
+        if self.authority_provider is not None:
+            try:
+                authority_disabled = authority_disabled or self.authority_provider() != "ENABLED"
+            except Exception:
+                authority_disabled = True
+        if authority_disabled:
+            intent_result = create_execution_intent(
+                self.conn, signal_id=signal_id, account_id=self.account_id,
+                risk_policy=self.risk_policy, now_utc=now_utc,
+                blocked_reason="EXECUTION_AUTHORITY_DISABLED")
+            return ExecutionOutcome("BLOCKED", intent_result, None, None,
+                                    "EXECUTION_AUTHORITY_DISABLED")
+
         intent_result = create_execution_intent(self.conn, signal_id=signal_id, account_id=self.account_id,
                                                 risk_policy=self.risk_policy, now_utc=now_utc,
                                                 risk_context_provider=self.risk_context_provider)

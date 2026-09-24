@@ -141,20 +141,17 @@ class CreateExecutionIntentTests(unittest.TestCase):
         self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 1)
         self.assertEqual(len(conn.tables["platform.outbox_events"]), 1)  # never re-published
 
-    def test_a_second_account_for_an_already_intented_signal_never_creates_a_second_intent(self):
-        # `execution_v2.execution_intent.entry_signal_id` is UNIQUE (migration 016): this V2 slice
-        # is single-personal-account only (mission section 1 explicitly excludes multi-account
-        # routing), so the schema itself - not just application logic - forbids a second intent
-        # for the same signal under a different account, even though the two calls compute
-        # different (unused) execution_intent_id candidates.
+    def test_a_second_account_for_a_signal_gets_its_own_intent(self):
+        # Audit readiness keys the canonical evaluation by signal and account. The same signal
+        # remains idempotent for one account, while a second account gets an independent row.
         conn = self._seeded_conn()
         first = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT, risk_policy=policy(), now_utc=NOW)
         other_policy = policy(allowed_accounts=(ACCOUNT, "ACC2"))
         second = create_execution_intent(conn, signal_id="SIG1", account_id="ACC2", risk_policy=other_policy, now_utc=NOW)
         self.assertEqual(first.status, "CREATED")
-        self.assertEqual(second.status, "DUPLICATE")
+        self.assertEqual(second.status, "CREATED")
         self.assertNotEqual(first.execution_intent_id, second.execution_intent_id)  # candidate ids still differ
-        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 1)  # but only one row ever lands
+        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 2)
 
     def test_quarantined_on_entry_signal_hash_mismatch_and_creates_no_intent(self):
         conn = self._seeded_conn(entry_signal_hash="hash-current")

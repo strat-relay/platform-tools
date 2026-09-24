@@ -132,6 +132,11 @@ class LiveRiskPolicyTests(unittest.TestCase):
         row = conn.tables["execution_v2.execution_intent"][result.execution_intent_id]
         self.assertEqual(row["approved_volume"], .02)
         self.assertEqual(row["risk_fraction"], .005)
+        evidence = conn.tables["execution_v2.execution_risk_evidence"][result.execution_intent_id]
+        self.assertEqual(evidence["policy_version"], policy.version)
+        self.assertEqual(evidence["risk_per_trade"], .005)
+        self.assertEqual(evidence["calculated_volume"], .02)
+        self.assertEqual(evidence["account_equity"], 2000)
 
     def test_intent_rejects_when_broker_state_is_unavailable(self):
         policy = self.write_policy(valid_policy())

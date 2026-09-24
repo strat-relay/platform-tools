@@ -53,6 +53,8 @@ class FakeCursor:
         params = params or ()
         self._result = None
         self.rowcount = 0
+        if upper.startswith(("SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT")):
+            return
 
         if "PLATFORM.ACQUIRE_OWNERSHIP" in upper:
             self._result = (self.conn.acquire_ownership(*params),)
@@ -108,7 +110,11 @@ class FakeCursor:
         # execution_intent_id=%s, as worker.py does) still work against the same table.
         conflict_field = _ON_CONFLICT_FIELD.get(table)
         if conflict_field:
-            existing = next((r for r in existing_rows.values() if r.get(conflict_field) == row.get(conflict_field)), None)
+            if isinstance(conflict_field, tuple):
+                existing = next((r for r in existing_rows.values()
+                                 if all(r.get(field) == row.get(field) for field in conflict_field)), None)
+            else:
+                existing = next((r for r in existing_rows.values() if r.get(conflict_field) == row.get(conflict_field)), None)
         else:
             existing = existing_rows.get(key)
         if existing is not None:
@@ -148,9 +154,8 @@ class FakeCursor:
 
 
 _ON_CONFLICT_FIELD = {
-    # execution_intent's real ON CONFLICT target (migration 016) is the UNIQUE entry_signal_id
-    # column, not its execution_intent_id primary key.
-    "execution_v2.execution_intent": "entry_signal_id",
+    "execution_v2.execution_intent": ("entry_signal_id", "account_id"),
+    "execution_v2.execution_risk_evidence": "execution_intent_id",
 }
 
 
@@ -158,6 +163,7 @@ _INSERT_TABLE_MARKERS = (
     ("PLATFORM.OUTBOX_EVENTS", "platform.outbox_events"),
     ("EXECUTION_V2.RECONCILIATION_FINDING", "execution_v2.reconciliation_finding"),
     ("EXECUTION_V2.EXECUTION_INTENT", "execution_v2.execution_intent"),
+    ("EXECUTION_V2.EXECUTION_RISK_EVIDENCE", "execution_v2.execution_risk_evidence"),
     ("EXECUTION_V2.EXECUTION_ATTEMPT", "execution_v2.execution_attempt"),
     ("EXECUTION_V2.EXECUTION_RESULT", "execution_v2.execution_result"),
 )
@@ -266,6 +272,15 @@ class FakeConnection:
     def _row_execution_v2_execution_result(self, params: Any) -> tuple[Any, dict[str, Any]]:
         row = dict(zip(_RESULT_COLUMNS, params))
         return row["attempt_id"], row  # ON CONFLICT (attempt_id)
+
+    def _row_execution_v2_execution_risk_evidence(self, params: Any) -> tuple[Any, dict[str, Any]]:
+        keys = ("execution_intent_id", "policy_version", "policy_fingerprint", "risk_per_trade",
+                "account_equity", "risk_budget_usd", "stop_distance", "broker_volume_min",
+                "broker_volume_step", "broker_volume_max", "calculated_volume", "submitted_volume",
+                "estimated_loss_usd", "daily_loss_used", "concurrent_positions_used",
+                "concurrent_orders_used", "signal_age_seconds", "max_signal_age_seconds",
+                "canary_consumed", "canary_max", "decision_reason", "diagnostics")
+        return params[0], dict(zip(keys, params))
 
 
 @dataclass

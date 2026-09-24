@@ -76,13 +76,14 @@ class EndToEndTests(unittest.TestCase):
         broker = FakeBroker(mode="fill")
         worker = make_worker(conn, broker=broker)
 
-        with self.assertRaises(ExecutionAuthorityDisabled):
-            worker.process_signal("SIG1", execution_authority_enabled=False, now_utc=NOW, broker_call=broker)
+        outcome = worker.process_signal("SIG1", execution_authority_enabled=False, now_utc=NOW, broker_call=broker)
 
         self.assertEqual(broker.calls, 0)
-        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 0)
+        self.assertEqual(outcome.status, "BLOCKED")
+        row = next(iter(conn.tables["execution_v2.execution_intent"].values()))
+        self.assertEqual(row["block_reason"], "EXECUTION_AUTHORITY_DISABLED")
         self.assertEqual(len(conn.tables["execution_v2.execution_attempt"]), 0)
-        self.assertEqual(len(conn.tables["platform.outbox_events"]), 0)
+        self.assertEqual(len(conn.tables["platform.outbox_events"]), 1)
 
 
 class DuplicateAndRetryTests(unittest.TestCase):
