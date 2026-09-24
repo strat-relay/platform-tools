@@ -17,7 +17,8 @@ import os
 from typing import Any, Callable
 
 from execution_v2.risk import RiskPolicy, RiskPolicyError
-from execution_v2.risk_policy_store import read_canary_status, read_effective_policy, write_policy_override
+from execution_v2.risk_policy_store import (read_canary_status, read_effective_policy_record,
+                                             write_policy_override)
 from postgres.db import connect
 
 MAX_BODY_BYTES = 65_536  # a risk policy document is a few hundred bytes; this is generous, not tight
@@ -27,7 +28,7 @@ def _masked_account(account_id: str) -> str:
     return "•" * max(0, len(account_id) - 4) + account_id[-4:]
 
 
-def _policy_to_wire(policy: RiskPolicy, *, source: str) -> dict[str, Any]:
+def _policy_to_wire(policy: RiskPolicy, *, source: str, provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "version": policy.version,
         "enabled": policy.enabled,
@@ -44,6 +45,9 @@ def _policy_to_wire(policy: RiskPolicy, *, source: str) -> dict[str, Any]:
         "duplicatePositionPolicy": policy.duplicate_position_policy,
         "canaryMaxNewExecutions": policy.canary_max_new_executions,
         "source": source,
+        **({"policyId": provenance["policy_id"], "revision": provenance["revision"],
+            "updatedAt": provenance["updated_at"].isoformat() if hasattr(provenance.get("updated_at"), "isoformat") else provenance.get("updated_at"),
+            "policySource": provenance["source"], "fingerprint": provenance["fingerprint"]} if provenance else {}),
     }
 
 
@@ -74,7 +78,7 @@ class V2RiskExecutionApi:
 
     def read(self) -> tuple[int, dict[str, Any]]:
         try:
-            policy, source = read_effective_policy(self._connect)
+            policy, provenance = read_effective_policy_record(self._connect)
         except RiskPolicyError as exc:
             return 503, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
                         "degraded": True, "error": "POLICY_UNAVAILABLE", "message": str(exc), "unavailable": [
@@ -85,7 +89,7 @@ class V2RiskExecutionApi:
             resource = f"execution:{self.environ.get('V2_EXECUTION_BRIDGE_MODE', 'demo')}:{account_id}"
             canary = read_canary_status(self._connect, canary_key=resource,
                                         configured_max=policy.canary_max_new_executions)
-        data = _policy_to_wire(policy, source=source)
+        data = _policy_to_wire(policy, source=provenance["source"], provenance=provenance)
         data["executionAuthorityMode"] = self.execution_authority_mode()
         data["canary"] = {"maxNewExecutions": canary["max_new_executions"], "consumed": canary["consumed"],
                           "remaining": canary["remaining"]} if canary else None
@@ -118,7 +122,7 @@ class V2RiskExecutionApi:
         # save (e.g. only risk_per_trade changed) can never accidentally blank out a field the
         # operator didn't touch.
         try:
-            current, _source = read_effective_policy(self._connect)
+            current, provenance = read_effective_policy_record(self._connect)
         except RiskPolicyError as exc:
             return 503, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
                         "degraded": True, "error": "POLICY_UNAVAILABLE", "message": str(exc), "unavailable": []}
@@ -134,12 +138,20 @@ class V2RiskExecutionApi:
         merged.update(_wire_to_raw(submitted))
         merged["allowed_accounts"] = list(current.allowed_accounts)  # never operator-editable here
 
+        expected_revision = submitted.get("revision")
+        if expected_revision is None:
+            return 409, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
+                         "error": "REVISION_REQUIRED", "message": "policy revision is required for update"}
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
+                         "error": "INVALID_REVISION", "message": "revision must be an integer"}
         try:
-            saved = write_policy_override(merged, connect_fn=self._connect)
+            saved = write_policy_override(merged, expected_revision=expected_revision, connect_fn=self._connect)
         except RiskPolicyError as exc:
             return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
                         "error": "POLICY_VALIDATION_FAILED", "message": str(exc)}
-        data = _policy_to_wire(saved, source="postgres_override")
+        _saved, saved_meta = read_effective_policy_record(self._connect)
+        data = _policy_to_wire(saved, source=saved_meta["source"], provenance=saved_meta)
         data["executionAuthorityMode"] = self.execution_authority_mode()
         return 200, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "ACTIVE",
                     "degraded": False, "read_only": False, "data": data, "unavailable": []}

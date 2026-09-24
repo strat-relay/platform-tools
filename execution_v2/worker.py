@@ -29,7 +29,7 @@ from .fence import FenceAuthority
 from .ids import attempt_id as _attempt_id
 from .ids import execution_result_id as _execution_result_id
 from .intent import EntrySignalRecordMissing, IntentResult, create_execution_intent
-from .risk import RiskPolicy
+from .risk import RiskPolicy, RiskPolicyError
 from .symbols import (canonical_request_fingerprint, canonical_request_text, correlation_comment,
                       resolve_broker_symbol)
 
@@ -72,7 +72,8 @@ def request_fingerprint(*, instrument: str, direction: str, volume: float, stop_
 class ExecutionWorker:
     def __init__(self, conn: Any, *, fence_authority: FenceAuthority, bridge: BridgeFence,
                 holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
-                risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> None:
+                risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+                risk_policy_provider: Callable[[], RiskPolicy] | None = None) -> None:
         if mode not in ("demo", "real"):
             raise ValueError("mode must be 'demo' or 'real'")
         self.conn = conn
@@ -82,6 +83,7 @@ class ExecutionWorker:
         self.account_id = account_id
         self.mode = mode
         self.risk_policy = risk_policy
+        self.risk_policy_provider = risk_policy_provider
         self.risk_context_provider = risk_context_provider
         self.resource = f"execution:{mode}:{account_id}"
 
@@ -195,6 +197,11 @@ class ExecutionWorker:
             raise ExecutionAuthorityDisabled("EXECUTION_AUTHORITY_MODE is not enabled")
 
         now_utc = now_utc or datetime.now(timezone.utc)
+        if self.risk_policy_provider is not None:
+            try:
+                self.risk_policy = self.risk_policy_provider()
+            except RiskPolicyError as exc:
+                return ExecutionOutcome("BLOCKED", None, None, None, f"RISK_POLICY_UNAVAILABLE: {exc}")
         intent_result = create_execution_intent(self.conn, signal_id=signal_id, account_id=self.account_id,
                                                 risk_policy=self.risk_policy, now_utc=now_utc,
                                                 risk_context_provider=self.risk_context_provider)

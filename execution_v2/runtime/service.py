@@ -22,7 +22,8 @@ from typing import Any
 from postgres.db import connect, transaction
 
 from ..fence import FenceAuthority
-from ..risk import load_risk_policy
+from ..risk import RiskPolicy
+from ..risk_policy_store import read_effective_policy
 from ..worker import ExecutionWorker
 from ..symbols import resolve_broker_symbol
 from .bridge_client import HttpBridgeFenceClient
@@ -140,7 +141,13 @@ async def main_async() -> None:
     bridge = HttpBridgeFenceClient(base_url=config.bridge_fence_url,
                                    read_base_url=config.read_bridge_url,
                                    execution_mode=f"{config.bridge_mode.upper()}_EXECUTION")
-    risk_policy = load_risk_policy(config.risk_policy_path)
+    # PostgreSQL is the sole runtime policy authority. The file path remains a legacy/bootstrap
+    # reference for migration tooling, but is never consulted by the running evaluator.
+    policy_connect = lambda *, readonly=False: connect(config.postgres, readonly=readonly)
+    risk_policy, policy_source = read_effective_policy(policy_connect)
+    def risk_policy_provider() -> RiskPolicy:
+        policy, _source = read_effective_policy(policy_connect)
+        return policy
     def risk_context_provider(record: dict[str, Any]) -> dict[str, Any]:
         broker_symbol = resolve_broker_symbol(record["instrument"], account_id=config.account_id,
                                               mode=config.bridge_mode)
@@ -148,7 +155,8 @@ async def main_async() -> None:
     worker = ExecutionWorker(conn, fence_authority=fence_authority, bridge=bridge,
                              holder_instance_id=config.holder_instance_id, account_id=config.account_id,
                              mode=config.bridge_mode, risk_policy=risk_policy,
-                             risk_context_provider=risk_context_provider)
+                             risk_context_provider=risk_context_provider,
+                             risk_policy_provider=risk_policy_provider)
     consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode)
 
     bridge_status = "UNKNOWN"
@@ -179,6 +187,7 @@ async def main_async() -> None:
                                  "allowed_strategies": list(risk_policy.allowed_strategies),
                                  "allowed_symbols": list(risk_policy.allowed_symbols or ()),
                                  "canary_max_new_executions": risk_policy.canary_max_new_executions,
+                                 "source": policy_source,
                              },
                              "execution_bridge": {"status": bridge_status},
                              "broker_account": {
