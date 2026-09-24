@@ -126,6 +126,11 @@ class CreateExecutionIntentTests(unittest.TestCase):
         row = conn.tables["execution_v2.execution_intent"][result.execution_intent_id]  # keyed by PK
         self.assertEqual(row["status"], "BLOCKED")
         self.assertEqual(row["block_reason"], "ACCOUNT_NOT_ALLOWED")
+        # Regression: a rejection must not lose policy provenance. risk_policy is passed into
+        # this call unconditionally, so a BLOCKED row can and must still record which policy
+        # version it was actually evaluated against - a later reviewer explaining this rejection
+        # needs that, exactly as much as an approved row does.
+        self.assertEqual(row["risk_policy_version"], 1)
 
     def test_duplicate_call_for_the_same_signal_and_account_is_idempotent(self):
         conn = self._seeded_conn()

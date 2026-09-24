@@ -173,7 +173,15 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                         record["direction"], record["entry_price"], record["stop_price"], record["target_price"],
                         max(volume, 0.000001) if eligibility.eligible else 0.000001,  # CHECK (approved_volume > 0)
                         risk_fraction,
-                        risk_policy.version if eligibility.eligible else None,
+                        # Always the policy version this decision was actually evaluated against -
+                        # including a BLOCKED row. `risk_policy` is passed into this function
+                        # unconditionally, so the value is already in scope for every outcome; there
+                        # is no reason a rejection should lose policy provenance a later reviewer
+                        # needs to reconstruct "what policy was in effect when this was rejected"
+                        # (a rejected signal is exactly the case an operator most needs explained).
+                        # risk_fraction stays legitimately None for a rejection that never computed
+                        # one - only the policy identity itself is unconditional here.
+                        risk_policy.version,
                         account_id, intent_id, status, eligibility.reason))
             inserted = cur.fetchone()
 
