@@ -274,6 +274,16 @@ class ControlApiTests(unittest.TestCase):
         self.assertTrue(body["degraded"])
         self.assertEqual(body["data"]["status"], "NO_ADAPTER")
 
+    @unittest.skip(
+        "Not hermetic: control_api/observability.py::build_context_report -> "
+        "context_structure_retrace_forward.py::build_standard_report reads real, untracked, "
+        "ambient runtime state (context_structure_retrace_forward_state_compact.json) relative "
+        "to cwd, not anything this test's make_api() fixture provides. It only ever passed on a "
+        "dev machine that happened to have that file present from real runtime usage - it always "
+        "fails on a fresh checkout (confirmed: strat-relay/platform-tools#4). Re-enable once this "
+        "gets a real fixture in that file's actual internal state format, or is rewritten to stub "
+        "build_context_report directly instead of exercising the real adapter end-to-end."
+    )
     def test_strategy_report_route_for_live_context_strategy_returns_real_report(self):
         status, body = self.make_api().execute("GET", "/api/v1/strategies/CONTEXT_STRUCTURE_RETRACE_V1/report", {})
         self.assertEqual(status, 200)
