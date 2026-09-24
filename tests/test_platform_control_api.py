@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from platform_api.control import PlatformControlApi
 from platform_api.signals import CanonicalSourceUnavailable, UnifiedPlatformApi
@@ -123,7 +124,8 @@ class PlatformControlApiTests(unittest.TestCase):
             "execution_bridge": {"status": "HEALTHY"},
             "broker_account": {"status": "CONNECTED", "account": "******8665", "currency": "USD"},
         }
-        status, body = api.execute("GET", "/api/v1/system")
+        with patch("execution_v2.authority_store.read_authority", return_value={"state": "ENABLED", "revision": 2, "source": "POSTGRES"}):
+            status, body = api.execute("GET", "/api/v1/system")
         self.assertEqual(status, 200)
         self.assertEqual(body["data"]["execution_authority_mode"], "ENABLED")
         self.assertEqual(body["data"]["components"]["execution"]["risk_policy"]["max_volume"], 0.01)
@@ -139,7 +141,8 @@ class PlatformControlApiTests(unittest.TestCase):
             "execution_bridge": {"status": "HEALTHY"},
             "broker_account": {"status": "CONNECTED"},
         }
-        status, body = api.execute("GET", "/api/v1/safety")
+        with patch("execution_v2.authority_store.read_authority", return_value={"state": "ENABLED", "revision": 2, "source": "POSTGRES"}):
+            status, body = api.execute("GET", "/api/v1/safety")
         self.assertEqual(status, 200)
         self.assertEqual(body["data"]["status"], "ARMED")
         self.assertTrue(body["data"]["execution_enabled"])
