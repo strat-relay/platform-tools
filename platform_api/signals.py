@@ -11,7 +11,10 @@ from postgres.db import connect
 
 SCHEMA_VERSION = "012"
 OUTCOME_SCHEMA_VERSION = "015"
-DEFAULT_LIMIT = 100
+# Keep the implicit page small enough for the public Console request deadline. Larger pages
+# remain available explicitly through pagination, but the default must not stream hundreds of
+# kilobytes through the tunnel for every refresh.
+DEFAULT_LIMIT = 10
 MAX_LIMIT = 500
 
 _SELECT = """
