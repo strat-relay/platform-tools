@@ -296,13 +296,20 @@ class PlatformControlRepository:
 
 
 class PlatformControlApi:
+    V2_RISK_POLICY_PATH = "/api/v1/v2-execution/risk-policy"
+
     def __init__(self, repository: PlatformControlRepository | None = None,
                  environ: dict[str, str] | None = None,
-                 strategy_config_path: str | None = None):
+                 strategy_config_path: str | None = None,
+                 v2_risk_api: Any | None = None):
         self.repository = repository or PlatformControlRepository()
         self.environ = os.environ if environ is None else environ
         self.strategy_config_path = strategy_config_path or self.environ.get(
             "PLATFORM_STRATEGY_CONFIG_PATH", "/etc/platform-config/platform.json")
+        if v2_risk_api is None:
+            from .v2_risk import V2RiskExecutionApi
+            v2_risk_api = V2RiskExecutionApi(environ=self.environ)
+        self.v2_risk_api = v2_risk_api
 
     @staticmethod
     def _body(data: Any = None, *, source: str, status: str = "ACTIVE",
@@ -356,14 +363,19 @@ class PlatformControlApi:
         except Exception as exc:
             raise CanonicalSourceUnavailable("active platform strategy configuration unavailable") from exc
 
-    def execute(self, method: str, target: str) -> tuple[int, dict[str, Any]]:
-        if method != "GET":
-            return 405, self._body(None, source="platform", status="UNAVAILABLE", error="READ_ONLY_API", message="GET only")
+    def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
+        if method == "POST" and path == self.V2_RISK_POLICY_PATH:
+            return self.v2_risk_api.save(body)
+        if method != "GET":
+            return 405, self._body(None, source="platform", status="UNAVAILABLE", error="READ_ONLY_API",
+                                   message="GET only" if path != self.V2_RISK_POLICY_PATH else "GET or POST only")
         query_values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=32)
         query = {k: v[-1] for k, v in query_values.items()}
         try:
+            if path == self.V2_RISK_POLICY_PATH:
+                return self.v2_risk_api.read()
             if path == "/healthz":
                 return 200, {"status": "ok", "service": "platform-control-api"}
             if path == "/readyz":
