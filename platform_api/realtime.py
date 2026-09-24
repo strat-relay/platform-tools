@@ -44,7 +44,7 @@ from typing import Any
 
 from .realtime_envelope import RESOURCES, SCHEMA
 from .realtime_hub import RealtimeHub
-from .realtime_sources import BoundedChangePoller, NatsObservationSource, NatsSignalSource
+from .realtime_sources import BoundedChangePoller, NatsExecutionSource, NatsObservationSource, NatsSignalSource
 
 log = logging.getLogger("platform_api.realtime")
 
@@ -177,8 +177,10 @@ async def main_async() -> None:
 
     observation_source = NatsObservationSource(hub)
     signal_source = NatsSignalSource(hub)
+    execution_source = NatsExecutionSource(hub)
     await observation_source.start(js)
     await signal_source.start(js)
+    await execution_source.start(js)
 
     from postgres.db import connect
     from postgres.config import PostgresConfig

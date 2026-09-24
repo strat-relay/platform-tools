@@ -33,7 +33,7 @@ def seeded_conn(signal_id="SIG1", entry_signal_hash="hash-1") -> FakeConnection:
     conn = FakeConnection()
     conn.seed_entry_signal(signal_id=signal_id, strategy_id="STRAT1", strategy_version=1,
                            strategy_ref="strat-ref", instrument="EURUSD", direction="LONG",
-                           decision_time=NOW, entry_price=1.1000, stop_price=1.0950,
+                           decision_time=NOW, signal_emitted_at=NOW, entry_price=1.1000, stop_price=1.0950,
                            target_price=1.1100, entry_signal_hash=entry_signal_hash)
     return conn
 
@@ -76,13 +76,14 @@ class EndToEndTests(unittest.TestCase):
         broker = FakeBroker(mode="fill")
         worker = make_worker(conn, broker=broker)
 
-        with self.assertRaises(ExecutionAuthorityDisabled):
-            worker.process_signal("SIG1", execution_authority_enabled=False, now_utc=NOW, broker_call=broker)
+        outcome = worker.process_signal("SIG1", execution_authority_enabled=False, now_utc=NOW, broker_call=broker)
 
         self.assertEqual(broker.calls, 0)
-        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 0)
+        self.assertEqual(outcome.status, "BLOCKED")
+        row = next(iter(conn.tables["execution_v2.execution_intent"].values()))
+        self.assertEqual(row["block_reason"], "EXECUTION_AUTHORITY_DISABLED")
         self.assertEqual(len(conn.tables["execution_v2.execution_attempt"]), 0)
-        self.assertEqual(len(conn.tables["platform.outbox_events"]), 0)
+        self.assertEqual(len(conn.tables["platform.outbox_events"]), 1)
 
 
 class DuplicateAndRetryTests(unittest.TestCase):

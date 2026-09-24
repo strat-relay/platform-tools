@@ -11,7 +11,11 @@ from postgres.db import connect
 
 SCHEMA_VERSION = "012"
 OUTCOME_SCHEMA_VERSION = "015"
-DEFAULT_LIMIT = 100
+EXECUTION_AUDIT_SCHEMA_VERSION = "021"
+# Keep the implicit page small enough for the public Console request deadline. Larger pages
+# remain available explicitly through pagination, but the default must not stream hundreds of
+# kilobytes through the tunnel for every refresh.
+DEFAULT_LIMIT = 10
 MAX_LIMIT = 500
 
 _SELECT = """
@@ -106,6 +110,8 @@ def _project(row: dict[str, Any]) -> dict[str, Any]:
     result.setdefault("realized_r", None)
     result.setdefault("exit_timestamp", None)
     result.setdefault("outcome_source", None)
+    result.setdefault("executionSummary", [])
+    result.setdefault("executionEvaluations", [])
     return result
 
 
@@ -155,6 +161,138 @@ class CanonicalSignalRepository:
         except Exception as exc:
             raise CanonicalSourceUnavailable("canonical PostgreSQL signal source unavailable") from exc
 
+    @staticmethod
+    def _execution_evaluation(row: dict[str, Any], *, full: bool) -> dict[str, Any]:
+        reason = row.get("block_reason") or row.get("result_outcome") or "PENDING"
+        if row.get("result_outcome") in {"FILLED", "SUBMITTED", "ACCEPTED"}:
+            decision = "EXECUTED"
+            reason = row.get("result_outcome")
+        elif row.get("result_outcome") == "REJECTED":
+            decision = "REJECTED"
+        elif row.get("result_outcome") == "BLOCKED" or row.get("intent_status") == "BLOCKED":
+            skipped = {"EXECUTION_AUTHORITY_DISABLED", "ACCOUNT_NOT_ALLOWED", "STRATEGY_NOT_ALLOWED",
+                       "SYMBOL_NOT_ALLOWED"}
+            decision = "SKIPPED" if reason in skipped else "REJECTED"
+        elif reason in {"RISK_STATE_UNAVAILABLE", "BROKER_METADATA_UNAVAILABLE"}:
+            decision = "ERROR"
+        elif row.get("intent_status") in {"PENDING", "CLAIMED"}:
+            decision = "PENDING"
+        else:
+            decision = "ERROR"
+        human = {
+            "EXECUTION_AUTHORITY_DISABLED": "Execution authority disabled",
+            "MINIMUM_LOT_EXCEEDS_RISK_LIMIT": "Minimum lot exceeds risk limit",
+            "RISK_STATE_UNAVAILABLE": "Risk state unavailable",
+            "BROKER_METADATA_UNAVAILABLE": "Broker metadata unavailable",
+            "ACCOUNT_NOT_ALLOWED": "Account outside policy scope",
+            "STRATEGY_NOT_ALLOWED": "Strategy outside policy scope",
+            "SYMBOL_NOT_ALLOWED": "Symbol outside policy scope",
+        }.get(reason, str(reason).replace("_", " ").title())
+        account = str(row.get("account_id") or "")
+        evaluation: dict[str, Any] = {
+            "account": ("•" * max(0, len(account) - 4) + account[-4:]) if account else None,
+            "decision": decision,
+            "reason": reason,
+            "humanReason": human,
+        }
+        if full:
+            if row.get("risk_policy_version") is not None or row.get("policy_fingerprint"):
+                evaluation["policy"] = {"version": row.get("risk_policy_version"),
+                                         "fingerprint": row.get("policy_fingerprint")}
+            evidence_fields = ("risk_per_trade", "account_equity", "risk_budget_usd", "stop_distance",
+                               "broker_volume_min", "broker_volume_step", "broker_volume_max",
+                               "calculated_volume", "submitted_volume", "estimated_loss_usd",
+                               "daily_loss_used", "concurrent_positions_used", "concurrent_orders_used",
+                               "signal_age_seconds", "max_signal_age_seconds", "canary_consumed", "canary_max")
+            risk = {key: row.get(key) for key in evidence_fields if row.get(key) is not None}
+            if risk:
+                evaluation["riskEvaluation"] = risk
+            account_state = {key: row.get(key) for key in ("account_equity", "daily_loss_used",
+                             "concurrent_positions_used", "concurrent_orders_used") if row.get(key) is not None}
+            if account_state:
+                evaluation["accountState"] = account_state
+            sizing = {key: row.get(key) for key in ("calculated_volume", "submitted_volume",
+                      "broker_volume_min", "broker_volume_step", "broker_volume_max",
+                      "estimated_loss_usd") if row.get(key) is not None}
+            if sizing:
+                evaluation["sizing"] = sizing
+            execution = {"intentId": row.get("execution_intent_id"), "status": row.get("intent_status")}
+            if row.get("attempt_id"):
+                execution.update({"attemptId": row.get("attempt_id"), "attemptState": row.get("attempt_state")})
+            if any(value is not None for value in execution.values()):
+                evaluation["execution"] = execution
+            broker = {key: row.get(key) for key in ("broker_order_id", "broker_deal_id", "result_outcome")
+                      if row.get(key) is not None}
+            if broker:
+                evaluation["brokerResult"] = broker
+        return evaluation
+
+    def _execution_audit(self, signal_ids: list[str], *, full: bool) -> dict[str, list[dict[str, Any]]]:
+        if not signal_ids:
+            return {}
+        try:
+            with self._connect(readonly=True) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s",
+                                (EXECUTION_AUDIT_SCHEMA_VERSION,))
+                    if cur.fetchone() is None:
+                        raise CanonicalSourceUnavailable("canonical PostgreSQL requires schema 021")
+                    cur.execute("SELECT value FROM platform.system_metadata WHERE key = %s",
+                                ("execution.audit_cutoff",))
+                    cutoff_row = cur.fetchone()
+                    cutoff_value = cutoff_row[0] if cutoff_row else {}
+                    if isinstance(cutoff_value, str):
+                        cutoff_value = json.loads(cutoff_value)
+                    cutoff = cutoff_value.get("cutoff_utc") if isinstance(cutoff_value, dict) else None
+                    cur.execute("""SELECT i.entry_signal_id, i.execution_intent_id, i.account_id,
+                                      i.status AS intent_status, i.block_reason, i.risk_policy_version,
+                                      e.policy_fingerprint, e.risk_per_trade, e.account_equity,
+                                      e.risk_budget_usd, e.stop_distance, e.broker_volume_min,
+                                      e.broker_volume_step, e.broker_volume_max, e.calculated_volume,
+                                      e.submitted_volume, e.estimated_loss_usd, e.daily_loss_used,
+                                      e.concurrent_positions_used, e.concurrent_orders_used,
+                                      e.signal_age_seconds, e.max_signal_age_seconds,
+                                      e.canary_consumed, e.canary_max,
+                                      a.attempt_id, a.state AS attempt_state,
+                                      r.outcome AS result_outcome, r.broker_order_id, r.broker_deal_id
+                               FROM execution_v2.execution_intent i
+                               LEFT JOIN execution_v2.execution_risk_evidence e
+                                 ON e.execution_intent_id = i.execution_intent_id
+                               LEFT JOIN execution_v2.execution_attempt a
+                                 ON a.execution_intent_id = i.execution_intent_id
+                               LEFT JOIN execution_v2.execution_result r
+                                 ON r.execution_intent_id = i.execution_intent_id
+                               WHERE i.entry_signal_id = ANY(%s)
+                               ORDER BY i.entry_signal_id, i.account_id""", (signal_ids,))
+                    names = [column.name if hasattr(column, "name") else column[0] for column in cur.description]
+                    rows = [dict(zip(names, row, strict=True)) for row in cur.fetchall()]
+                    cur.execute("SELECT signal_id, decision_time FROM strategy.entry_signals WHERE signal_id = ANY(%s)",
+                                (signal_ids,))
+                    signal_times = {row[0]: row[1] for row in cur.fetchall()}
+            by_signal: dict[str, list[dict[str, Any]]] = {signal_id: [] for signal_id in signal_ids}
+            for row in rows:
+                by_signal.setdefault(row["entry_signal_id"], []).append(self._execution_evaluation(row, full=full))
+            for signal_id, decision_time in signal_times.items():
+                if by_signal.get(signal_id):
+                    continue
+                before_cutoff = False
+                if cutoff and decision_time:
+                    try:
+                        cutoff_dt = datetime.fromisoformat(str(cutoff).replace("Z", "+00:00"))
+                        before_cutoff = decision_time < cutoff_dt
+                    except (TypeError, ValueError):
+                        before_cutoff = False
+                by_signal[signal_id] = [{"account": None, "decision": "NOT_EVALUATED",
+                                        "reason": "HISTORICAL_AUDIT_UNAVAILABLE" if before_cutoff else "NO_EXECUTION_INTENT",
+                                        "humanReason": "Execution audit unavailable for this historical signal" if before_cutoff
+                                        else "No V2 execution evaluation recorded"}]
+            return by_signal
+        except CanonicalSourceUnavailable:
+            raise
+        except Exception as exc:
+            raise CanonicalSourceUnavailable("canonical PostgreSQL execution audit unavailable") from exc
+
     def list_signals(self, query: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         try:
             limit = int(query.get("limit", DEFAULT_LIMIT))
@@ -200,6 +338,9 @@ class CanonicalSignalRepository:
 
         sql = _SELECT + where_clause + _ORDER_BY + " LIMIT %s OFFSET %s"
         rows = self._query(sql, tuple([*params, limit + 1, offset]))
+        audit = self._execution_audit([row["signal_id"] for row in rows[:limit]], full=False)
+        for row in rows[:limit]:
+            row["executionSummary"] = audit.get(row["signal_id"], [])
         has_more = len(rows) > limit
         rows = rows[:limit]
 
@@ -210,6 +351,9 @@ class CanonicalSignalRepository:
 
     def get_signal(self, signal_id: str) -> dict[str, Any] | None:
         rows = self._query(_SELECT + " WHERE s.signal_id = %s", (signal_id,))
+        audit = self._execution_audit([signal_id], full=True)
+        if rows:
+            rows[0]["executionEvaluations"] = audit.get(signal_id, [])
         return rows[0] if rows else None
 
 
@@ -235,7 +379,8 @@ class PlatformSignalApi:
                                     "message": message or error}]
         else:
             body.update({"data": data, "unavailable": [], "schema_version": SCHEMA_VERSION,
-                         "outcome_schema_version": OUTCOME_SCHEMA_VERSION})
+                         "outcome_schema_version": OUTCOME_SCHEMA_VERSION,
+                         "execution_audit_schema_version": EXECUTION_AUDIT_SCHEMA_VERSION})
         if meta:
             body["meta"] = meta
         return body
@@ -368,7 +513,8 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
         # Paths that accept POST in addition to GET - kept as an explicit, narrow allowlist here
         # too so a browser's CORS preflight never promises more than the actual route dispatch
         # (PlatformControlApi.execute) is willing to accept.
-        _POST_ALLOWED_PATHS = frozenset({"/api/v1/v2-execution/risk-policy"})
+        _POST_ALLOWED_PATHS = frozenset({"/api/v1/v2-execution/risk-policy",
+                                         "/api/v1/v2-execution/authority"})
 
         def do_OPTIONS(self) -> None:
             path = urlsplit(self.path).path.rstrip("/") or "/"

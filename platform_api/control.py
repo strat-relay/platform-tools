@@ -18,6 +18,7 @@ from .signals import CanonicalSourceUnavailable, _row_dict
 
 SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
+EXECUTION_RUNTIME_COMPONENT = "execution_v2"
 LIMIT = 100
 
 
@@ -46,6 +47,43 @@ class PlatformControlRepository:
             (SELECT count(*) FROM platform.inbox_events) AS inbox_count,
             (SELECT count(*) FROM platform.runtime_instances WHERE component = 'orchestrator' AND status = 'RUNNING') AS orchestrator_running""")
         return rows[0]
+
+    def execution_runtime_status(self) -> dict[str, Any]:
+        """Read the V2 runtime's effective, persisted status projection."""
+        rows = self.query("""SELECT instance_id, status, last_heartbeat_at, metadata
+            FROM platform.runtime_instances
+            WHERE component = %s
+            ORDER BY last_heartbeat_at DESC, instance_id ASC
+            LIMIT 1""", (EXECUTION_RUNTIME_COMPONENT,))
+        if not rows:
+            raise CanonicalSourceUnavailable("V2 execution runtime status is unavailable")
+        runtime = rows[0]
+        metadata = runtime.get("metadata") or {}
+        policy = metadata.get("risk_policy") or {}
+        canary_key = metadata.get("canary_key")
+        canary = None
+        if canary_key:
+            canary_rows = self.query("""SELECT max_new_executions, consumed
+                FROM execution_v2.canary_state WHERE canary_key = %s""", (canary_key,))
+            if canary_rows:
+                canary = canary_rows[0]
+        max_new = int((canary or {}).get("max_new_executions")
+                      or policy.get("canary_max_new_executions") or 0)
+        consumed = int((canary or {}).get("consumed") or 0)
+        worker_status = "HEALTHY" if runtime.get("status") == "RUNNING" else "DOWN"
+        if runtime.get("last_heartbeat_at") is None:
+            worker_status = "DEGRADED"
+        return {
+            "instance_id": runtime.get("instance_id"),
+            "worker_status": worker_status,
+            "execution_authority_mode": metadata.get("execution_authority_mode", "UNKNOWN"),
+            "account_id": metadata.get("account_id"),
+            "risk_policy": policy,
+            "canary": {"max_new_executions": max_new, "consumed": consumed,
+                       "remaining": max(0, max_new - consumed)},
+            "execution_bridge": metadata.get("execution_bridge") or {"status": "UNKNOWN"},
+            "broker_account": metadata.get("broker_account") or {"status": "UNKNOWN"},
+        }
 
     def events(self, limit: int, offset: int, event_id: str | None = None) -> list[dict[str, Any]]:
         if event_id is not None:
@@ -77,6 +115,65 @@ class PlatformControlRepository:
             (SELECT count(*) FROM execution.results WHERE status = 'REJECTED') AS rejected,
             (SELECT count(*) FROM execution.results WHERE status = 'BLOCKED') AS blocked""")
         return rows[0]
+
+    def _trade_management_query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        try:
+            with self._connect(readonly=True) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s", (TRADE_MANAGEMENT_SCHEMA_VERSION,))
+                    if cur.fetchone() is None:
+                        raise CanonicalSourceUnavailable("canonical PostgreSQL schema 013 is required")
+                    cur.execute(sql, params)
+                    return [_row_dict(cur, row) for row in cur.fetchall()]
+        except CanonicalSourceUnavailable:
+            raise
+        except Exception as exc:
+            raise CanonicalSourceUnavailable("canonical PostgreSQL trade management source unavailable") from exc
+
+    def trade_manager_summary(self) -> dict[str, Any]:
+        rows = self._trade_management_query("""SELECT
+            (SELECT count(*) FROM trade_management.managed_trade) AS total_managed_trades,
+            (SELECT count(*) FROM trade_management.managed_trade WHERE state = 'OPEN') AS open_managed_trades,
+            (SELECT max(observed_at) FROM trade_management.trade_observation) AS latest_observation_at,
+            (SELECT max(decision_time) FROM trade_management.trade_manager_decision) AS latest_decision_at,
+            (SELECT count(*) FROM trade_management.trade_observation) AS observation_count,
+            (SELECT count(*) FROM trade_management.trade_manager_decision) AS decision_count,
+            (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'PUBLISHED') AS published_decision_count,
+            (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'WITHHELD') AS withheld_decision_count,
+            (SELECT json_agg(v ORDER BY v.tm_version_id) FROM
+                (SELECT tm_version_id, evaluator_id, label, status FROM trade_management.trade_manager_version) v) AS policy_versions""")
+        return rows[0]
+
+    def managed_trades(self, limit: int, offset: int, trade_id: str | None = None) -> list[dict[str, Any]]:
+        where = "WHERE mt.managed_trade_id = %s" if trade_id else ""
+        params: tuple[Any, ...] = (trade_id,) if trade_id else (limit, offset)
+        tail = "" if trade_id else " LIMIT %s OFFSET %s"
+        return self._trade_management_query(f"""SELECT mt.managed_trade_id, mt.entry_signal_id,
+            mt.strategy_id, mt.strategy_version, mt.strategy_ref, mt.instrument, mt.direction,
+            mt.decision_time AS opened_at, mt.reference_entry_price AS entry, mt.initial_stop,
+            mt.initial_target AS target, mt.state, mt.tm_version_id, mt.binding_resolution,
+            mt.evidence_mode, mt.eligibility, mt.eligibility_reason, mt.record_mode,
+            mt.last_observation_seq, mt.created_at, obs.observed_at AS latest_observation_at,
+            dec.decision_id AS latest_decision_id, dec.action AS latest_decision,
+            dec.reason_codes AS latest_reason_codes, dec.decision_time AS latest_decision_at,
+            pub.outcome AS publication_outcome, pub.reason AS publication_reason
+            FROM trade_management.managed_trade mt
+            LEFT JOIN LATERAL (SELECT o.observed_at FROM trade_management.trade_observation o
+              WHERE o.managed_trade_id = mt.managed_trade_id ORDER BY o.observation_seq DESC LIMIT 1) obs ON TRUE
+            LEFT JOIN LATERAL (SELECT d.* FROM trade_management.trade_manager_decision d
+              WHERE d.managed_trade_id = mt.managed_trade_id ORDER BY d.observation_seq DESC, d.persisted_at DESC LIMIT 1) dec ON TRUE
+            LEFT JOIN trade_management.publication_decision pub ON pub.decision_id = dec.decision_id
+            {where} ORDER BY mt.created_at DESC, mt.managed_trade_id{tail}""", params)
+
+    def trade_decisions(self, trade_id: str) -> list[dict[str, Any]]:
+        return self._trade_management_query("""SELECT d.decision_id, d.managed_trade_id, d.observation_id,
+            d.observation_seq, d.action, d.parameters, d.reason_codes, d.decision_trace_ref,
+            d.decision_time, d.persisted_at, d.data_status, d.record_mode,
+            p.outcome AS publication_outcome, p.reason AS publication_reason, p.evaluated_at AS publication_evaluated_at
+            FROM trade_management.trade_manager_decision d
+            LEFT JOIN trade_management.publication_decision p ON p.decision_id = d.decision_id
+            WHERE d.managed_trade_id = %s ORDER BY d.observation_seq DESC, d.persisted_at DESC""", (trade_id,))
 
     def context_entry_outcome_report(self) -> dict[str, Any]:
         """Build the Context ENTRY_ONLY report strictly from PostgreSQL rows."""
@@ -197,106 +294,10 @@ class PlatformControlRepository:
             },
         }
 
-    def _trade_management_query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        """Read the P4 observability tables in a read-only transaction.
-
-        This deliberately has its own schema gate: an older database remains a source-unavailable
-        response, while a migrated database with zero rows is a healthy empty state.
-        """
-        try:
-            with self._connect(readonly=True) as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SET TRANSACTION READ ONLY")
-                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s",
-                                (TRADE_MANAGEMENT_SCHEMA_VERSION,))
-                    if cur.fetchone() is None:
-                        raise CanonicalSourceUnavailable(
-                            f"canonical PostgreSQL requires schema {TRADE_MANAGEMENT_SCHEMA_VERSION}")
-                    cur.execute(sql, params)
-                    return [_row_dict(cur, row) for row in cur.fetchall()]
-        except CanonicalSourceUnavailable:
-            raise
-        except Exception as exc:
-            raise CanonicalSourceUnavailable("canonical PostgreSQL trade management source unavailable") from exc
-
-    def trade_manager_summary(self) -> dict[str, Any]:
-        rows = self._trade_management_query("""
-            SELECT
-              (SELECT count(*) FROM trade_management.managed_trade) AS total_managed_trades,
-              (SELECT count(*) FROM trade_management.managed_trade WHERE state = 'OPEN') AS open_managed_trades,
-              (SELECT max(observed_at) FROM trade_management.trade_observation) AS latest_observation_at,
-              (SELECT max(decision_time) FROM trade_management.trade_manager_decision) AS latest_decision_at,
-              (SELECT count(*) FROM trade_management.trade_observation) AS observation_count,
-              (SELECT count(*) FROM trade_management.trade_manager_decision) AS decision_count,
-              (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'PUBLISHED') AS published_decision_count,
-              (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'WITHHELD') AS withheld_decision_count,
-              (SELECT json_agg(v ORDER BY v.tm_version_id)
-                 FROM (SELECT tm_version_id, evaluator_id, label, status
-                         FROM trade_management.trade_manager_version) v) AS policy_versions
-        """)
-        return rows[0]
-
-    def managed_trades(self, limit: int, offset: int, trade_id: str | None = None) -> list[dict[str, Any]]:
-        where = "WHERE mt.managed_trade_id = %s" if trade_id else ""
-        params: tuple[Any, ...] = (trade_id,) if trade_id else (limit, offset)
-        tail = "" if trade_id else " LIMIT %s OFFSET %s"
-        return self._trade_management_query(f"""
-            SELECT mt.managed_trade_id, mt.entry_signal_id, mt.strategy_id,
-                   mt.strategy_version, mt.strategy_ref, mt.instrument, mt.direction,
-                   mt.decision_time AS opened_at, mt.reference_entry_price AS entry,
-                   mt.initial_stop, mt.initial_target AS target, mt.state,
-                   mt.tm_version_id, mt.binding_resolution, mt.evidence_mode,
-                   mt.eligibility, mt.eligibility_reason, mt.record_mode,
-                   mt.last_observation_seq, mt.created_at,
-                   tv.label AS policy_label,
-                   obs.observation_id AS latest_observation_id,
-                   obs.observation_seq AS latest_observation_seq,
-                   obs.observed_at AS latest_observation_at,
-                   obs.effective_at AS latest_observation_effective_at,
-                   obs.data_status AS observation_data_status,
-                   dec.decision_id AS latest_decision_id,
-                   dec.action AS latest_decision,
-                   dec.reason_codes AS latest_reason_codes,
-                   dec.decision_time AS latest_decision_at,
-                   dec.persisted_at AS latest_decision_persisted_at,
-                   dec.data_status AS decision_data_status,
-                   pub.outcome AS publication_outcome,
-                   pub.reason AS publication_reason,
-                   pub.evaluated_at AS publication_evaluated_at
-            FROM trade_management.managed_trade mt
-            LEFT JOIN trade_management.trade_manager_version tv ON tv.tm_version_id = mt.tm_version_id
-            LEFT JOIN LATERAL (
-              SELECT o.* FROM trade_management.trade_observation o
-              WHERE o.managed_trade_id = mt.managed_trade_id
-              ORDER BY o.observation_seq DESC LIMIT 1
-            ) obs ON TRUE
-            LEFT JOIN LATERAL (
-              SELECT d.* FROM trade_management.trade_manager_decision d
-              WHERE d.managed_trade_id = mt.managed_trade_id
-              ORDER BY d.observation_seq DESC, d.persisted_at DESC LIMIT 1
-            ) dec ON TRUE
-            LEFT JOIN trade_management.publication_decision pub ON pub.decision_id = dec.decision_id
-            {where}
-            ORDER BY mt.created_at DESC, mt.managed_trade_id
-            {tail}
-        """, params)
-
-    def trade_decisions(self, trade_id: str) -> list[dict[str, Any]]:
-        return self._trade_management_query("""
-            SELECT d.decision_id, d.managed_trade_id, d.observation_id,
-                   d.observation_seq, d.action, d.parameters, d.reason_codes,
-                   d.decision_trace_ref, d.decision_time, d.persisted_at,
-                   d.data_status, d.record_mode, p.outcome AS publication_outcome,
-                   p.reason AS publication_reason, p.evaluated_at AS publication_evaluated_at
-            FROM trade_management.trade_manager_decision d
-            LEFT JOIN trade_management.publication_decision p ON p.decision_id = d.decision_id
-            WHERE d.managed_trade_id = %s
-            ORDER BY d.observation_seq DESC, d.persisted_at DESC
-        """, (trade_id,))
-
 
 class PlatformControlApi:
     V2_RISK_POLICY_PATH = "/api/v1/v2-execution/risk-policy"
+    V2_AUTHORITY_PATH = "/api/v1/v2-execution/authority"
 
     def __init__(self, repository: PlatformControlRepository | None = None,
                  environ: dict[str, str] | None = None,
@@ -310,6 +311,8 @@ class PlatformControlApi:
             from .v2_risk import V2RiskExecutionApi
             v2_risk_api = V2RiskExecutionApi(environ=self.environ)
         self.v2_risk_api = v2_risk_api
+        from .execution_authority import ExecutionAuthorityApi
+        self.execution_authority_api = ExecutionAuthorityApi(runtime_status_fn=self.repository.execution_runtime_status)
 
     @staticmethod
     def _body(data: Any = None, *, source: str, status: str = "ACTIVE",
@@ -329,6 +332,24 @@ class PlatformControlApi:
         return {"orchestrator_mode": env.get("ORCHESTRATOR_MODE", "UNKNOWN"),
                 "signal_authority_mode": env.get("SIGNAL_AUTHORITY_MODE", "UNKNOWN"),
                 "execution_authority_mode": env.get("EXECUTION_AUTHORITY_MODE", "UNKNOWN")}
+
+    def _execution_state(self) -> dict[str, Any]:
+        runtime = self.repository.execution_runtime_status()
+        from execution_v2.authority_store import read_authority
+        authority = read_authority()
+        policy = dict(runtime.get("risk_policy") or {})
+        policy.setdefault("enabled", False)
+        return {
+            "execution_authority_mode": authority.get("state", "DISABLED"),
+            "authority_revision": authority.get("revision", 0),
+            "authority_source": authority.get("source", "POSTGRES"),
+            "risk_policy": policy,
+            "canary": runtime["canary"],
+            "execution_worker": {"status": runtime["worker_status"]},
+            "execution_bridge": runtime["execution_bridge"],
+            "broker_account": runtime["broker_account"],
+            "source": "canonical_execution_runtime",
+        }
 
     def _database(self) -> dict[str, Any]:
         return self.repository.platform_status()
@@ -352,11 +373,13 @@ class PlatformControlApi:
     def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
-        # The ONE deliberate, narrow exception to this API's otherwise-total read-only posture
-        # (mission CLAUDE-V2-RISK-EXECUTION-CONSOLE section 10) - see platform_api/v2_risk.py's
-        # module docstring. Every other path, and every other method on THIS path, is unaffected.
         if method == "POST" and path == self.V2_RISK_POLICY_PATH:
             return self.v2_risk_api.save(body)
+        if path == self.V2_AUTHORITY_PATH:
+            if method == "GET":
+                return self.execution_authority_api.read()
+            if method == "POST":
+                return self.execution_authority_api.save(body)
         if method != "GET":
             return 405, self._body(None, source="platform", status="UNAVAILABLE", error="READ_ONLY_API",
                                    message="GET only" if path != self.V2_RISK_POLICY_PATH else "GET or POST only")
@@ -372,18 +395,20 @@ class PlatformControlApi:
                 return 200, {"status": "ready", "service": "platform-control-api",
                              "source": "canonical_postgres", "schema_version": SCHEMA_VERSION}
             if path == "/api/v1/system":
-                authority = self._authority(self.environ)
                 db = self._database()
+                execution = self._execution_state()
                 try:
-                    tm = self.repository.trade_manager_summary()
-                    trade_manager = {
-                        "status": "ACTIVE",
-                        "source": "canonical_postgres",
-                        "managed_trade_count": tm["total_managed_trades"],
-                        "open_managed_trade_count": tm["open_managed_trades"],
-                    }
+                    tm_reader = getattr(self.repository, "trade_manager_summary", None)
+                    if tm_reader is None:
+                        raise CanonicalSourceUnavailable("canonical Trade Manager observability unavailable")
+                    tm = tm_reader()
+                    trade_manager = {"status": "ACTIVE", "source": "canonical_postgres",
+                                     "managed_trade_count": tm["total_managed_trades"],
+                                     "open_managed_trade_count": tm["open_managed_trades"]}
                 except CanonicalSourceUnavailable:
                     trade_manager = {"status": "UNKNOWN", "reason": "canonical Trade Manager observability unavailable"}
+                authority = {**self._authority(self.environ),
+                             "execution_authority_mode": execution["execution_authority_mode"]}
                 runtime = "ACTIVE" if db["orchestrator_running"] else "UNKNOWN"
                 state = {**authority, "components": {
                     "orchestrator": {"status": runtime, "configured_mode": authority["orchestrator_mode"]},
@@ -391,26 +416,35 @@ class PlatformControlApi:
                     "signal_authority": {"status": "ACTIVE" if authority["signal_authority_mode"] == "DB_PRIMARY" else "DEGRADED"},
                     "jetstream": {"status": "UNKNOWN", "reason": "health is not asserted by the Control API"},
                     "trade_manager": trade_manager,
-                    "execution": {"status": "INACTIVE" if authority["execution_authority_mode"] == "DISABLED" else "UNKNOWN"}},
+                    "execution": {"status": "ACTIVE" if authority["execution_authority_mode"] == "ENABLED" else "INACTIVE",
+                                   **execution}},
                     "canonical_outbox_event_count": db["outbox_count"], "canonical_inbox_event_count": db["inbox_count"]}
                 return 200, self._body(state, source="canonical_platform")
             if path == "/api/v1/safety":
-                authority = self._authority(self.environ)
                 self._database()  # Canonical-source reachability/schema is required to make this assertion.
-                safe = (authority == {"orchestrator_mode": "PRIMARY", "signal_authority_mode": "DB_PRIMARY",
-                                     "execution_authority_mode": "DISABLED"}
+                execution = self._execution_state()
+                authority = {**self._authority(self.environ),
+                             "execution_authority_mode": execution["execution_authority_mode"]}
+                safe = (authority["orchestrator_mode"] == "PRIMARY"
+                        and authority["signal_authority_mode"] == "DB_PRIMARY"
                         and self.environ.get("SIGNAL_DB_PRIMARY_ENABLED", "").lower() == "true")
                 if not safe:
                     data = {**authority, "status": "BLOCKED", "execution_enabled": False,
                             "real_execution_mode_active": False, "broker_write_path_active": False,
-                            "blockers": ["CANONICAL_AUTHORITY_CONFIGURATION_NOT_CONFIRMED"]}
+                            "blockers": ["CANONICAL_AUTHORITY_CONFIGURATION_NOT_CONFIRMED"],
+                            "execution": execution}
                     return 200, self._body(data, source="canonical_platform", status="DEGRADED")
-                data = {**authority, "status": "SAFE", "execution_enabled": False,
-                        "real_execution": {"armed": False, "mode": "DISABLED"},
-                        "canonical_order_send_gate": {"effective": "DISABLED"},
-                        "execution_consumer": {"status": "INACTIVE"},
-                        "real_execution_mode_active": False, "broker_write_path_active": False,
-                        "blockers": []}
+                armed = (execution["execution_authority_mode"] == "ENABLED"
+                         and bool(execution["risk_policy"].get("enabled"))
+                         and execution["canary"].get("remaining", 0) > 0)
+                data = {**authority, "status": "ARMED" if armed else "SAFE",
+                        "execution_enabled": execution["execution_authority_mode"] == "ENABLED",
+                        "real_execution": {"armed": armed, "mode": execution["execution_authority_mode"]},
+                        "canonical_order_send_gate": {"effective": execution["execution_authority_mode"]},
+                        "execution_consumer": {"status": execution["execution_worker"]["status"]},
+                        "real_execution_mode_active": execution["execution_authority_mode"] == "ENABLED",
+                        "broker_write_path_active": execution["execution_authority_mode"] == "ENABLED",
+                        "blockers": [], "execution": execution}
                 return 200, self._body(data, source="canonical_platform")
             if path == "/api/v1/strategies" or path.startswith("/api/v1/strategies/"):
                 strategies = self._strategies()
@@ -461,12 +495,10 @@ class PlatformControlApi:
                 return 200, self._body({"data_channel": {"status": "UNAVAILABLE", "source": "mt5_bridge_read_only"},
                                         "execution_channel": {"status": "INACTIVE", "reason": "execution authority disabled"}}, source="platform_and_bridge", status="DEGRADED")
             if path == "/api/v1/trade-manager/summary":
-                summary = self.repository.trade_manager_summary()
-                return 200, self._body(summary, source="canonical_postgres")
+                return 200, self._body(self.repository.trade_manager_summary(), source="canonical_postgres")
             if path.startswith("/api/v1/managed-trades/") and path.endswith("/decisions"):
                 trade_id = unquote(path[len("/api/v1/managed-trades/"):-len("/decisions")].strip("/"))
-                rows = self.repository.trade_decisions(trade_id)
-                return 200, self._body(rows, source="canonical_postgres")
+                return 200, self._body(self.repository.trade_decisions(trade_id), source="canonical_postgres")
             if path == "/api/v1/managed-trades" or (path.startswith("/api/v1/managed-trades/") and not path.endswith("/decisions")):
                 suffix = path[len("/api/v1/managed-trades/"):] if path.startswith("/api/v1/managed-trades/") else None
                 limit = min(max(int(query.get("limit", LIMIT)), 1), 500)
@@ -483,8 +515,23 @@ class PlatformControlApi:
                 return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
                                        error="SOURCE_UNAVAILABLE", message="Read-only MT5 bridge is not reachable from the platform API")
             if path == "/api/v1/reports" or path.startswith("/api/v1/reports/"):
-                return 503, self._body(None, source="canonical_platform_reports", status="UNAVAILABLE",
-                                       error="SOURCE_UNAVAILABLE", message="No canonical report registry is available")
+                report_reader = getattr(self.repository, "context_entry_outcome_report", None)
+                if report_reader is None:
+                    return 503, self._body(None, source="canonical_platform_reports", status="UNAVAILABLE",
+                                           error="SOURCE_UNAVAILABLE", message="No canonical report registry is available")
+                report = report_reader()
+                report_id = path[len("/api/v1/reports/"):].strip("/") if path.startswith("/api/v1/reports/") else ""
+                if "identity" not in report.get("report", {}):
+                    return 503, self._body(None, source="canonical_platform_reports", status="UNAVAILABLE",
+                                           error="SOURCE_UNAVAILABLE", message="Canonical report projection unavailable")
+                summary = {"id": "context-entry-outcomes", "type": "STRATEGY_PERFORMANCE",
+                           "title": "Context Structure Retrace — Entry Outcomes",
+                           "generated_at": report["report"]["identity"]["observed_at"],
+                           "status": "READY", "summary": "Canonical PostgreSQL ENTRY_ONLY outcome report."}
+                if report_id and report_id != summary["id"]:
+                    return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                return 200, self._body({**summary, "report": report["report"]} if report_id else [summary],
+                                       source="canonical_postgres")
             if path.startswith("/api/v1/"):
                 return 404, self._body(None, source="platform_api_router", status="UNAVAILABLE", error="RESOURCE_NOT_FOUND")
             return 404, self._body(None, source="platform_api_router", status="UNAVAILABLE", error="RESOURCE_NOT_FOUND")

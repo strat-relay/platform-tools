@@ -7,10 +7,8 @@ bridge over HTTP; `bridge_fence_sim.BridgeFenceSimulator` is test-only and this 
 imports it) -> one submission attempt -> ExecutionResult -> canonical PostgreSQL persistence +
 JetStream event.
 
-The single authority check (`execution_authority_enabled`) is evaluated *before* anything else
-in `process_signal` and is the only thing that can make a broker effect possible - never an
-EntrySignal's existence, a ManagedTrade, a PostgreSQL lease, or bridge reachability alone
-(mission section 2).
+    Authority-disabled signals are durably recorded as BLOCKED intents before the worker returns;
+    the authority check still remains the only thing that can make a broker effect possible.
 """
 from __future__ import annotations
 
@@ -29,7 +27,7 @@ from .fence import FenceAuthority
 from .ids import attempt_id as _attempt_id
 from .ids import execution_result_id as _execution_result_id
 from .intent import EntrySignalRecordMissing, IntentResult, create_execution_intent
-from .risk import RiskPolicy
+from .risk import RiskPolicy, RiskPolicyError
 from .symbols import (canonical_request_fingerprint, canonical_request_text, correlation_comment,
                       resolve_broker_symbol)
 
@@ -71,8 +69,10 @@ def request_fingerprint(*, instrument: str, direction: str, volume: float, stop_
 
 class ExecutionWorker:
     def __init__(self, conn: Any, *, fence_authority: FenceAuthority, bridge: BridgeFence,
-                holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
-                risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> None:
+                 holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
+                 risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+                 risk_policy_provider: Callable[[], RiskPolicy] | None = None,
+                 authority_provider: Callable[[], str] | None = None) -> None:
         if mode not in ("demo", "real"):
             raise ValueError("mode must be 'demo' or 'real'")
         self.conn = conn
@@ -82,6 +82,8 @@ class ExecutionWorker:
         self.account_id = account_id
         self.mode = mode
         self.risk_policy = risk_policy
+        self.risk_policy_provider = risk_policy_provider
+        self.authority_provider = authority_provider
         self.risk_context_provider = risk_context_provider
         self.resource = f"execution:{mode}:{account_id}"
 
@@ -191,10 +193,28 @@ class ExecutionWorker:
         # for any caller that forgot to wire a real/simulated broker boundary. Every caller -
         # every test and the production runtime consumer alike - must say explicitly what
         # "the broker" means for this call.
-        if not execution_authority_enabled:
-            raise ExecutionAuthorityDisabled("EXECUTION_AUTHORITY_MODE is not enabled")
-
         now_utc = now_utc or datetime.now(timezone.utc)
+        if self.risk_policy_provider is not None:
+            try:
+                self.risk_policy = self.risk_policy_provider()
+            except RiskPolicyError as exc:
+                if execution_authority_enabled:
+                    return ExecutionOutcome("BLOCKED", None, None, None, f"RISK_POLICY_UNAVAILABLE: {exc}")
+
+        authority_disabled = not execution_authority_enabled
+        if self.authority_provider is not None:
+            try:
+                authority_disabled = authority_disabled or self.authority_provider() != "ENABLED"
+            except Exception:
+                authority_disabled = True
+        if authority_disabled:
+            intent_result = create_execution_intent(
+                self.conn, signal_id=signal_id, account_id=self.account_id,
+                risk_policy=self.risk_policy, now_utc=now_utc,
+                blocked_reason="EXECUTION_AUTHORITY_DISABLED")
+            return ExecutionOutcome("BLOCKED", intent_result, None, None,
+                                    "EXECUTION_AUTHORITY_DISABLED")
+
         intent_result = create_execution_intent(self.conn, signal_id=signal_id, account_id=self.account_id,
                                                 risk_policy=self.risk_policy, now_utc=now_utc,
                                                 risk_context_provider=self.risk_context_provider)
@@ -238,6 +258,10 @@ class ExecutionWorker:
         except Exception as exc:
             return ExecutionOutcome("FENCED_OUT", intent_result, None, None, f"ownership acquisition failed: {exc}")
 
+        if self.authority_provider is not None and self.authority_provider() != "ENABLED":
+            return ExecutionOutcome("FENCED_OUT", intent_result, None, None,
+                                    "execution authority was disabled before fencing")
+
         attempt = self._claim_attempt(execution_intent_id=execution_intent_id, attempt_id=att_id, generation=generation)
         att_id = attempt["attempt_id"]
 
@@ -269,6 +293,12 @@ class ExecutionWorker:
         authorization = self.fence_authority.mint_authorization(resource=self.resource, generation=generation,
                                                                  attempt_id=att_id, tool=TOOL,
                                                                  request_fingerprint=fingerprint)
+
+        if self.authority_provider is not None and self.authority_provider() != "ENABLED":
+            with transaction(self.conn):
+                self._set_attempt_state(att_id, "FENCED", terminal=True)
+            return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None,
+                                    "execution authority was disabled before broker submission")
 
         try:
             submit_result = self.bridge.submit(authorization=authorization, request_fingerprint=fingerprint,

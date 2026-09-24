@@ -37,9 +37,11 @@ def _real_bridge_not_wired() -> dict[str, Any]:
 
 class ExecutionSignalConsumer:
     def __init__(self, worker: ExecutionWorker, *, execution_authority_mode: ExecutionAuthorityMode,
+                 authority_provider: Callable[[], str] | None = None,
                 clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
         self.worker = worker
         self.execution_authority_mode = execution_authority_mode
+        self.authority_provider = authority_provider
         self.clock = clock
 
     def handle_envelope(self, envelope: EventEnvelope) -> ExecutionOutcome:
@@ -47,7 +49,8 @@ class ExecutionSignalConsumer:
         # The ONLY place this boolean is computed - read once from the config-derived mode
         # captured at construction time, never re-derived per message, never inferred from the
         # envelope itself (mission section 2: an EntrySignal's existence never implies permission).
-        authority_enabled = self.execution_authority_mode is ExecutionAuthorityMode.ENABLED
+        mode = self.authority_provider() if self.authority_provider is not None else self.execution_authority_mode.value
+        authority_enabled = mode == ExecutionAuthorityMode.ENABLED.value
         return self.worker.process_signal(signal_id, execution_authority_enabled=authority_enabled,
                                           broker_call=_real_bridge_not_wired, now_utc=self.clock())
 

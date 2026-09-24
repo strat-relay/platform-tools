@@ -135,6 +135,7 @@ def _worker(*, bridge: Any = None) -> ExecutionWorker:
     conn = FakeConnection()
     conn.seed_entry_signal(signal_id="SIG1", strategy_id="STRAT1", strategy_version=1, strategy_ref="strat-ref",
                            instrument="EURUSD", direction="LONG", decision_time=datetime.now(timezone.utc),
+                           signal_emitted_at=datetime.now(timezone.utc),
                            entry_price=1.1000, stop_price=1.0950, target_price=1.1100, entry_signal_hash="h1")
     keys = {"k1": b"0" * 32}
     if bridge is None:
@@ -152,12 +153,14 @@ def _envelope() -> EventEnvelope:
 
 
 class ExecutionSignalConsumerTests(unittest.TestCase):
-    def test_disabled_mode_raises_before_touching_the_bridge_or_postgresql_writes(self):
+    def test_disabled_mode_persists_a_skipped_intent_without_bridge_access(self):
         worker = _worker()
         consumer = ExecutionSignalConsumer(worker, execution_authority_mode=ExecutionAuthorityMode.DISABLED)
-        with self.assertRaises(ExecutionAuthorityDisabled):
-            consumer.handle_envelope(_envelope())
-        self.assertEqual(len(worker.conn.tables["execution_v2.execution_intent"]), 0)
+        outcome = consumer.handle_envelope(_envelope())
+        self.assertEqual(outcome.status, "BLOCKED")
+        row = next(iter(worker.conn.tables["execution_v2.execution_intent"].values()))
+        self.assertEqual(row["block_reason"], "EXECUTION_AUTHORITY_DISABLED")
+        self.assertEqual(len(worker.conn.tables["execution_v2.execution_attempt"]), 0)
 
     def test_defense_in_depth_sentinel_fires_if_any_bridge_ever_invokes_broker_call_locally(self):
         """Not the primary safety mechanism (see RealBridgeNotWired's own docstring) - this

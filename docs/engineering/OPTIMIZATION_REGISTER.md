@@ -57,6 +57,92 @@ history, not deleted).
 | 42 | Control API canonical `/executions` wiring | DEFERRED | `control_api/execution_v2_source.py` is prepared and unit-tested but not called from `control_api/app.py`'s live `/executions` route (do not deploy this API change); see that module's own docstring for the exact integration point. |
 | 43 | execution_v2 resource-quota headroom | BLOCKING (before scaling `deploy/execution_v2/workload.yaml` above `replicas: 0`) | No mission to date has performed a live-cluster read (DO NOT MODIFY LIVE KUBERNETES); see `deploy/execution_v2/resource-quota-patch.README.md` for the exact arithmetic an operator must apply against the then-current live `ResourceQuota` before scaling up. |
 | 44 | `execution-v2-runtime` NetworkPolicy egress rule to the deployed bridge service | BLOCKING (alongside #35) | `deploy/execution_v2/network-policy.yaml` deliberately grants no egress to any bridge fence endpoint today, since none is deployed. Adding the rule is required alongside, and only alongside, deploying #35 - never added speculatively ahead of it. |
+| 45 | V2 per-account risk policy overrides | DEFERRED | See "V2 per-account risk policy overrides" below. Audited (`CLAUDE-V2-RISK-CONFIG-SCOPE-AUDIT`) at platform `7ecabba` / console `f74a245`: the DB-authority cutover implements a single canonical GLOBAL policy row only - no account-scoped table, resolver, or Console scope selector exists. Not a small completion of already-present support; correctly out of scope for the DB-authority cutover itself. |
+
+## V2 per-account risk policy overrides
+
+**STATUS:** DEFERRED
+
+**CURRENT:** V2 risk configuration uses the canonical global PostgreSQL policy
+(`execution_v2.risk_policy`, singleton row `policy_id='current'`, plus its
+`risk_policy_allowed_{account,strategy,symbol}` child tables and `risk_policy_change` history -
+`execution_v2/risk_policy_store.py`). There is exactly one policy for the whole platform; nothing
+in the schema, resolver, API, or Console is keyed by trading account.
+
+**TARGET:**
+
+```
+Global Risk Policy
+        v defaults
+Trading Account Overrides
+        v precedence
+Effective Account Policy
+        v
+V2 Risk Evaluator
+```
+
+**NORMAL PRECEDENCE:** explicit account override > global default.
+
+**INHERITANCE:** missing account override -> global value. Absence must be tracked via explicit
+presence/nullability (a row exists vs. does not), never via a falsy sentinel - `false`/`0`/`0.0`
+are legitimate explicit override values, not "inherit" signals.
+
+**GLOBAL SAFETY:** global disable cannot be bypassed by an account override. Effective activation
+must behave as `global_enabled AND account_effective_enabled`, never simple "account wins"
+precedence in the unsafe direction.
+
+Future audit should classify every field as one of: `GLOBAL_ONLY`, `ACCOUNT_OVERRIDABLE`,
+`ACCOUNT_ONLY`, `DERIVED`, `HARD_SAFETY_CEILING`.
+
+Expected account-overridable candidates (confirmed present as global-only fields today in
+`execution_v2.risk_policy` / `RiskPolicy`, per `execution_v2/risk.py`'s `parse_policy_dict`):
+`risk_per_trade`, `max_volume`, `max_daily_loss`, `max_signal_age_seconds`,
+`max_concurrent_positions`, `max_concurrent_orders`, `allowed_strategies`,
+`allowed_symbols`/instruments. Exact field semantics (which of these are ordinary defaults vs.
+absolute platform safety ceilings that an account override must never be able to weaken) must be
+confirmed during implementation, not assumed.
+
+**REQUIRED FUTURE BEHAVIOR:**
+
+- Account overrides store only explicit differences - no full policy duplication per account.
+- Removing an override restores global inheritance.
+- Global changes propagate immediately to inheriting accounts; explicit account overrides remain
+  unchanged.
+- Global kill switch always wins (see GLOBAL SAFETY above).
+- Global hard restrictions cannot be widened by an account override - likely intersection
+  semantics for `allowed_strategies`/`allowed_symbols` (`effective = GLOBAL allowed INTERSECT
+  ACCOUNT allowed override`, when an account override is present), not simple replacement.
+- Limits (`max_daily_loss`, `max_concurrent_positions`, `max_concurrent_orders`) must be measured
+  and enforced at the same account scope as they are configured - a per-account limit whose
+  runtime counter is accidentally computed globally across every account would be a real
+  correctness bug, not a cosmetic one.
+- Canonical internal trading-account identity used as the relational key, never a display name,
+  masked account number, or broker symbol.
+- One backend effective-policy resolver (`resolve_effective_policy(account_id)`); the Console,
+  Platform API, and evaluator all consume its output rather than each re-implementing merge logic.
+- Optimistic concurrency (global and account-override each carry their own revision; the effective
+  fingerprint incorporates both).
+- Effective-policy provenance exposed at minimum as: global policy revision, account override
+  revision, effective policy fingerprint, and field-level source where useful for the
+  configuration UI.
+- Fail closed: missing/invalid global policy, DB unavailable, or an unknown account -> fail
+  closed entirely; a malformed account override -> fail closed for that account only, never a
+  silent fallback to global for that account, and never any fallback to the legacy JSON file.
+
+**CONSOLE TARGET:** a scope selector (`Global Defaults` / `Trading Account: <masked account>`).
+The account view shows, per field: Global Default, Account Override, Effective Value, and a
+`Use Global` / `Override` toggle - never requiring the operator to manually copy global values
+into every account.
+
+**DEPENDENCIES:** canonical PostgreSQL risk-policy authority must exist first (it now does, as of
+platform `7ecabba`).
+
+**NON-BLOCKING FOR CURRENT DB AUTHORITY CUTOVER:** YES.
+
+**Schema note:** today's `execution_v2.risk_policy` singleton-row design does not itself block
+adding an `execution_v2.account_policy_override` table later (a straightforward additive table,
+foreign-keyed to canonical account identity, following the same relational-child-table pattern
+`risk_policy_allowed_account` already uses) - but that table is deliberately not created now.
 
 ## Credentials (mission section 9)
 

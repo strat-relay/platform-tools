@@ -57,6 +57,7 @@ spec:
             cidr: 192.168.1.166/32
       ports:
         - {port: 22348, protocol: TCP}
+        - {port: 22347, protocol: TCP}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

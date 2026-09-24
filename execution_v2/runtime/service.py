@@ -13,14 +13,18 @@ anything it imports (proven statically by
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
+import urllib.request
 from typing import Any
 
 from postgres.db import connect, transaction
 
 from ..fence import FenceAuthority
-from ..risk import load_risk_policy
+from ..risk import RiskPolicy
+from ..risk_policy_store import read_effective_policy
+from ..authority_store import read_authority
 from ..worker import ExecutionWorker
 from ..symbols import resolve_broker_symbol
 from .bridge_client import HttpBridgeFenceClient
@@ -37,24 +41,27 @@ class RuntimeContext:
     RuntimeContext split)."""
 
     def __init__(self, *, conn: Any, js: Any, config: RuntimeConfig, health: HealthState,
-                consumer: ExecutionSignalConsumer) -> None:
+                consumer: ExecutionSignalConsumer, status_metadata: dict[str, Any] | None = None) -> None:
         self.conn = conn
         self.js = js
         self.config = config
         self.health = health
         self.consumer = consumer
+        self.status_metadata = status_metadata or {}
 
 
-def register_runtime_instance(conn: Any, *, instance_id: str, component: str = "execution_v2") -> None:
+def register_runtime_instance(conn: Any, *, instance_id: str, component: str = "execution_v2",
+                              metadata: dict[str, Any] | None = None) -> None:
     """platform.ownership_leases.holder_instance_id is a real FK to platform.runtime_instances
     (discovered only against real PostgreSQL - fakes.py does not model this FK). A worker must
     register itself before it can ever acquire a fence generation."""
     with transaction(conn):
         with conn.cursor() as cur:
-            cur.execute("""INSERT INTO platform.runtime_instances (instance_id, component, status)
-                          VALUES (%s, %s, 'RUNNING')
-                          ON CONFLICT (instance_id) DO UPDATE SET status='RUNNING', last_heartbeat_at=now()""",
-                       (instance_id, component))
+            cur.execute("""INSERT INTO platform.runtime_instances (instance_id, component, status, metadata)
+                          VALUES (%s, %s, 'RUNNING', %s::jsonb)
+                          ON CONFLICT (instance_id) DO UPDATE SET status='RUNNING',
+                            last_heartbeat_at=now(), metadata=EXCLUDED.metadata""",
+                       (instance_id, component, json.dumps(metadata or {})))
 
 
 async def ensure_execution_stream(js: Any) -> None:
@@ -106,7 +113,8 @@ async def subscribe_consumer(js: Any, consumer: ExecutionSignalConsumer, *, cons
 
 
 async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
-    register_runtime_instance(ctx.conn, instance_id=ctx.config.holder_instance_id)
+    register_runtime_instance(ctx.conn, instance_id=ctx.config.holder_instance_id,
+                              metadata=ctx.status_metadata)
     await ensure_execution_stream(ctx.js)
     await bootstrap_consumer(ctx.js, consumer_name=CONSUMER_NAME)
     ctx.health.mark_ready("nats")
@@ -119,7 +127,9 @@ async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
 
 async def main_async() -> None:
     config = RuntimeConfig.from_env()
-    health = HealthState(execution_authority_mode=config.execution_authority_mode.value, account_id=config.account_id)
+    authority_provider = lambda: read_authority().get("state", "DISABLED")
+    health = HealthState(execution_authority_mode=config.execution_authority_mode.value,
+                         account_id=config.account_id, authority_provider=authority_provider)
     start_health_server(health, port=config.health_port)
 
     conn = connect(config.postgres)
@@ -132,8 +142,15 @@ async def main_async() -> None:
 
     fence_authority = FenceAuthority(keys={config.fence_key_id: config.fence_signing_key}, active_key_id=config.fence_key_id)
     bridge = HttpBridgeFenceClient(base_url=config.bridge_fence_url,
+                                   read_base_url=config.read_bridge_url,
                                    execution_mode=f"{config.bridge_mode.upper()}_EXECUTION")
-    risk_policy = load_risk_policy(config.risk_policy_path)
+    # PostgreSQL is the sole runtime policy authority. The file path remains a legacy/bootstrap
+    # reference for migration tooling, but is never consulted by the running evaluator.
+    policy_connect = lambda *, readonly=False: connect(config.postgres, readonly=readonly)
+    risk_policy, policy_source = read_effective_policy(policy_connect)
+    def risk_policy_provider() -> RiskPolicy:
+        policy, _source = read_effective_policy(policy_connect)
+        return policy
     def risk_context_provider(record: dict[str, Any]) -> dict[str, Any]:
         broker_symbol = resolve_broker_symbol(record["instrument"], account_id=config.account_id,
                                               mode=config.bridge_mode)
@@ -141,10 +158,49 @@ async def main_async() -> None:
     worker = ExecutionWorker(conn, fence_authority=fence_authority, bridge=bridge,
                              holder_instance_id=config.holder_instance_id, account_id=config.account_id,
                              mode=config.bridge_mode, risk_policy=risk_policy,
-                             risk_context_provider=risk_context_provider)
-    consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode)
+                             risk_context_provider=risk_context_provider,
+                             risk_policy_provider=risk_policy_provider,
+                             authority_provider=authority_provider)
+    consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode,
+                                       authority_provider=authority_provider)
 
-    ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer)
+    bridge_status = "UNKNOWN"
+    try:
+        health_url = config.bridge_fence_url.rsplit("/mcp", 1)[0] + "/health"
+        request = urllib.request.Request(health_url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=3) as response:
+            health_payload = json.loads(response.read().decode("utf-8"))
+        bridge_status = "HEALTHY" if health_payload.get("ok") is True else "DEGRADED"
+    except (OSError, ValueError, json.JSONDecodeError):
+        bridge_status = "DEGRADED"
+
+    ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer,
+                         status_metadata={
+                             "execution_authority_mode": authority_provider(),
+                             "account_id": config.account_id,
+                             "canary_key": worker.resource,
+                             "risk_policy": {
+                                 "enabled": risk_policy.enabled,
+                                 "version": risk_policy.version,
+                                 "risk_per_trade": risk_policy.risk_per_trade,
+                                 "max_volume": risk_policy.max_volume,
+                                 "max_signal_age_seconds": risk_policy.max_signal_age_seconds,
+                                 "max_daily_loss": risk_policy.max_daily_loss,
+                                 "max_concurrent_positions": risk_policy.max_concurrent_positions,
+                                 "max_concurrent_orders": risk_policy.max_concurrent_orders,
+                                 "allowed_accounts": list(risk_policy.allowed_accounts),
+                                 "allowed_strategies": list(risk_policy.allowed_strategies),
+                                 "allowed_symbols": list(risk_policy.allowed_symbols or ()),
+                                 "canary_max_new_executions": risk_policy.canary_max_new_executions,
+                                 "source": policy_source,
+                             },
+                             "execution_bridge": {"status": bridge_status},
+                             "broker_account": {
+                                 "status": "CONNECTED" if bridge_status == "HEALTHY" else "UNAVAILABLE",
+                                 "account": "*" * max(0, len(config.account_id) - 4) + config.account_id[-4:],
+                                 "currency": None,
+                             },
+                         })
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

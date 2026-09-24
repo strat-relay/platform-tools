@@ -14,15 +14,17 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Callable
 
 
 class HealthState:
-    def __init__(self, *, execution_authority_mode: str, account_id: str) -> None:
+    def __init__(self, *, execution_authority_mode: str, account_id: str,
+                 authority_provider: Callable[[], str] | None = None) -> None:
         self._lock = threading.Lock()
         self._ready_components: dict[str, bool] = {"postgres": False, "nats": False, "entry_signal_consumer": False}
         self._detail: dict[str, Any] = {}
         self.execution_authority_mode = execution_authority_mode
+        self.authority_provider = authority_provider
         self.account_id = account_id
 
     def mark_ready(self, component: str, *, detail: Any = None) -> None:
@@ -40,8 +42,9 @@ class HealthState:
             return all(self._ready_components.values())
 
     def execution_status(self) -> dict[str, Any]:
-        return {"execution_authority_mode": self.execution_authority_mode, "account_id": self.account_id,
-               "broker_writes": self.execution_authority_mode == "ENABLED"}
+        mode = self.authority_provider() if self.authority_provider is not None else self.execution_authority_mode
+        return {"execution_authority_mode": mode, "account_id": self.account_id,
+               "broker_writes": mode == "ENABLED"}
 
 
 def _make_handler(state: HealthState) -> type:

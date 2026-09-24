@@ -26,7 +26,8 @@ def policy(**overrides) -> RiskPolicy:
 
 def valid_record(**overrides) -> dict:
     record = {"instrument": "EURUSD", "direction": "LONG", "entry_price": 1.1000,
-             "stop_price": 1.0950, "target_price": 1.1100, "decision_time": NOW}
+             "stop_price": 1.0950, "target_price": 1.1100, "decision_time": NOW,
+             "signal_emitted_at": NOW}
     record.update(overrides)
     return record
 
@@ -78,7 +79,7 @@ class CheckEligibilityTests(unittest.TestCase):
         self.assertEqual(result.reason, "INVALID_TARGET_GEOMETRY")
 
     def test_blocked_on_stale_signal(self):
-        stale_record = valid_record(decision_time=NOW - timedelta(hours=2))
+        stale_record = valid_record(signal_emitted_at=NOW - timedelta(hours=2))
         result = check_eligibility(stale_record, risk_policy=policy(max_signal_age_seconds=60.0),
                                    account_id=ACCOUNT, now_utc=NOW)
         self.assertEqual(result.reason, "STALE_SIGNAL")
@@ -89,7 +90,8 @@ class CreateExecutionIntentTests(unittest.TestCase):
         conn = FakeConnection()
         fields = dict(signal_id=signal_id, strategy_id="STRAT1", strategy_version=1, strategy_ref="strat-ref",
                      instrument="EURUSD", direction="LONG", decision_time=NOW, entry_price=1.1000,
-                     stop_price=1.0950, target_price=1.1100, entry_signal_hash=entry_signal_hash)
+                     stop_price=1.0950, target_price=1.1100, signal_emitted_at=NOW,
+                     entry_signal_hash=entry_signal_hash)
         fields.update(overrides)
         conn.seed_entry_signal(**fields)
         return conn
@@ -124,6 +126,11 @@ class CreateExecutionIntentTests(unittest.TestCase):
         row = conn.tables["execution_v2.execution_intent"][result.execution_intent_id]  # keyed by PK
         self.assertEqual(row["status"], "BLOCKED")
         self.assertEqual(row["block_reason"], "ACCOUNT_NOT_ALLOWED")
+        # Regression: a rejection must not lose policy provenance. risk_policy is passed into
+        # this call unconditionally, so a BLOCKED row can and must still record which policy
+        # version it was actually evaluated against - a later reviewer explaining this rejection
+        # needs that, exactly as much as an approved row does.
+        self.assertEqual(row["risk_policy_version"], 1)
 
     def test_duplicate_call_for_the_same_signal_and_account_is_idempotent(self):
         conn = self._seeded_conn()
@@ -134,20 +141,17 @@ class CreateExecutionIntentTests(unittest.TestCase):
         self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 1)
         self.assertEqual(len(conn.tables["platform.outbox_events"]), 1)  # never re-published
 
-    def test_a_second_account_for_an_already_intented_signal_never_creates_a_second_intent(self):
-        # `execution_v2.execution_intent.entry_signal_id` is UNIQUE (migration 016): this V2 slice
-        # is single-personal-account only (mission section 1 explicitly excludes multi-account
-        # routing), so the schema itself - not just application logic - forbids a second intent
-        # for the same signal under a different account, even though the two calls compute
-        # different (unused) execution_intent_id candidates.
+    def test_a_second_account_for_a_signal_gets_its_own_intent(self):
+        # Audit readiness keys the canonical evaluation by signal and account. The same signal
+        # remains idempotent for one account, while a second account gets an independent row.
         conn = self._seeded_conn()
         first = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT, risk_policy=policy(), now_utc=NOW)
         other_policy = policy(allowed_accounts=(ACCOUNT, "ACC2"))
         second = create_execution_intent(conn, signal_id="SIG1", account_id="ACC2", risk_policy=other_policy, now_utc=NOW)
         self.assertEqual(first.status, "CREATED")
-        self.assertEqual(second.status, "DUPLICATE")
+        self.assertEqual(second.status, "CREATED")
         self.assertNotEqual(first.execution_intent_id, second.execution_intent_id)  # candidate ids still differ
-        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 1)  # but only one row ever lands
+        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 2)
 
     def test_quarantined_on_entry_signal_hash_mismatch_and_creates_no_intent(self):
         conn = self._seeded_conn(entry_signal_hash="hash-current")
