@@ -16,7 +16,7 @@ import json
 import os
 from typing import Any, Callable
 
-from execution_v2.risk import RiskPolicy, RiskPolicyError
+from execution_v2.risk import RiskPolicy, RiskPolicyError, RiskPolicyRevisionConflict
 from execution_v2.risk_policy_store import (read_canary_status, read_effective_policy_record,
                                              write_policy_override)
 from postgres.db import connect
@@ -147,6 +147,9 @@ class V2RiskExecutionApi:
                          "error": "INVALID_REVISION", "message": "revision must be an integer"}
         try:
             saved = write_policy_override(merged, expected_revision=expected_revision, connect_fn=self._connect)
+        except RiskPolicyRevisionConflict as exc:
+            return 409, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
+                         "error": "REVISION_CONFLICT", "message": str(exc)}
         except RiskPolicyError as exc:
             return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
                         "error": "POLICY_VALIDATION_FAILED", "message": str(exc)}

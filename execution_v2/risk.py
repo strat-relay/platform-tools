@@ -23,6 +23,10 @@ class RiskPolicyError(ValueError):
     as "fall back to a default value"."""
 
 
+class RiskPolicyRevisionConflict(RiskPolicyError):
+    """The submitted policy revision is older than the canonical PostgreSQL revision."""
+
+
 @dataclass(frozen=True)
 class RiskPolicy:
     version: int

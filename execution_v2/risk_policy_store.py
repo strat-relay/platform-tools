@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from postgres.db import connect, transaction
 
-from .risk import RiskPolicy, RiskPolicyError, parse_policy_dict
+from .risk import RiskPolicy, RiskPolicyError, RiskPolicyRevisionConflict, parse_policy_dict
 
 SOURCE_POSTGRES = "POSTGRES"
 SOURCE_FILE_BASELINE = "LEGACY_BOOTSTRAP_ONLY"
@@ -100,7 +100,7 @@ def persist_policy(raw_policy: Any, *, expected_revision: int | None = None,
         with conn.cursor() as cur:
             current, policy_id = _read_row(cur, for_update=True) if expected_revision is not None else (None, "current")
             if current is not None and int(current["revision"]) != expected_revision:
-                raise RiskPolicyError("stale policy revision")
+                raise RiskPolicyRevisionConflict("stale policy revision")
             previous_revision = int(current["revision"]) if current is not None else None
             revision = (previous_revision or 0) + 1
             cur.execute("""INSERT INTO execution_v2.risk_policy
