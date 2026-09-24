@@ -7,8 +7,11 @@ zero-effect proof).
 """
 from __future__ import annotations
 
+import json
+import os
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from execution_v2.bridge_fence_sim import BridgeFenceSimulator
 from execution_v2.fakes import FakeBroker, FakeConnection
@@ -20,6 +23,22 @@ NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=timezone.utc)
 ACCOUNT = "ACC1"
 KEY = b"0" * 32
 KEYS = {"k1": KEY}
+
+# The worker resolves a broker symbol (execution_v2/symbols.py) before every submission attempt -
+# fails closed with no default/inferred suffix (mission: "no suffix convention is inferred here").
+# A "default" key applies regardless of the account/mode any given test uses, matching the
+# convention tests/test_execution_v2_symbols.py already establishes for exercising this module
+# directly (mock.patch.dict, never relying on the ambient shell environment).
+_BROKER_SYMBOL_MAP = {"default": {"EURUSD": "EURUSDm"}}
+_env_patch = mock.patch.dict(os.environ, {"V2_BROKER_SYMBOL_MAP_JSON": json.dumps(_BROKER_SYMBOL_MAP)}, clear=False)
+
+
+def setUpModule() -> None:
+    _env_patch.start()
+
+
+def tearDownModule() -> None:
+    _env_patch.stop()
 
 
 def policy(**overrides) -> RiskPolicy:
