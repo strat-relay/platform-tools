@@ -34,8 +34,12 @@ jobs:
             requirements-realtime.txt
 
       - name: Install dependencies (union of every image's requirements)
+        # --no-cache-dir is for the Dockerfiles (final image size) - it never belongs here: it
+        # stops pip from populating ~/.cache/pip at all, so actions/setup-python's cache: pip
+        # save step (above) finds nothing to save and fails the job outright (caught by an actual
+        # GitHub-hosted run: a green "Ran N tests ... OK" immediately followed by a failed job).
         run: |
-          pip install --no-cache-dir --disable-pip-version-check \
+          pip install --disable-pip-version-check \
             -r requirements-postgres.txt \
             -r requirements-messaging.txt \
             -r requirements-realtime.txt

@@ -64,8 +64,10 @@ jobs:
             requirements-messaging.txt
             requirements-realtime.txt
 
+      # --no-cache-dir is for the Dockerfiles (final image size) only - see pr.yml's identical
+      # note for why it must never be combined with cache: pip above.
       - run: |
-          pip install --no-cache-dir --disable-pip-version-check \
+          pip install --disable-pip-version-check \
             -r requirements-postgres.txt \
             -r requirements-messaging.txt \
             -r requirements-realtime.txt
