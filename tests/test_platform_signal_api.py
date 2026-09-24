@@ -85,9 +85,22 @@ class FakeCursor:
             self.rows = [(version,)] if self.connection.schema_ready and version in {"012", "015"} else []
         elif sql.lstrip().startswith("SELECT s.signal_id"):
             self.rows = list(self.connection.rows)
+            if "ORDER BY (CASE WHEN outcomes.status IS NULL" in sql:
+                # Simulates the real ORDER BY, since test rows are dicts already shaped like the
+                # real projected output (an "outcome" key, ISO-8601 "decision_time" strings which
+                # sort correctly lexicographically) - applied as three stable sorts, least to
+                # most significant, since the real clause mixes ascending (open-first) and
+                # descending (newest decision_time first) directions.
+                self.rows = sorted(self.rows, key=lambda r: r.get("signal_id") or "")
+                self.rows = sorted(self.rows, key=lambda r: r.get("decision_time") or "", reverse=True)
+                self.rows = sorted(self.rows, key=lambda r: 0 if r.get("outcome") in (None, "OPEN") else 1)
             if "LIMIT %s OFFSET %s" in sql:
                 limit, offset = params[-2:]
                 self.rows = self.rows[offset:offset + limit]
+        elif sql.lstrip().startswith("SELECT COUNT(*)"):
+            # This fake doesn't simulate WHERE filtering (tests pre-set exactly the rows a
+            # given case cares about) - the count query gets the same unfiltered total.
+            self.rows = [(len(self.connection.rows),)]
         else:
             raise AssertionError(f"unexpected SQL in test: {sql}")
 
@@ -149,9 +162,41 @@ class PlatformSignalApiTests(unittest.TestCase):
         api = self.make_api()
         status, body = api.execute("GET", "/api/v1/signals?limit=7&offset=2")
         self.assertEqual(status, 200)
-        self.assertEqual(body["meta"]["pagination"], {"limit": 7, "offset": 2, "returned": 0, "has_more": False})
+        self.assertEqual(body["meta"]["pagination"],
+                         {"limit": 7, "offset": 2, "returned": 0, "has_more": False, "total": 1})
         select_sql = next(sql for sql, _ in self.connection.statements if "SELECT s.signal_id" in sql)
-        self.assertIn("ORDER BY s.decision_time DESC, s.signal_id ASC LIMIT %s OFFSET %s", select_sql)
+        self.assertIn(
+            "ORDER BY (CASE WHEN outcomes.status IS NULL OR outcomes.status = 'OPEN' THEN 0 ELSE 1 END),"
+            " s.decision_time DESC, s.signal_id ASC LIMIT %s OFFSET %s",
+            select_sql,
+        )
+        count_sql = next(sql for sql, _ in self.connection.statements if sql.lstrip().startswith("SELECT COUNT(*)"))
+        self.assertIn("FROM strategy.entry_signals AS s", count_sql)
+
+    def test_open_signals_sort_before_resolved_ones_regardless_of_decision_time(self):
+        # An older OPEN signal must still sort before a newer resolved one.
+        older_open = {**CANONICAL_ROW, "signal_id": "SIG_OLDER_OPEN", "decision_time": "2026-01-01T00:00:00+00:00", "outcome": None}
+        newer_resolved = {**CANONICAL_ROW, "signal_id": "SIG_NEWER_RESOLVED", "decision_time": "2026-09-01T00:00:00+00:00", "outcome": "TARGET_HIT"}
+        api = self.make_api(rows=(newer_resolved, older_open))
+        status, body = api.execute("GET", "/api/v1/signals")
+        self.assertEqual(status, 200)
+        self.assertEqual([row["signal_id"] for row in body["data"]], ["SIG_OLDER_OPEN", "SIG_NEWER_RESOLVED"])
+
+    def test_explicit_open_outcome_sorts_the_same_as_a_never_evaluated_signal(self):
+        explicit_open = {**CANONICAL_ROW, "signal_id": "SIG_EXPLICIT_OPEN", "decision_time": "2026-01-01T00:00:00+00:00", "outcome": "OPEN"}
+        resolved = {**CANONICAL_ROW, "signal_id": "SIG_RESOLVED", "decision_time": "2026-09-01T00:00:00+00:00", "outcome": "STOPPED"}
+        api = self.make_api(rows=(resolved, explicit_open))
+        status, body = api.execute("GET", "/api/v1/signals")
+        self.assertEqual(status, 200)
+        self.assertEqual([row["signal_id"] for row in body["data"]], ["SIG_EXPLICIT_OPEN", "SIG_RESOLVED"])
+
+    def test_within_the_open_group_newest_decision_time_sorts_first(self):
+        older_open = {**CANONICAL_ROW, "signal_id": "SIG_OLDER_OPEN", "decision_time": "2026-01-01T00:00:00+00:00", "outcome": None}
+        newer_open = {**CANONICAL_ROW, "signal_id": "SIG_NEWER_OPEN", "decision_time": "2026-06-01T00:00:00+00:00", "outcome": None}
+        api = self.make_api(rows=(older_open, newer_open))
+        status, body = api.execute("GET", "/api/v1/signals")
+        self.assertEqual(status, 200)
+        self.assertEqual([row["signal_id"] for row in body["data"]], ["SIG_NEWER_OPEN", "SIG_OLDER_OPEN"])
 
     def test_detail_reads_canonical_postgres_row(self):
         api = self.make_api()

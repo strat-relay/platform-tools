@@ -50,6 +50,26 @@ LEFT JOIN strategy.entry_signal_outcomes AS outcomes
     ON outcomes.signal_id = s.signal_id
 """
 
+# Same FROM/JOIN/WHERE shape as `_SELECT`, projected to a single count - kept as its own
+# constant (not derived from `_SELECT` by string surgery) so a future edit to `_SELECT` doesn't
+# silently desync the two.
+_COUNT_SELECT = """
+SELECT COUNT(*)
+FROM strategy.entry_signals AS s
+LEFT JOIN strategy.entry_signal_outcomes AS outcomes
+    ON outcomes.signal_id = s.signal_id
+"""
+
+# A signal is still "open" when no outcome has been recorded yet (outcomes.status IS NULL,
+# the common case - most signals haven't been evaluated) or when it has been recorded as
+# explicitly OPEN. Every other SignalOutcome (TARGET_HIT/STOPPED/CLOSED/INVALIDATED/NO_RETRACE)
+# is terminal. Open signals sort first, then newest-decided-first within each group - open
+# signals are what an operator needs to see without paging past resolved history to find them.
+_ORDER_BY = (
+    " ORDER BY (CASE WHEN outcomes.status IS NULL OR outcomes.status = 'OPEN' THEN 0 ELSE 1 END),"
+    " s.decision_time DESC, s.signal_id ASC"
+)
+
 
 class CanonicalSourceUnavailable(RuntimeError):
     """The canonical PostgreSQL source could not serve a read."""
@@ -95,22 +115,41 @@ class CanonicalSignalRepository:
     def __init__(self, connect_fn: Callable[..., Any] = connect):
         self._connect = connect_fn
 
+    @staticmethod
+    def _check_schema(cursor: Any) -> None:
+        cursor.execute("SET TRANSACTION READ ONLY")
+        for version in (SCHEMA_VERSION, OUTCOME_SCHEMA_VERSION):
+            cursor.execute(
+                "SELECT version FROM platform.schema_migrations WHERE version = %s",
+                (version,),
+            )
+            if cursor.fetchone() is None:
+                raise CanonicalSourceUnavailable(
+                    f"canonical PostgreSQL requires schema {version}"
+                )
+
     def _query(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         try:
             with self._connect(readonly=True) as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SET TRANSACTION READ ONLY")
-                    for version in (SCHEMA_VERSION, OUTCOME_SCHEMA_VERSION):
-                        cursor.execute(
-                            "SELECT version FROM platform.schema_migrations WHERE version = %s",
-                            (version,),
-                        )
-                        if cursor.fetchone() is None:
-                            raise CanonicalSourceUnavailable(
-                                f"canonical PostgreSQL requires schema {version}"
-                            )
+                    self._check_schema(cursor)
                     cursor.execute(sql, params)
                     return [_project(_row_dict(cursor, row)) for row in cursor.fetchall()]
+        except CanonicalSourceUnavailable:
+            raise
+        except Exception as exc:
+            raise CanonicalSourceUnavailable("canonical PostgreSQL signal source unavailable") from exc
+
+    def _count(self, sql: str, params: tuple[Any, ...]) -> int:
+        """Same WHERE clause as `_query`, projected down to a single row count - used so the
+        Console's pagination controls can show "page N of M" / "X-Y of Z", not just has_more."""
+        try:
+            with self._connect(readonly=True) as conn:
+                with conn.cursor() as cursor:
+                    self._check_schema(cursor)
+                    cursor.execute(sql, params)
+                    row = cursor.fetchone()
+                    return int(row[0]) if row else 0
         except CanonicalSourceUnavailable:
             raise
         except Exception as exc:
@@ -157,14 +196,17 @@ class CanonicalSignalRepository:
                          OR COALESCE(s.entry_opportunity_id, '') ILIKE %s)""")
             params.extend([f"%{search}%"] * 5)
 
-        sql = _SELECT
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY s.decision_time DESC, s.signal_id ASC LIMIT %s OFFSET %s"
+        where_clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+        sql = _SELECT + where_clause + _ORDER_BY + " LIMIT %s OFFSET %s"
         rows = self._query(sql, tuple([*params, limit + 1, offset]))
         has_more = len(rows) > limit
-        return rows[:limit], {"limit": limit, "offset": offset,
-                              "returned": min(len(rows), limit), "has_more": has_more}
+        rows = rows[:limit]
+
+        total = self._count(_COUNT_SELECT + where_clause, tuple(params))
+
+        return rows, {"limit": limit, "offset": offset, "returned": len(rows),
+                      "has_more": has_more, "total": total}
 
     def get_signal(self, signal_id: str) -> dict[str, Any] | None:
         rows = self._query(_SELECT + " WHERE s.signal_id = %s", (signal_id,))
