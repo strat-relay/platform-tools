@@ -1,0 +1,68 @@
+name: PR
+
+# Ordinary development CI. No image publication, no deployment, no GitOps
+# mutation happens here - see release.yml for what only runs on main.
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # matches the python:3.12-slim base every Dockerfile here uses
+          cache: pip
+
+      - name: Install dependencies (union of every image's requirements)
+        run: |
+          pip install --no-cache-dir --disable-pip-version-check \
+            -r requirements-postgres.txt \
+            -r requirements-messaging.txt \
+            -r requirements-realtime.txt
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  docker-build-validation:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: control-api
+            dockerfile: deploy/platform_api/Dockerfile
+          - name: runtime
+            dockerfile: Dockerfile.runtime
+          - name: api-router
+            dockerfile: deploy/platform_api_router/Dockerfile
+          - name: realtime-api
+            dockerfile: deploy/platform_realtime_api/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build validation only - never pushed, never tagged for reuse. Proves the Dockerfile
+      # still builds against this PR's tree; production images only ever come from main (release.yml).
+      - name: Build ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: false
+          tags: pr-validation/${{ matrix.name }}:${{ github.event.pull_request.head.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

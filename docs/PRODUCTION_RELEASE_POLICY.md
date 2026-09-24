@@ -1,7 +1,5 @@
 # Production release policy
 
-Production artifacts must be built from a commit reachable from `origin/main`.
-Agent branches and detached worktrees are development-only and must not be
-deployed directly. Use `scripts/verify_main_release.sh [commit]` before
-building or deploying. Release tags should include the short `main` commit;
-rollback must select an earlier main-built image, not an agent branch.
+Moved to [`docs/engineering/PRODUCTION_RELEASE_POLICY.md`](engineering/PRODUCTION_RELEASE_POLICY.md)
+(the full policy, including the GitHub Actions pipeline this repository now has). This file is
+kept only so old links don't 404.
