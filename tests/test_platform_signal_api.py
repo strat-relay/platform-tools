@@ -5,6 +5,7 @@ import inspect
 import tempfile
 import threading
 import unittest
+from datetime import datetime
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -63,6 +64,28 @@ CANONICAL_ROW = {
     "outcome_source": "CONTEXT_STRUCTURE_RETRACE_V1",
 }
 
+# Column order platform_api/signals.py's `_execution_audit` SELECT uses - a plain tuple stands in
+# for a real cursor.description entry (`column[0]` is used when a column has no `.name`, matching
+# how psycopg's own description entries are accessed elsewhere in this fake).
+_AUDIT_COLUMNS = (
+    "entry_signal_id", "execution_intent_id", "account_id", "intent_status", "block_reason",
+    "risk_policy_version", "policy_fingerprint", "risk_per_trade", "account_equity",
+    "risk_budget_usd", "stop_distance", "broker_volume_min", "broker_volume_step",
+    "broker_volume_max", "calculated_volume", "submitted_volume", "estimated_loss_usd",
+    "daily_loss_used", "concurrent_positions_used", "concurrent_orders_used",
+    "signal_age_seconds", "max_signal_age_seconds", "canary_consumed", "canary_max",
+    "attempt_id", "attempt_state", "result_outcome", "broker_order_id", "broker_deal_id",
+)
+
+
+def audit_row(**overrides) -> tuple:
+    """One execution_v2.execution_intent (+ risk_evidence/attempt/result) join row, in
+    _AUDIT_COLUMNS order. Every field not given defaults to None, matching a LEFT JOIN that found
+    nothing on that side."""
+    values = {col: None for col in _AUDIT_COLUMNS}
+    values.update(overrides)
+    return tuple(values[col] for col in _AUDIT_COLUMNS)
+
 
 class FakeCursor:
     def __init__(self, connection):
@@ -78,12 +101,13 @@ class FakeCursor:
 
     def execute(self, sql, params=()):
         self.connection.statements.append((sql, params))
+        stripped = sql.lstrip()
         if sql == "SET TRANSACTION READ ONLY":
             return
         if "platform.schema_migrations" in sql:
             version = params[0]
-            self.rows = [(version,)] if self.connection.schema_ready and version in {"012", "015"} else []
-        elif sql.lstrip().startswith("SELECT s.signal_id"):
+            self.rows = [(version,)] if self.connection.schema_ready and version in {"012", "015", "021"} else []
+        elif stripped.startswith("SELECT s.signal_id"):
             self.rows = list(self.connection.rows)
             if "ORDER BY (CASE WHEN outcomes.status IS NULL" in sql:
                 # Simulates the real ORDER BY, since test rows are dicts already shaped like the
@@ -97,10 +121,25 @@ class FakeCursor:
             if "LIMIT %s OFFSET %s" in sql:
                 limit, offset = params[-2:]
                 self.rows = self.rows[offset:offset + limit]
-        elif sql.lstrip().startswith("SELECT COUNT(*)"):
+        elif stripped.startswith("SELECT COUNT(*)"):
             # This fake doesn't simulate WHERE filtering (tests pre-set exactly the rows a
             # given case cares about) - the count query gets the same unfiltered total.
             self.rows = [(len(self.connection.rows),)]
+        elif "SELECT VALUE FROM PLATFORM.SYSTEM_METADATA" in sql.upper():
+            self.rows = [(self.connection.audit_cutoff,)] if self.connection.audit_cutoff is not None else []
+        elif stripped.startswith("SELECT i.entry_signal_id"):
+            self.description = [(name,) for name in _AUDIT_COLUMNS]
+            self.rows = list(self.connection.audit_rows)
+        elif "SELECT SIGNAL_ID, DECISION_TIME FROM STRATEGY.ENTRY_SIGNALS" in sql.upper():
+            ids = set(params[0])
+            # A real timestamptz column comes back as a datetime, not the ISO string CANONICAL_ROW
+            # stores it as - matters here specifically because the audit-cutoff comparison
+            # (`decision_time < cutoff_dt`) would silently no-op (caught TypeError -> before_cutoff
+            # = False) against a string, masking exactly the behavior under test below.
+            self.rows = [
+                (r["signal_id"], datetime.fromisoformat(str(r["decision_time"]).replace("Z", "+00:00")))
+                for r in self.connection.rows if r["signal_id"] in ids and r.get("decision_time")
+            ]
         else:
             raise AssertionError(f"unexpected SQL in test: {sql}")
 
@@ -112,10 +151,15 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, rows=(), *, schema_ready=True):
+    def __init__(self, rows=(), *, schema_ready=True, audit_rows=(), audit_cutoff=None):
         self.rows = list(rows)
         self.schema_ready = schema_ready
         self.statements = []
+        # Every existing test predates the execution-audit join (platform_api/signals.py's
+        # _execution_audit) - defaulting to "no execution_v2 rows at all" reproduces exactly what
+        # those tests already assume (every signal is NOT_EVALUATED) without having to touch them.
+        self.audit_rows = list(audit_rows)
+        self.audit_cutoff = audit_cutoff
 
     def __enter__(self):
         return self
@@ -128,8 +172,9 @@ class FakeConnection:
 
 
 class PlatformSignalApiTests(unittest.TestCase):
-    def make_api(self, rows=(CANONICAL_ROW,), *, schema_ready=True):
-        self.connection = FakeConnection(rows, schema_ready=schema_ready)
+    def make_api(self, rows=(CANONICAL_ROW,), *, schema_ready=True, audit_rows=(), audit_cutoff=None):
+        self.connection = FakeConnection(rows, schema_ready=schema_ready, audit_rows=audit_rows,
+                                         audit_cutoff=audit_cutoff)
         repository = CanonicalSignalRepository(lambda **_kwargs: self.connection)
         return PlatformSignalApi(repository)
 
@@ -198,6 +243,19 @@ class PlatformSignalApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual([row["signal_id"] for row in body["data"]], ["SIG_NEWER_OPEN", "SIG_OLDER_OPEN"])
 
+    def test_list_rows_carry_an_execution_summary_derived_from_the_join(self):
+        rows = (audit_row(entry_signal_id=CANONICAL_ROW["signal_id"], execution_intent_id="INTENT_1",
+                          account_id="188428665", intent_status="BLOCKED",
+                          block_reason="MINIMUM_LOT_EXCEEDS_RISK_LIMIT"),)
+        api = self.make_api(audit_rows=rows)
+        status, body = api.execute("GET", "/api/v1/signals")
+        self.assertEqual(status, 200)
+        summary = body["data"][0]["executionSummary"]
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["decision"], "REJECTED")
+        self.assertEqual(summary[0]["reason"], "MINIMUM_LOT_EXCEEDS_RISK_LIMIT")
+        self.assertEqual(summary[0]["account"], "•••••8665")
+
     def test_detail_reads_canonical_postgres_row(self):
         api = self.make_api()
         status, body = api.execute("GET", "/api/v1/signals/SIG_POST_T0_CANONICAL")
@@ -205,6 +263,53 @@ class PlatformSignalApiTests(unittest.TestCase):
         self.assertEqual(body["data"]["source_id"], "signal-orchestrator")
         self.assertEqual(body["data"]["symbol"], "XAUUSDm")
         self.assertEqual(body["data"]["entry_price"], 2500.0)
+
+    def test_detail_with_no_execution_intent_is_not_evaluated_not_rejected(self):
+        api = self.make_api()
+        status, body = api.execute("GET", "/api/v1/signals/SIG_POST_T0_CANONICAL")
+        self.assertEqual(status, 200)
+        evaluations = body["data"]["executionEvaluations"]
+        self.assertEqual(len(evaluations), 1)
+        self.assertEqual(evaluations[0]["decision"], "NOT_EVALUATED")
+        self.assertEqual(evaluations[0]["reason"], "NO_EXECUTION_INTENT")
+
+    def test_detail_before_the_audit_cutoff_is_not_evaluated_for_a_documented_reason(self):
+        api = self.make_api(audit_cutoff={"cutoff_utc": "2026-09-19T00:00:00+00:00"})
+        # CANONICAL_ROW's decision_time (2026-09-18) is before the configured cutoff.
+        status, body = api.execute("GET", "/api/v1/signals/SIG_POST_T0_CANONICAL")
+        self.assertEqual(status, 200)
+        evaluations = body["data"]["executionEvaluations"]
+        self.assertEqual(evaluations[0]["decision"], "NOT_EVALUATED")
+        self.assertEqual(evaluations[0]["reason"], "HISTORICAL_AUDIT_UNAVAILABLE")
+
+    def test_detail_exposes_full_risk_evidence_and_broker_result(self):
+        rows = (audit_row(entry_signal_id=CANONICAL_ROW["signal_id"], execution_intent_id="INTENT_1",
+                          account_id="188428665", intent_status="COMPLETED",
+                          risk_policy_version=3, risk_per_trade=0.02, account_equity=10000.0,
+                          risk_budget_usd=200.0, calculated_volume=0.01, submitted_volume=0.01,
+                          attempt_id="ATT_1", attempt_state="CONFIRMED",
+                          result_outcome="FILLED", broker_order_id="BRK_1"),)
+        api = self.make_api(audit_rows=rows)
+        status, body = api.execute("GET", "/api/v1/signals/SIG_POST_T0_CANONICAL")
+        self.assertEqual(status, 200)
+        evaluation = body["data"]["executionEvaluations"][0]
+        self.assertEqual(evaluation["decision"], "EXECUTED")
+        self.assertEqual(evaluation["policy"]["version"], 3)
+        self.assertEqual(evaluation["riskEvaluation"]["risk_budget_usd"], 200.0)
+        self.assertEqual(evaluation["sizing"]["submitted_volume"], 0.01)
+        self.assertEqual(evaluation["execution"]["attemptId"], "ATT_1")
+        self.assertEqual(evaluation["brokerResult"]["broker_order_id"], "BRK_1")
+
+    def test_execution_authority_disabled_is_skipped_not_rejected(self):
+        rows = (audit_row(entry_signal_id=CANONICAL_ROW["signal_id"], execution_intent_id="INTENT_1",
+                          account_id="188428665", intent_status="BLOCKED",
+                          block_reason="EXECUTION_AUTHORITY_DISABLED"),)
+        api = self.make_api(audit_rows=rows)
+        status, body = api.execute("GET", "/api/v1/signals/SIG_POST_T0_CANONICAL")
+        self.assertEqual(status, 200)
+        evaluation = body["data"]["executionEvaluations"][0]
+        self.assertEqual(evaluation["decision"], "SKIPPED")
+        self.assertEqual(evaluation["humanReason"], "Execution authority disabled")
 
     def test_unknown_id_is_explicit_not_found(self):
         api = self.make_api(rows=())

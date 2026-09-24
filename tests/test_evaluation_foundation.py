@@ -115,7 +115,17 @@ class EvaluationFoundationTests(unittest.TestCase):
             "liquidity_displacement_forward.py": "2a188165c457f37c47eacfc4a283fb22f8fa9976ba46d0c1661b4584c211c6c6",
             "liquidity_displacement_entry_forward.py": "f35a2c71a85e9a46f8e66e3acedcf7dfbbf8a5214d0c41f82f5c3c1bd2d90ffc",
             "liquidity_displacement_v1_variant_a.py": "9864e5be59161ce0328998a71083f55b107f56ee9f5b71a6116cfa05c41cb5e1",
-            "context_structure_retrace_forward.py": "b52893c9fc5630d40ded5789d71937edd51ace78497cc7e7f720f03be124c679",
+            # Re-pinned (was b52893c9...) after "Add canonical Context entry outcome projection":
+            # context_structure_retrace_forward.py's OWN runtime self-check
+            # (FROZEN_DECISION_CODE_HASH, verified separately at import time) confirms its five
+            # frozen decision functions (_geometry/make_setup/_fill/_process_bar/process_symbol)
+            # are byte-identical to before - decision_code_hash() == FROZEN_DECISION_CODE_HASH
+            # still holds. Only ancillary code changed, matching this file's own documented
+            # invariant ("provenance metadata can evolve without changing V1 decisions" - see
+            # assert_frozen's docstring). This whole-file hash is intentionally stricter than that
+            # guard (it catches any byte change, not just to the five fingerprinted functions);
+            # re-pinning it is a deliberate, evidenced decision, not a blind hash refresh.
+            "context_structure_retrace_forward.py": "3bdd103a5557f65f308f66297b89e16e8fb8ded1f71ef69612fc083f922d7591",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
