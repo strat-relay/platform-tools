@@ -108,3 +108,61 @@ def tm_none_1_manifest_with_code_hash(module_source: bytes) -> TmVersionManifest
 
 
 TM_NONE_1_LABEL = "TM-NONE-1"
+
+
+# --------------------------------------------------------------------------------------
+# TM-BREAKEVEN-TRAIL-1: the first evaluator that can produce a non-HOLD decision
+# (trade_management/tm_breakeven_trail.py). Parametrized per binding via `policy_bundle` -
+# every distinct (breakeven_trigger_r, trail_trigger_r, trail_distance_r) tuple is its own,
+# separately-frozen, separately-hashed TmVersion: two strategies configured with different
+# parameters are bound to two different tm_version_id's, never sharing one mutable "settings"
+# row (matches this manifest's own stated design rule - the version id IS a commitment to
+# behaviour, and behaviour includes its parameters, not just its code).
+# --------------------------------------------------------------------------------------
+
+def tm_breakeven_trail_manifest(*, breakeven_trigger_r: float, trail_trigger_r: float,
+                                trail_distance_r: float, label: str) -> TmVersionManifest:
+    from .tm_breakeven_trail import EVALUATOR_ID, BreakevenTrailPolicy
+    # Validates the parameters using the exact same rule the runtime evaluator enforces, so an
+    # invalid policy can never be frozen in the first place.
+    BreakevenTrailPolicy(breakeven_trigger_r=breakeven_trigger_r, trail_trigger_r=trail_trigger_r,
+                         trail_distance_r=trail_distance_r)
+    return TmVersionManifest(
+        evaluator_id=EVALUATOR_ID,
+        label=label,
+        policy_bundle=(
+            ("breakeven_trigger_r", breakeven_trigger_r),
+            ("trail_trigger_r", trail_trigger_r),
+            ("trail_distance_r", trail_distance_r),
+        ),
+        resolution_table=(),
+        observation_spec={
+            "timeframes_consumed": [],
+            "ema_period": None, "swing_lookback_left": None, "swing_lookback_right": None,
+            "ema_tolerance": None, "structure_tolerance": None,
+            "max_market_age_ms": 60_000, "late_event_rule": "IGNORE_NEVER_EVALUATE",
+            "quote_required": True,
+        },
+        price_semantics={"version": "ps.v1", "reference": "close side = bid for LONG / ask for SHORT; mark = mid"},
+        arithmetic={"r_multiple_definition": "(price-entry)/|entry-initial_stop| signed by direction",
+                   "rounding": "none; no derived-float rounding performed by TM-BREAKEVEN-TRAIL"},
+        code_manifest={"trade_management/tm_breakeven_trail.py": "computed-at-registration"},
+        scope={"strategies": ["*"], "instruments": ["*"]},
+    )
+
+
+def tm_breakeven_trail_manifest_with_code_hash(module_source: bytes, *, breakeven_trigger_r: float,
+                                               trail_trigger_r: float, trail_distance_r: float,
+                                               label: str) -> TmVersionManifest:
+    """Same pattern as tm_none_1_manifest_with_code_hash: replace the placeholder code_manifest
+    entry with the real hash of the running tm_breakeven_trail.py module bytes."""
+    import hashlib
+    base = tm_breakeven_trail_manifest(breakeven_trigger_r=breakeven_trigger_r, trail_trigger_r=trail_trigger_r,
+                                       trail_distance_r=trail_distance_r, label=label)
+    digest = hashlib.sha256(module_source).hexdigest()
+    return TmVersionManifest(
+        evaluator_id=base.evaluator_id, label=base.label, policy_bundle=base.policy_bundle,
+        resolution_table=base.resolution_table, observation_spec=base.observation_spec,
+        price_semantics=base.price_semantics, arithmetic=base.arithmetic,
+        code_manifest={"trade_management/tm_breakeven_trail.py": digest}, scope=base.scope,
+    )

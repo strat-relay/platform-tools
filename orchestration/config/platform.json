@@ -93,7 +93,12 @@
       "strategy_version": "V1",
       "enabled": true,
       "adapter": "ContextStructureRetraceAdapter",
-      "routes": {"audit": true, "shadow_execution": true, "distribution_queue": true}
+      "routes": {"audit": true, "shadow_execution": true, "distribution_queue": true},
+      "trade_management": {
+        "policy": "tm-breakeven-trail.v1",
+        "label": "TM-BREAKEVEN-TRAIL-1-CONTEXT-DEFAULT",
+        "params": {"breakeven_trigger_r": 1.0, "trail_trigger_r": 1.5, "trail_distance_r": 0.5}
+      }
     },
     {
       "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
