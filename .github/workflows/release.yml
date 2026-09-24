@@ -59,6 +59,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements-postgres.txt
+            requirements-messaging.txt
+            requirements-realtime.txt
 
       - run: |
           pip install --no-cache-dir --disable-pip-version-check \

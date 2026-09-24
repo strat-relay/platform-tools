@@ -23,6 +23,15 @@ jobs:
         with:
           python-version: "3.12" # matches the python:3.12-slim base every Dockerfile here uses
           cache: pip
+          # setup-python's cache auto-detection only looks for **/requirements.txt or
+          # **/pyproject.toml by default and hard-errors (not just skips caching) when neither
+          # exists - this repo names its requirement files requirements-{postgres,messaging,
+          # realtime}.txt, so the path must be given explicitly (caught by an actual GitHub-hosted
+          # run: https://github.com/strat-relay/platform-tools/actions/runs/35973931775).
+          cache-dependency-path: |
+            requirements-postgres.txt
+            requirements-messaging.txt
+            requirements-realtime.txt
 
       - name: Install dependencies (union of every image's requirements)
         run: |
