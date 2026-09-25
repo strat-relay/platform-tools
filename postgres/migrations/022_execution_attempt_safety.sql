@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS execution_v2.execution_attempt_quarantine (
     provenance jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
+CREATE INDEX IF NOT EXISTS execution_attempt_quarantine_disposition_idx
+    ON execution_v2.execution_attempt_quarantine(disposition, quarantined_at);
+
 INSERT INTO execution_v2.execution_attempt_quarantine(attempt_id, reason, disposition, provenance)
 SELECT a.attempt_id, 'HISTORICAL_AMBIGUOUS_EXECUTION', 'RECONCILIATION_REQUIRED',
        jsonb_build_object('source', 'migration_022', 'original_state', a.state)
@@ -17,6 +20,22 @@ SELECT a.attempt_id, 'HISTORICAL_AMBIGUOUS_EXECUTION', 'RECONCILIATION_REQUIRED'
  WHERE a.state IN ('CLAIMED', 'SENDING', 'UNCERTAIN', 'FENCED')
     OR (a.state = 'CONFIRMED' AND r.outcome = 'SUBMITTED'
         AND r.broker_order_id IS NULL AND r.broker_deal_id IS NULL)
+ON CONFLICT (attempt_id) DO NOTHING;
+
+-- Preserve the specific unresolved SENDING rows from the historical audit with
+-- their original evidence. This is additive and remains non-retryable.
+INSERT INTO execution_v2.execution_attempt_quarantine
+    (attempt_id, reason, disposition, provenance)
+SELECT attempt_id,
+       'HISTORICAL_AMBIGUOUS_EXECUTION', 'RECONCILIATION_REQUIRED',
+       jsonb_build_object(
+           'source', 'execution_v2_historical_attempt_reconciliation',
+           'original_state', state,
+           'original_created_at', created_at,
+           'original_generation', generation
+       )
+FROM execution_v2.execution_attempt
+WHERE state = 'SENDING'
 ON CONFLICT (attempt_id) DO NOTHING;
 
 ALTER TABLE execution_v2.execution_result
