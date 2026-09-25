@@ -75,6 +75,12 @@ class PlatformControlRepository:
             worker_status = "DEGRADED"
         return {
             "instance_id": runtime.get("instance_id"),
+            # ExecutionAuthorityApi._preflight uses the persisted runtime
+            # lifecycle state to gate an authority transition. Keep the
+            # canonical status alongside the operator-facing worker_status;
+            # collapsing this to HEALTHY made the injected Arm path fail
+            # while the direct DB preflight passed.
+            "status": runtime.get("status"),
             "worker_status": worker_status,
             "execution_authority_mode": metadata.get("execution_authority_mode", "UNKNOWN"),
             "account_id": metadata.get("account_id"),

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from platform_api.control import PlatformControlApi
+from platform_api.control import PlatformControlApi, PlatformControlRepository
 from platform_api.signals import CanonicalSourceUnavailable, UnifiedPlatformApi
 
 
@@ -94,6 +94,23 @@ class PlatformControlApiTests(unittest.TestCase):
                      "EXECUTION_AUTHORITY_MODE": "DISABLED", "SIGNAL_DB_PRIMARY_ENABLED": "true"}
         authority.update(env or {})
         return PlatformControlApi(FakeRepository(unavailable=unavailable), authority, str(config))
+
+    def test_runtime_projection_preserves_lifecycle_status_for_arm_preflight(self):
+        repository = PlatformControlRepository()
+        repository.query = lambda sql, params=(): [{
+            "instance_id": "execution-v2-live",
+            "status": "RUNNING",
+            "last_heartbeat_at": "2026-09-25T00:00:00Z",
+            "metadata": {
+                "execution_bridge": {"status": "HEALTHY"},
+                "broker_account": {"status": "CONNECTED"},
+                "account_id": "188428665",
+                "risk_policy": {"enabled": True},
+            },
+        }]
+        projection = repository.execution_runtime_status()
+        self.assertEqual(projection["status"], "RUNNING")
+        self.assertEqual(projection["worker_status"], "HEALTHY")
 
     def test_system_reports_canonical_modes_and_inactive_execution(self):
         status, body = self.make_api().execute("GET", "/api/v1/system")
