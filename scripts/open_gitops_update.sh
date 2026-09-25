@@ -50,8 +50,11 @@ Application commit: ${commit}
 
 This PR only records desired state for Flux to reconcile. It does not touch Kubernetes directly
 and was opened with no cluster credentials."
-gh auth setup-git --hostname github.com
-git push origin "$branch"
+# `gh auth setup-git` does not consume GH_TOKEN as an active login in the
+# Actions runner. Supply the scoped token only through Git's HTTP header; it
+# is never printed and the temporary clone is discarded after this script.
+auth_header=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+git -c "http.extraHeader=Authorization: basic ${auth_header}" push origin "$branch"
 
 gh pr create --repo "$gitops_repo" --head "$branch" \
   --title "Update ${app_name} desired state to ${short_sha}" \
