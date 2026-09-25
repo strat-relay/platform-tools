@@ -35,6 +35,7 @@ TOOL = "mt5_canonical_order_send"
 RESULT_EVENT_TYPE = "execution.result.recorded.v1"
 
 _TERMINAL_ATTEMPT_STATES = frozenset({"CONFIRMED", "REJECTED", "FAILED", "FENCED", "CANCELLED", "NOT_SENT"})
+_NON_REPLAYABLE_ATTEMPT_STATES = frozenset({"CLAIMED", "SENDING", "UNCERTAIN"})
 
 
 class ExecutionAuthorityDisabled(RuntimeError):
@@ -123,6 +124,17 @@ class ExecutionWorker:
             row = cur.fetchone()
         return dict(zip(("attempt_id", "state", "generation", "account_id", "quarantined"), row)) if row else None
 
+    def _quarantine_attempt(self, attempt_id: str, *, state: str) -> None:
+        """Preserve the original attempt while making replay impossible."""
+        with transaction(self.conn):
+            with self.conn.cursor() as cur:
+                cur.execute("""INSERT INTO execution_v2.execution_attempt_quarantine
+                    (attempt_id, reason, disposition, provenance)
+                    VALUES (%s, %s, 'RECONCILIATION_REQUIRED', %s::jsonb)
+                    ON CONFLICT (attempt_id) DO NOTHING""",
+                           (attempt_id, "HISTORICAL_AMBIGUOUS_EXECUTION",
+                            canonical_bytes({"original_state": state, "source": "execution_worker"}).decode("utf-8")))
+
     def _claim_attempt(self, *, execution_intent_id: str, attempt_id: str, generation: int) -> dict[str, Any]:
         with transaction(self.conn):
             with self.conn.cursor() as cur:
@@ -157,16 +169,18 @@ class ExecutionWorker:
             with self.conn.cursor() as cur:
                 cur.execute("""INSERT INTO execution_v2.execution_result
                     (execution_result_id, attempt_id, execution_intent_id, outcome, account_id,
-                     broker_order_id, broker_deal_id, symbol, volume, requested_price, actual_price,
+                     broker_order_id, broker_deal_id, broker_position_id, symbol, volume, requested_price, actual_price,
                      submitted_at, confirmed_at, raw_broker_evidence)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                     ON CONFLICT (attempt_id) DO NOTHING""",
                            (result_id, attempt_id, execution_intent_id, outcome, self.account_id,
-                            broker_response.get("broker_order_id"), broker_response.get("broker_deal_id"),
+                            broker_response.get("broker_order_id") or broker_response.get("order"),
+                            broker_response.get("broker_deal_id") or broker_response.get("deal"),
+                            broker_response.get("broker_position_id") or broker_response.get("position_id"),
                             intent["instrument"], intent["approved_volume"], intent["requested_entry_price"],
                             broker_response.get("actual_price"),
                             now if outcome != "BLOCKED" else None,
-                            now if outcome in ("FILLED", "CONFIRMED") else None,
+                            now if outcome in ("FILLED", "ACCEPTED") else None,
                             canonical_bytes(broker_response).decode("utf-8")))
                 payload = {"execution_result_id": result_id, "attempt_id": attempt_id,
                           "execution_intent_id": execution_intent_id, "outcome": outcome,
@@ -261,9 +275,10 @@ class ExecutionWorker:
                 row = cur.fetchone()
             return ExecutionOutcome("RESULT_RECORDED", intent_result, att_id, row[0] if row else None,
                                     "attempt already terminal; no new broker effect")
-        if existing_attempt is not None and existing_attempt["state"] == "UNCERTAIN":
+        if existing_attempt is not None and existing_attempt["state"] in _NON_REPLAYABLE_ATTEMPT_STATES:
+            self._quarantine_attempt(att_id, state=existing_attempt["state"])
             return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id, "UNCERTAIN",
-                                    "prior attempt is UNCERTAIN; reconcile before any further action")
+                                    "prior attempt is non-replayable and requires reconciliation")
 
         try:
             generation = self._acquire_generation()
@@ -327,8 +342,8 @@ class ExecutionWorker:
 
         if submit_result.state == "DISPATCHED":
             broker_response = submit_result.broker_response or {}
-            broker_status = broker_response.get("status")
-            if broker_status == "AMBIGUOUS":
+            broker_status = self._authoritative_broker_status(broker_response)
+            if broker_status == "UNKNOWN_RECONCILIATION_REQUIRED":
                 self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                      outcome="UNKNOWN_RECONCILIATION_REQUIRED", attempt_terminal_state="UNCERTAIN",
                                      broker_response=broker_response)
@@ -339,7 +354,7 @@ class ExecutionWorker:
                                      outcome="REJECTED", attempt_terminal_state="REJECTED",
                                      broker_response=broker_response)
                 return ExecutionOutcome("RESULT_RECORDED", intent_result, att_id, "REJECTED", broker_response.get("reason"))
-            outcome = "FILLED" if broker_status == "FILLED" else "SUBMITTED"
+            outcome = broker_status
             self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                  outcome=outcome, attempt_terminal_state="CONFIRMED", broker_response=broker_response)
             return ExecutionOutcome("RESULT_RECORDED", intent_result, att_id, outcome, None)
@@ -355,3 +370,33 @@ class ExecutionWorker:
             self._set_attempt_state(att_id, "UNCERTAIN", terminal=False)
         return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id, None,
                                 f"unrecognized bridge ledger state: {submit_result.state}")
+
+    @staticmethod
+    def _authoritative_broker_status(response: dict[str, Any]) -> str:
+        """Normalize broker evidence; transport success alone is never sufficient."""
+        if not response:
+            return "UNKNOWN_RECONCILIATION_REQUIRED"
+        explicit = response.get("status")
+        if explicit == "REJECTED":
+            return "REJECTED"
+        if explicit in {"AMBIGUOUS", "SUBMITTED", "DISPATCHED", "UNKNOWN_RECONCILIATION_REQUIRED"}:
+            return "UNKNOWN_RECONCILIATION_REQUIRED"
+        if explicit == "FILLED":
+            return "FILLED" if (response.get("broker_deal_id") or response.get("deal") or
+                                  response.get("broker_position_id") or response.get("position_id")) else \
+                   "UNKNOWN_RECONCILIATION_REQUIRED"
+        if explicit == "ACCEPTED":
+            return "ACCEPTED" if (response.get("broker_order_id") or response.get("order")) else \
+                   "UNKNOWN_RECONCILIATION_REQUIRED"
+        retcode = response.get("retcode")
+        if retcode is not None:
+            try:
+                accepted = int(retcode) in {10008, 10009, 10010}
+            except (TypeError, ValueError):
+                accepted = False
+            if accepted:
+                if response.get("deal") or response.get("broker_deal_id") or response.get("position_id"):
+                    return "FILLED"
+                if response.get("order") or response.get("broker_order_id"):
+                    return "ACCEPTED"
+        return "UNKNOWN_RECONCILIATION_REQUIRED"

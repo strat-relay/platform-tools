@@ -31,7 +31,7 @@ _INTENT_COLUMNS = ("execution_intent_id", "entry_signal_id", "entry_signal_hash"
                   "status", "block_reason")
 
 _RESULT_COLUMNS = ("execution_result_id", "attempt_id", "execution_intent_id", "outcome", "account_id",
-                   "broker_order_id", "broker_deal_id", "symbol", "volume", "requested_price",
+                   "broker_order_id", "broker_deal_id", "broker_position_id", "symbol", "volume", "requested_price",
                    "actual_price", "submitted_at", "confirmed_at", "raw_broker_evidence")
 
 
@@ -276,6 +276,10 @@ class FakeConnection:
         return row["attempt_id"], row  # ON CONFLICT (attempt_id)
 
     def _row_execution_v2_execution_attempt_quarantine(self, params: Any) -> tuple[Any, dict[str, Any]]:
+        if len(params) == 3:  # disposition is a SQL literal in the worker INSERT
+            attempt_id, reason, provenance = params
+            return attempt_id, {"attempt_id": attempt_id, "reason": reason, "disposition": "RECONCILIATION_REQUIRED",
+                                "provenance": provenance}
         keys = ("attempt_id", "reason", "disposition", "provenance")
         row = dict(zip(keys, params))
         return row["attempt_id"], row

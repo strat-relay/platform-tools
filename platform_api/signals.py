@@ -164,9 +164,15 @@ class CanonicalSignalRepository:
     @staticmethod
     def _execution_evaluation(row: dict[str, Any], *, full: bool) -> dict[str, Any]:
         reason = row.get("block_reason") or row.get("result_outcome") or "PENDING"
-        if row.get("result_outcome") in {"FILLED", "SUBMITTED", "ACCEPTED"}:
+        if row.get("result_outcome") == "FILLED":
             decision = "EXECUTED"
-            reason = row.get("result_outcome")
+            reason = "FILLED"
+        elif row.get("result_outcome") == "ACCEPTED":
+            decision = "BROKER_ACCEPTED"
+            reason = "ACCEPTED"
+        elif row.get("result_outcome") in {"SUBMITTED", "UNKNOWN_RECONCILIATION_REQUIRED"}:
+            decision = "RECONCILIATION_REQUIRED"
+            reason = "BROKER_UNCONFIRMED"
         elif row.get("result_outcome") == "REJECTED":
             decision = "REJECTED"
         elif row.get("result_outcome") == "BLOCKED" or row.get("intent_status") == "BLOCKED":
@@ -221,7 +227,8 @@ class CanonicalSignalRepository:
                 execution.update({"attemptId": row.get("attempt_id"), "attemptState": row.get("attempt_state")})
             if any(value is not None for value in execution.values()):
                 evaluation["execution"] = execution
-            broker = {key: row.get(key) for key in ("broker_order_id", "broker_deal_id", "result_outcome")
+            broker = {key: row.get(key) for key in ("broker_order_id", "broker_deal_id", "broker_position_id",
+                                                     "result_outcome")
                       if row.get(key) is not None}
             if broker:
                 evaluation["brokerResult"] = broker
@@ -255,7 +262,8 @@ class CanonicalSignalRepository:
                                       e.signal_age_seconds, e.max_signal_age_seconds,
                                       e.canary_consumed, e.canary_max,
                                       a.attempt_id, a.state AS attempt_state,
-                                      r.outcome AS result_outcome, r.broker_order_id, r.broker_deal_id
+                                      r.outcome AS result_outcome, r.broker_order_id, r.broker_deal_id,
+                                      r.broker_position_id
                                FROM execution_v2.execution_intent i
                                LEFT JOIN execution_v2.execution_risk_evidence e
                                  ON e.execution_intent_id = i.execution_intent_id
