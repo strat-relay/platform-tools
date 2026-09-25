@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.request
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -20,6 +21,44 @@ SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
 EXECUTION_RUNTIME_COMPONENT = "execution_v2"
 LIMIT = 100
+
+READ_ONLY_BROKER_TOOLS = {
+    "account": ("mt5_account_info", None),
+    "positions": ("mt5_positions", None),
+    "pending-orders": ("mt5_orders", None),
+    "history-orders": ("mt5_history", {"limit": 500}),
+    "deals": ("mt5_history", {"limit": 500}),
+    "symbols": ("mt5_symbols", None),
+}
+
+
+class ReadOnlyBridgeReader:
+    """Allow-listed read-only client for the MT5 bridge."""
+
+    def __init__(self, endpoint: str | None, timeout: float = 20.0):
+        self.endpoint = endpoint
+        self.timeout = timeout
+
+    def call(self, tool: str, arguments: dict[str, Any] | None = None) -> Any:
+        if tool not in {name for name, _ in READ_ONLY_BROKER_TOOLS.values()}:
+            raise ValueError("Control API permits only read-only broker tools")
+        if not self.endpoint:
+            raise RuntimeError("Read-only MT5 bridge endpoint is not configured")
+        payload = {"jsonrpc": "2.0", "id": "platform-control-api",
+                   "method": "tools/call",
+                   "params": {"name": tool, "arguments": arguments or {}}}
+        request = urllib.request.Request(
+            self.endpoint, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "X-Bridge-Origin": "CONTROL_API"},
+            method="POST")
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            outer = json.loads(response.read())
+        result = outer.get("result") or {}
+        if result.get("isError"):
+            content = result.get("content") or [{}]
+            raise RuntimeError(content[0].get("text", "read-only broker read failed"))
+        content = result.get("content") or [{}]
+        return json.loads(content[0].get("text", "null"))
 
 
 class PlatformControlRepository:
@@ -308,11 +347,23 @@ class PlatformControlApi:
     def __init__(self, repository: PlatformControlRepository | None = None,
                  environ: dict[str, str] | None = None,
                  strategy_config_path: str | None = None,
-                 v2_risk_api: Any | None = None):
+                 v2_risk_api: Any | None = None,
+                 bridge_reader: Any | None = None):
         self.repository = repository or PlatformControlRepository()
         self.environ = os.environ if environ is None else environ
         self.strategy_config_path = strategy_config_path or self.environ.get(
             "PLATFORM_STRATEGY_CONFIG_PATH", "/etc/platform-config/platform.json")
+        if bridge_reader is None:
+            endpoint = self.environ.get("MT5_BRIDGE_MCP_URL")
+            if not endpoint:
+                try:
+                    config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
+                    endpoint = config.get("mcp_url")
+                except Exception:
+                    endpoint = None
+            timeout = float(self.environ.get("MT5_BRIDGE_READ_TIMEOUT_SECONDS", "20"))
+            bridge_reader = ReadOnlyBridgeReader(endpoint, timeout=timeout)
+        self.bridge_reader = bridge_reader
         if v2_risk_api is None:
             from .v2_risk import V2RiskExecutionApi
             v2_risk_api = V2RiskExecutionApi(environ=self.environ)
@@ -518,8 +569,20 @@ class PlatformControlApi:
                             "/api/v1/broker/history-orders", "/api/v1/broker/deals", "/api/v1/broker/symbols",
                             "/api/v1/broker/exposure", "/api/v1/exposure"}
             if path in broker_paths:
-                return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
-                                       error="SOURCE_UNAVAILABLE", message="Read-only MT5 bridge is not reachable from the platform API")
+                resource = path.rsplit("/", 1)[-1]
+                if path == "/api/v1/exposure":
+                    resource = "positions"
+                tool, arguments = READ_ONLY_BROKER_TOOLS.get(resource, (None, None))
+                if tool is None:
+                    return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
+                                           error="SOURCE_UNAVAILABLE", message="Read-only MT5 bridge resource is unavailable")
+                try:
+                    data = self.bridge_reader.call(tool, arguments)
+                    return 200, self._body(data, source="mt5_bridge_read_only")
+                except Exception as exc:
+                    return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
+                                           error="SOURCE_UNAVAILABLE",
+                                           message=f"Read-only MT5 bridge is unavailable: {exc}")
             if path == "/api/v1/reports" or path.startswith("/api/v1/reports/"):
                 report_reader = getattr(self.repository, "context_entry_outcome_report", None)
                 if report_reader is None:

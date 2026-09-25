@@ -78,9 +78,22 @@ class FakeRepository:
         return []
 
 
+class FakeReadOnlyBridge:
+    def __init__(self, value=None, error=None):
+        self.value = value if value is not None else {"account": "188428665", "balance": 1000}
+        self.error = error
+        self.calls = []
+
+    def call(self, tool, arguments=None):
+        self.calls.append((tool, arguments))
+        if self.error:
+            raise RuntimeError(self.error)
+        return self.value
+
+
 
 class PlatformControlApiTests(unittest.TestCase):
-    def make_api(self, *, env=None, unavailable=False):
+    def make_api(self, *, env=None, unavailable=False, bridge_reader=None):
         td = tempfile.TemporaryDirectory()
         self.addCleanup(td.cleanup)
         config = Path(td.name) / "platform.json"
@@ -93,7 +106,8 @@ class PlatformControlApiTests(unittest.TestCase):
         authority = {"ORCHESTRATOR_MODE": "PRIMARY", "SIGNAL_AUTHORITY_MODE": "DB_PRIMARY",
                      "EXECUTION_AUTHORITY_MODE": "DISABLED", "SIGNAL_DB_PRIMARY_ENABLED": "true"}
         authority.update(env or {})
-        return PlatformControlApi(FakeRepository(unavailable=unavailable), authority, str(config))
+        return PlatformControlApi(FakeRepository(unavailable=unavailable), authority, str(config),
+                                  bridge_reader=bridge_reader)
 
     def test_runtime_projection_preserves_lifecycle_status_for_arm_preflight(self):
         repository = PlatformControlRepository()
@@ -258,6 +272,21 @@ class PlatformControlApiTests(unittest.TestCase):
                 self.assertEqual(status, 503)
                 self.assertEqual(body["status"], "UNAVAILABLE")
                 self.assertIsNone(body.get("data"))
+
+    def test_broker_account_reads_from_read_only_bridge(self):
+        bridge = FakeReadOnlyBridge({"account": "188428665", "balance": 1234.5})
+        status, body = self.make_api(bridge_reader=bridge).execute("GET", "/api/v1/broker/account")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "mt5_bridge_read_only")
+        self.assertEqual(body["data"]["balance"], 1234.5)
+        self.assertEqual(bridge.calls, [("mt5_account_info", None)])
+
+    def test_broker_account_bridge_failure_is_structured_unavailable(self):
+        bridge = FakeReadOnlyBridge(error="connection refused")
+        status, body = self.make_api(bridge_reader=bridge).execute("GET", "/api/v1/broker/account")
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"], "SOURCE_UNAVAILABLE")
+        self.assertIn("connection refused", body["message"])
 
     def test_connections_separate_bridge_unavailable_from_execution_inactive(self):
         status, body = self.make_api().execute("GET", "/api/v1/connections")
