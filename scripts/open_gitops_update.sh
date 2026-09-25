@@ -29,7 +29,12 @@ git checkout -b "$branch"
 mkdir -p "apps/${app_name}"
 cp "$OLDPWD/$manifest" "$target_path"
 
-if git diff --quiet -- "$target_path"; then
+# `target_path` is absent in the bootstrap GitOps repository.  A copied new file is
+# untracked, and `git diff --quiet` intentionally ignores untracked files; checking
+# only the diff therefore falsely treats the first release as identical.  Include
+# untracked/added content in the comparison while keeping the operation read-only
+# until the explicit add/commit below.
+if test -z "$(git status --short -- "$target_path")"; then
   echo "no change to ${target_path} - skipping (this release produced an identical manifest)"
   exit 0
 fi
