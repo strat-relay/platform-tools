@@ -278,5 +278,27 @@ class BrokerRejectionTests(unittest.TestCase):
         self.assertIsNone(row["confirmed_at"])
 
 
+class BrokerEvidenceSemanticsTests(unittest.TestCase):
+    def test_transport_ack_without_broker_evidence_is_reconciliation_required(self):
+        conn = seeded_conn()
+        broker = FakeBroker(mode="ambiguous")
+        worker = make_worker(conn, broker=broker)
+        outcome = run(worker, conn, broker)
+        self.assertEqual(outcome.result_outcome, "UNKNOWN_RECONCILIATION_REQUIRED")
+        result = next(iter(conn.tables["execution_v2.execution_result"].values()))
+        self.assertEqual(result["outcome"], "UNKNOWN_RECONCILIATION_REQUIRED")
+        self.assertIsNone(result["broker_order_id"])
+
+    def test_broker_acceptance_requires_and_preserves_order_id(self):
+        conn = seeded_conn()
+        broker = lambda: {"status": "ACCEPTED", "broker_order_id": "ORD-1"}
+        worker = make_worker(conn, broker=broker)
+        outcome = run(worker, conn, broker)
+        self.assertEqual(outcome.result_outcome, "ACCEPTED")
+        result = next(iter(conn.tables["execution_v2.execution_result"].values()))
+        self.assertEqual(result["outcome"], "ACCEPTED")
+        self.assertEqual(result["broker_order_id"], "ORD-1")
+
+
 if __name__ == "__main__":
     unittest.main()

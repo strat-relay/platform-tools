@@ -103,9 +103,9 @@ class HttpBridgeFenceClient:
         broker_response = payload.get("broker_response")
         if broker_response is not None:
             return SubmitResult(authorization.attempt_id, "DISPATCHED", broker_response)
-        return SubmitResult(authorization.attempt_id, payload.get("state") or "DISPATCHED",
-                            {"status": "SUBMITTED", "request_id": payload.get("id") or payload.get("request_id"),
-                             "correlation_token": request_args.get("comment")})
+        # A transport acknowledgement without broker_response is not MT5 evidence.
+        # Preserve the bridge state and force reconciliation instead of manufacturing success.
+        return SubmitResult(authorization.attempt_id, payload.get("state") or "DISPATCHED", None)
 
     def _mcp(self, body: dict[str, Any], *, headers: dict[str, str], endpoint: str | None = None) -> dict[str, Any]:
         data = json.dumps(body).encode("utf-8")
