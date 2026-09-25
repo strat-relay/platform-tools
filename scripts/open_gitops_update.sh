@@ -50,6 +50,7 @@ Application commit: ${commit}
 
 This PR only records desired state for Flux to reconcile. It does not touch Kubernetes directly
 and was opened with no cluster credentials."
+gh auth setup-git --hostname github.com
 git push origin "$branch"
 
 gh pr create --repo "$gitops_repo" --head "$branch" \
