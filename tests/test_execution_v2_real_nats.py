@@ -31,7 +31,7 @@ def _nats_available() -> bool:
 
     async def _probe() -> bool:
         try:
-            nc = await nats.connect(NATS_URL, connect_timeout=2)
+            nc = await nats.connect(NATS_URL, connect_timeout=2, max_reconnect_attempts=0)
             await nc.close()
             return True
         except Exception:
