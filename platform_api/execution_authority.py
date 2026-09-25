@@ -35,6 +35,17 @@ class ExecutionAuthorityApi:
             return {}
         return {"status": row[0], **(row[1] or {})}
 
+    @staticmethod
+    def _preflight_reasons(checks: list[dict[str, Any]]) -> list[str]:
+        """Convert failed checks into stable operator-facing reasons.
+
+        Older/runtime-generated checks are allowed to contain only ``name``
+        and ``passed``.  Preflight reporting must never turn that valid
+        failure shape into an API exception while constructing the response.
+        """
+        return [str(check.get("detail") or check.get("name") or "preflight_check_failed")
+                for check in checks if not check.get("passed")]
+
     def _preflight(self) -> dict[str, Any]:
         checks: list[dict[str, Any]] = []
         try:
@@ -45,7 +56,7 @@ class ExecutionAuthorityApi:
             account_id = policy.allowed_accounts[0] if policy.allowed_accounts else None
         except Exception as exc:
             checks.append({"name": "canonical_risk_policy", "passed": False, "detail": str(exc)})
-            return {"passed": False, "checks": checks, "reasons": [c["detail"] for c in checks if not c["passed"]]}
+            return {"passed": False, "checks": checks, "reasons": self._preflight_reasons(checks)}
         runtime = self._runtime_status()
         bridge_ok = runtime.get("status") == "RUNNING" and (runtime.get("execution_bridge") or {}).get("status") == "HEALTHY"
         broker_ok = (runtime.get("broker_account") or {}).get("status") == "CONNECTED"
@@ -57,7 +68,7 @@ class ExecutionAuthorityApi:
             {"name": "allowed_account", "passed": account_ok, "detail": "runtime account is not allowed by policy" if not account_ok else None},
             {"name": "broker_held_fence", "passed": bridge_ok, "detail": "fence endpoint unavailable" if not bridge_ok else None},
         ])
-        reasons = [c["detail"] or c["name"] for c in checks if not c["passed"]]
+        reasons = self._preflight_reasons(checks)
         return {"passed": not reasons, "checks": checks, "reasons": reasons}
 
     def save(self, body: bytes | None) -> tuple[int, dict[str, Any]]:
