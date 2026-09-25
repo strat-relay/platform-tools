@@ -81,10 +81,11 @@ class FakeCursor:
         if "PLATFORM.OWNERSHIP_LEASES" in upper:
             self._result = (self.conn.leases.get(params[0], {}).get("generation", 0),) if params[0] in self.conn.leases else None
             return
-        if "EXECUTION_V2.EXECUTION_ATTEMPT" in upper and "ATTEMPT_ID, STATE" in upper:
+        if "EXECUTION_V2.EXECUTION_ATTEMPT" in upper and "A.ATTEMPT_ID" in upper:
             row = next((r for r in self.conn.view("execution_v2.execution_attempt").values()
                        if r["execution_intent_id"] == params[0]), None)
-            self._result = (row["attempt_id"], row["state"], row["generation"], row["account_id"]) if row else None
+            quarantined = bool(row and row["attempt_id"] in self.conn.view("execution_v2.execution_attempt_quarantine"))
+            self._result = (row["attempt_id"], row["state"], row["generation"], row["account_id"], quarantined) if row else None
             return
         if "EXECUTION_V2.EXECUTION_INTENT" in upper:
             row = self.conn.view("execution_v2.execution_intent").get(params[0])
@@ -166,6 +167,7 @@ _INSERT_TABLE_MARKERS = (
     ("EXECUTION_V2.EXECUTION_RISK_EVIDENCE", "execution_v2.execution_risk_evidence"),
     ("EXECUTION_V2.EXECUTION_ATTEMPT", "execution_v2.execution_attempt"),
     ("EXECUTION_V2.EXECUTION_RESULT", "execution_v2.execution_result"),
+    ("EXECUTION_V2.EXECUTION_ATTEMPT_QUARANTINE", "execution_v2.execution_attempt_quarantine"),
 )
 
 
@@ -272,6 +274,11 @@ class FakeConnection:
     def _row_execution_v2_execution_result(self, params: Any) -> tuple[Any, dict[str, Any]]:
         row = dict(zip(_RESULT_COLUMNS, params))
         return row["attempt_id"], row  # ON CONFLICT (attempt_id)
+
+    def _row_execution_v2_execution_attempt_quarantine(self, params: Any) -> tuple[Any, dict[str, Any]]:
+        keys = ("attempt_id", "reason", "disposition", "provenance")
+        row = dict(zip(keys, params))
+        return row["attempt_id"], row
 
     def _row_execution_v2_execution_risk_evidence(self, params: Any) -> tuple[Any, dict[str, Any]]:
         keys = ("execution_intent_id", "policy_version", "policy_fingerprint", "risk_per_trade",

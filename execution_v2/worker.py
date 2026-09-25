@@ -113,11 +113,15 @@ class ExecutionWorker:
 
     def _load_attempt(self, execution_intent_id: str) -> dict[str, Any] | None:
         with self.conn.cursor() as cur:
-            cur.execute("""SELECT attempt_id, state, generation, account_id
-                          FROM execution_v2.execution_attempt WHERE execution_intent_id=%s""",
+            cur.execute("""SELECT a.attempt_id, a.state, a.generation, a.account_id,
+                                 EXISTS (SELECT 1
+                                         FROM execution_v2.execution_attempt_quarantine q
+                                         WHERE q.attempt_id = a.attempt_id) AS quarantined
+                          FROM execution_v2.execution_attempt a
+                          WHERE a.execution_intent_id=%s""",
                        (execution_intent_id,))
             row = cur.fetchone()
-        return dict(zip(("attempt_id", "state", "generation", "account_id"), row)) if row else None
+        return dict(zip(("attempt_id", "state", "generation", "account_id", "quarantined"), row)) if row else None
 
     def _claim_attempt(self, *, execution_intent_id: str, attempt_id: str, generation: int) -> dict[str, Any]:
         with transaction(self.conn):
@@ -225,6 +229,15 @@ class ExecutionWorker:
         intent = self._load_intent(execution_intent_id)
         att_id = _attempt_id(execution_intent_id=execution_intent_id)
 
+        # Historical SENDING rows have no provable external outcome. The quarantine relation is
+        # separate from the attempt state so the original evidence remains intact. This check is
+        # before ownership, fencing, canary reservation, or bridge submission and therefore also
+        # blocks redelivery, worker restart, and a later authority transition to ENABLED.
+        existing_attempt = self._load_attempt(execution_intent_id)
+        if existing_attempt is not None and existing_attempt.get("quarantined"):
+            return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id, "HISTORICAL_AMBIGUOUS_EXECUTION",
+                                    "historical attempt is quarantined; reconciliation required before any action")
+
         # Resolve the canonical instrument before claiming an execution attempt.  A missing
         # account-specific broker mapping is a deterministic configuration block, never a
         # partially claimed attempt or a guessed suffix.
@@ -242,7 +255,6 @@ class ExecutionWorker:
         order_args["canonical_request_text"] = canonical_request_text(order_args)
         order_args["request_fingerprint"] = canonical_request_fingerprint(order_args)
 
-        existing_attempt = self._load_attempt(execution_intent_id)
         if existing_attempt is not None and existing_attempt["state"] in _TERMINAL_ATTEMPT_STATES:
             with self.conn.cursor() as cur:
                 cur.execute("SELECT outcome FROM execution_v2.execution_result WHERE attempt_id=%s", (att_id,))
