@@ -18,7 +18,7 @@ class FakeRepository:
         if self.unavailable:
             raise CanonicalSourceUnavailable("test source unavailable")
 
-    def platform_status(self):
+    def platform_status(self, *, include_event_counts=True):
         self._ok()
         return {"outbox_count": 18, "inbox_count": 0, "orchestrator_running": 0}
 
@@ -134,6 +134,11 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(body["data"]["execution_authority_mode"], "DISABLED")
         self.assertEqual(body["data"]["components"]["execution"]["status"], "INACTIVE")
         self.assertEqual(body["data"]["components"]["orchestrator"]["status"], "UNKNOWN")
+
+    def test_system_core_view_defers_expensive_observability_counts(self):
+        status, body = self.make_api().execute("GET", "/api/v1/system?view=core")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["components"]["trade_manager"]["status"], "DEFERRED")
 
     def test_system_projects_effective_v2_runtime_state_not_api_pod_environment(self):
         api = self.make_api(env={"EXECUTION_AUTHORITY_MODE": "DISABLED"})

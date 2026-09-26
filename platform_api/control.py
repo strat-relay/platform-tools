@@ -80,7 +80,14 @@ class PlatformControlRepository:
         except Exception as exc:
             raise CanonicalSourceUnavailable("canonical PostgreSQL platform source unavailable") from exc
 
-    def platform_status(self) -> dict[str, Any]:
+    def platform_status(self, *, include_event_counts: bool = True) -> dict[str, Any]:
+        if not include_event_counts:
+            rows = self.query("""SELECT
+                0 AS outbox_count,
+                0 AS inbox_count,
+                (SELECT count(*) FROM platform.runtime_instances
+                 WHERE component = 'orchestrator' AND status = 'RUNNING') AS orchestrator_running""")
+            return rows[0]
         rows = self.query("""SELECT
             (SELECT count(*) FROM platform.outbox_events) AS outbox_count,
             (SELECT count(*) FROM platform.inbox_events) AS inbox_count,
@@ -420,8 +427,10 @@ class PlatformControlApi:
             "source": "canonical_execution_runtime",
         }
 
-    def _database(self) -> dict[str, Any]:
-        return self.repository.platform_status()
+    def _database(self, *, include_event_counts: bool = True) -> dict[str, Any]:
+        if include_event_counts:
+            return self.repository.platform_status()
+        return self.repository.platform_status(include_event_counts=False)
 
     def _strategies(self) -> list[dict[str, Any]]:
         try:
@@ -466,18 +475,22 @@ class PlatformControlApi:
                 return 200, {"status": "ready", "service": "platform-control-api",
                              "source": "canonical_postgres", "schema_version": SCHEMA_VERSION}
             if path == "/api/v1/system":
-                db = self._database()
+                core_view = query.get("view") == "core"
+                db = self._database(include_event_counts=not core_view)
                 execution = self._execution_state()
-                try:
-                    tm_reader = getattr(self.repository, "trade_manager_summary", None)
-                    if tm_reader is None:
-                        raise CanonicalSourceUnavailable("canonical Trade Manager observability unavailable")
-                    tm = tm_reader()
-                    trade_manager = {"status": "ACTIVE", "source": "canonical_postgres",
-                                     "managed_trade_count": tm["total_managed_trades"],
-                                     "open_managed_trade_count": tm["open_managed_trades"]}
-                except CanonicalSourceUnavailable:
-                    trade_manager = {"status": "UNKNOWN", "reason": "canonical Trade Manager observability unavailable"}
+                if core_view:
+                    trade_manager = {"status": "DEFERRED", "reason": "fetch /trade-manager/summary separately"}
+                else:
+                    try:
+                        tm_reader = getattr(self.repository, "trade_manager_summary", None)
+                        if tm_reader is None:
+                            raise CanonicalSourceUnavailable("canonical Trade Manager observability unavailable")
+                        tm = tm_reader()
+                        trade_manager = {"status": "ACTIVE", "source": "canonical_postgres",
+                                         "managed_trade_count": tm["total_managed_trades"],
+                                         "open_managed_trade_count": tm["open_managed_trades"]}
+                    except CanonicalSourceUnavailable:
+                        trade_manager = {"status": "UNKNOWN", "reason": "canonical Trade Manager observability unavailable"}
                 authority = {**self._authority(self.environ),
                              "execution_authority_mode": execution["execution_authority_mode"]}
                 runtime = "ACTIVE" if db["orchestrator_running"] else "UNKNOWN"
