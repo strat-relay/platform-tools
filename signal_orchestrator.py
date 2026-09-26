@@ -22,7 +22,7 @@ from orchestration.canonical_signal_publisher import CanonicalSignalPublisher
 from orchestration.adapters.liquidity_displacement import LiquidityDisplacementAdapter
 from orchestration.brokers.mt5_shadow import READ_ONLY_BRIDGE_TOOLS, MT5ShadowProvider
 from orchestration.config import load_config
-from orchestration.liquidity_instances import DEFINITIONS_BY_ID, LiquidityInstanceAdapter
+from orchestration.liquidity_instances import DEFINITIONS_BY_ID, DEFINITIONS_BY_INSTANCE_ID, LiquidityInstanceAdapter
 from orchestration.models import AccountSnapshot, StrategySignal, stable_id
 from orchestration.registry import PortfolioRegistry, StrategyRegistry
 from orchestration.risk import RiskSizingEngine
@@ -150,13 +150,25 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
     for record in registry.enabled():
         if record["strategy_id"] == "CONTEXT_STRUCTURE_RETRACE_V1":
             adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp))
-        elif record["strategy_id"] in DEFINITIONS_BY_ID:
-            # Explicit variant plumbing is intentionally disabled in the
-            # current platform manifest.  If enabled later, each instance
-            # reads only its own state path and retains its own identity.
-            adapters.append(LiquidityInstanceAdapter(ROOT, DEFINITIONS_BY_ID[record["strategy_id"]]))
         elif record["strategy_id"] == "LIQUIDITY_DISPLACEMENT_SCALP_V1":
-            adapters.append(LiquidityDisplacementAdapter(ROOT, freeze_timestamp))
+            # The parent owns the adapter family.  Enabled children are persisted as
+            # strategy instances and each keeps an isolated state/dedupe namespace.
+            instances = [x for x in config.get("instances", [])
+                         if x.get("strategy_id") == record["strategy_id"] and x.get("enabled")]
+            if instances:
+                for instance in instances:
+                    definition = DEFINITIONS_BY_INSTANCE_ID.get(instance["instance_id"])
+                    if definition is None:
+                        raise RuntimeError(f"enabled strategy instance is not audited: {instance['instance_id']}")
+                    adapters.append(LiquidityInstanceAdapter(ROOT, definition))
+            else:
+                # Preserve the existing parent-only forward-paper behavior while a
+                # deployment is being migrated to explicit instance rows.
+                adapters.append(LiquidityDisplacementAdapter(ROOT, freeze_timestamp))
+        elif record["strategy_id"] in DEFINITIONS_BY_ID:
+            # Compatibility for pre-instance database rows; new configuration should
+            # register the parent strategy plus child instance rows instead.
+            adapters.append(LiquidityInstanceAdapter(ROOT, DEFINITIONS_BY_ID[record["strategy_id"]]))
         elif record.get("enabled"):
             raise RuntimeError(f"enabled strategy adapter is not audited: {record['strategy_id']}")
     return adapters

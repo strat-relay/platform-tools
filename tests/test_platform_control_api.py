@@ -33,6 +33,11 @@ class FakeStrategyCatalog:
         self._ok()
         return next((dict(r) for r in self.ROWS if r["strategy_id"] == strategy_id), None)
 
+    def strategy_instances(self, strategy_id):
+        self._ok()
+        return [{"instance_id": "phase6", "strategy_id": strategy_id,
+                 "display_name": "test instance", "enabled": False}]
+
 
 class FakeRepository:
     def __init__(self, *, unavailable: bool = False):

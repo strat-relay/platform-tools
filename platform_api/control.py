@@ -695,6 +695,12 @@ class PlatformControlApi:
                     if page is None:
                         return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
                     return 200, self._body(page, source="canonical_postgres")
+                if len(parts) == 2 and parts[1] == "instances":
+                    page = self.strategy_catalog.strategy_page(parts[0])
+                    if page is None:
+                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                    return 200, self._body(self.strategy_catalog.strategy_instances(parts[0]),
+                                           source="canonical_postgres")
                 if (parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1" and len(parts) == 2
                         and parts[1] == "report"):
                     report = self.repository.context_entry_outcome_report()
