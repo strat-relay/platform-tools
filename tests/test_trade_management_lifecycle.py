@@ -93,6 +93,14 @@ class TerminalTransitionTests(unittest.TestCase):
         [event] = conn.tables[EVENTS].values()
         self.assertEqual((event["strategy_outcome"], event["realized_r"]), ("STOPPED", -1.0))
 
+    def test_time_exit_closes_without_context_behavior_change(self):
+        conn = FakeConnection()
+        trade_id = self.open_trade(conn)
+        conn.seed_strategy_outcome(signal_id="SIG_1", status="TIME_EXIT", exit_timestamp=EXIT, realized_r=0.25)
+        [transition] = reconcile_strategy_outcomes(conn, now_utc=NOW)
+        self.assertEqual(conn.tables[TRADES][trade_id]["state"], "CLOSED")
+        self.assertEqual(transition.strategy_outcome, "TIME_EXIT")
+
     def test_reconciliation_is_idempotent(self):  # 6
         conn = FakeConnection()
         self.open_trade(conn)

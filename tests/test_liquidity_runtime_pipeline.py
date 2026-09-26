@@ -3,6 +3,7 @@ import unittest
 from liquidity_live_runtime import LiquidityLiveRuntime
 from orchestration.liquidity_live import PARAMETER_SETS
 from tests.test_liquidity_live_runtime import FakeStrategy, snapshot
+from liquidity_market_data import LiveMarketSnapshot
 
 
 class Cursor:
@@ -11,7 +12,8 @@ class Cursor:
     def __enter__(self): return self
     def __exit__(self, *args): return False
     def execute(self, sql, params=None): self.sql = sql
-    def fetchall(self): return self.rows
+    def fetchall(self):
+        return [] if "entry_signal_outcomes" in self.sql else self.rows
 
 
 class Conn:
@@ -34,12 +36,13 @@ class LiquidityRuntimePipelineTests(unittest.TestCase):
         publisher = Publisher()
         runtime = LiquidityLiveRuntime(
             conn=conn,
-            snapshot_reader=lambda canonical, provider: {**snapshot(), "provider_symbol": provider},
+            snapshot_reader=lambda canonical, provider: LiveMarketSnapshot(**{**snapshot().__dict__, "provider_symbol": provider}),
             publisher=publisher,
         )
         runtime.evaluators["liquidity-xau-base"] = __import__(
             "orchestration.liquidity_live", fromlist=["LiquidityLiveEvaluator"]
         ).LiquidityLiveEvaluator(PARAMETER_SETS["liquidity-xau-base"], strategy=FakeStrategy())
+        runtime._restored.add("liquidity-xau-base")
         result = runtime.tick(evaluation_time="2026-09-26T12:00:00Z")
         self.assertEqual(result["production_broker_writes"], 0)
         self.assertEqual(result["published"], [publisher.signals[0].signal_id])
