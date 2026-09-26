@@ -29,7 +29,7 @@ class FakeRepository:
             "execution_authority_mode": "DISABLED",
             "account_id": "188428665",
             "risk_policy": {"enabled": False, "canary_max_new_executions": 1},
-            "canary": {"max_new_executions": 1, "consumed": 0, "remaining": 1},
+            "canary": {"max_new_executions": 1, "consumed": 1, "remaining": 0},
             "execution_bridge": {"status": "HEALTHY"},
             "broker_account": {"status": "CONNECTED", "account": "******8665", "currency": "USD"},
         }
@@ -168,7 +168,7 @@ class PlatformControlApiTests(unittest.TestCase):
             "instance_id": "execution-v2-live", "worker_status": "HEALTHY",
             "execution_authority_mode": "ENABLED", "account_id": "188428665",
             "risk_policy": {"enabled": True, "canary_max_new_executions": 1},
-            "canary": {"max_new_executions": 1, "consumed": 0, "remaining": 1},
+            "canary": {"max_new_executions": 1, "consumed": 1, "remaining": 0},
             "execution_bridge": {"status": "HEALTHY"},
             "broker_account": {"status": "CONNECTED"},
         }

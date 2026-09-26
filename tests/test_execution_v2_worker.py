@@ -104,6 +104,18 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(len(conn.tables["execution_v2.execution_attempt"]), 0)
         self.assertEqual(len(conn.tables["platform.outbox_events"]), 1)
 
+    def test_normal_execution_does_not_require_active_or_unexhausted_canary(self):
+        """Historical canary state must not be consulted on the normal broker path."""
+        conn = seeded_conn()
+        broker = FakeBroker(mode="fill")
+        worker = make_worker(conn, broker=broker,
+                             risk_policy=policy(canary_max_new_executions=1))
+
+        outcome = run(worker, conn, broker)
+
+        self.assertEqual(outcome.result_outcome, "FILLED")
+        self.assertEqual(broker.calls, 1)
+
 
 class DuplicateAndRetryTests(unittest.TestCase):
     """Mission section 7 scenarios A-F, driven through the worker (not the bridge directly)."""

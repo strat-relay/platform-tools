@@ -102,18 +102,29 @@ class LiveRiskPolicyTests(unittest.TestCase):
         self.assertLessEqual(decision.volume, .05)
         self.assertLessEqual(decision.risk_amount, 5.000001)
 
-    def test_limits_and_canary_are_hard_rejections(self):
+    def test_safety_limits_are_hard_rejections_but_canary_is_not_a_gate(self):
         policy = self.write_policy(valid_policy())
         args = dict(policy=policy, account_id="188428665", now_utc=NOW, broker={"tick_size": .00001,
                     "tick_value": 1, "volume_min": .01, "volume_max": 100, "volume_step": .01}, account={"equity": 1000})
         for field, reason in (("daily_loss", "DAILY_LOSS_LIMIT_EXCEEDED"),
                               ("concurrent_positions", "MAX_CONCURRENT_POSITIONS_EXCEEDED"),
                               ("concurrent_orders", "MAX_CONCURRENT_ORDERS_EXCEEDED"),
-                              ("account_exposure", "MAX_ACCOUNT_EXPOSURE_EXCEEDED"),
-                              ("canary_used", "CANARY_LIMIT_EXCEEDED")):
+                              ("account_exposure", "MAX_ACCOUNT_EXPOSURE_EXCEEDED")):
             with self.subTest(field=field):
                 self.assertEqual(evaluate_candidate(self.candidate(), state=self.state(**{field: 999}), **args).reason,
                                  reason)
+
+        decision = evaluate_candidate(self.candidate(), state=self.state(canary_used=999), **args)
+        self.assertTrue(decision.permitted)
+
+    def test_missing_canary_counter_does_not_block_normal_risk_evaluation(self):
+        policy = self.write_policy(valid_policy())
+        args = dict(policy=policy, account_id="188428665", now_utc=NOW,
+                    broker={"tick_size": .00001, "tick_value": 1, "volume_min": .01,
+                            "volume_max": 100, "volume_step": .01}, account={"equity": 1000})
+        state = {"daily_loss": 0, "concurrent_positions": 0, "concurrent_orders": 0,
+                 "account_exposure": 0}
+        self.assertTrue(evaluate_candidate(self.candidate(), state=state, **args).permitted)
 
     def test_intent_persists_evaluator_volume_not_flat_cap(self):
         policy = self.write_policy(valid_policy())
