@@ -34,41 +34,78 @@ git checkout -b "$branch"
 mkdir -p "apps/${app_name}"
 cp "$manifest_path" "$target_path"
 
-# Keep the runtime workloads on the exact digest published by platform-tools.  These workloads
-# are owned by the GitOps repository, while their immutable image provenance is owned by the
-# platform-tools release manifest.  The update remains a desired-state PR; this script never
-# contacts Kubernetes.
-runtime_ref=$(python3 -c "import json,sys; print(next(x['reference'] for x in json.load(open('$manifest_path'))['images'] if x['name'] == 'trading-platform-runtime'))")
-if test -f apps/trading-platform/runtimes.yaml; then
-  python3 - "$runtime_ref" apps/trading-platform/runtimes.yaml <<'PY'
+# Keep every declared workload on the exact immutable digest published by
+# platform-tools. These workloads are owned by the GitOps repository, while
+# their image provenance is owned by the release manifest. The update remains
+# a desired-state PR; this script never contacts Kubernetes.
+#
+# A release can contain images that are not adopted by a particular GitOps
+# checkout yet, so absent manifest paths are intentionally skipped. This lets
+# the handoff work during topology migrations without silently leaving an
+# existing workload on an old digest.
+changed_paths=$(python3 - "$manifest_path" <<'PY'
+import json
 import pathlib
+import re
 import sys
 
-reference, path = sys.argv[1:]
-file = pathlib.Path(path)
-text = file.read_text()
-lines = text.splitlines(keepends=True)
-for index, line in enumerate(lines):
-    if "image: ghcr.io/strat-relay/trading-platform-runtime@sha256:" in line:
-        indent = line[:len(line) - len(line.lstrip())]
-        lines[index] = f"{indent}image: {reference}\n"
-file.write_text("".join(lines))
+manifest_path = pathlib.Path(sys.argv[1])
+manifest = json.loads(manifest_path.read_text())
+references = {image["name"]: image["reference"] for image in manifest["images"]}
+paths_by_image = {
+    "trading-platform-control-api": ["apps/trading-platform/platform-api.yaml"],
+    "trading-platform-api-router": ["apps/trading-platform/platform-api-router.yaml"],
+    "trading-platform-runtime": [
+        "apps/trading-platform/runtimes.yaml",
+        "apps/trading-platform/execution-v2-workload.yaml",
+    ],
+    "trading-platform-realtime-api": ["apps/trading-platform/platform-realtime-api.yaml"],
+}
+
+image_pattern = re.compile(r"^(?P<indent>\s*)image:\s+ghcr\.io/strat-relay/(?P<name>[a-z0-9-]+)@sha256:[0-9a-f]+\s*$")
+changed = []
+for image_name, paths in paths_by_image.items():
+    reference = references.get(image_name)
+    if reference is None:
+        continue
+    for path_string in paths:
+        path = pathlib.Path(path_string)
+        if not path.is_file():
+            continue
+        original = path.read_text()
+        lines = original.splitlines(keepends=True)
+        updated = []
+        touched = False
+        for line in lines:
+            match = image_pattern.match(line.rstrip("\n"))
+            if match and match.group("name") == image_name:
+                newline = "\n" if line.endswith("\n") else ""
+                line = f"{match.group('indent')}image: {reference}{newline}"
+                touched = True
+            updated.append(line)
+        result = "".join(updated)
+        if touched and result != original:
+            path.write_text(result)
+            changed.append(path_string)
+
+for path in changed:
+    print(path)
 PY
-fi
+)
 
 # `target_path` is absent in the bootstrap GitOps repository.  A copied new file is
 # untracked, and `git diff --quiet` intentionally ignores untracked files; checking
 # only the diff therefore falsely treats the first release as identical.  Include
 # untracked/added content in the comparison while keeping the operation read-only
 # until the explicit add/commit below.
-if test -z "$(git status --short -- "$target_path")"; then
+if test -z "$(git status --short -- "$target_path" $changed_paths)"; then
   echo "no change to ${target_path} - skipping (this release produced an identical manifest)"
   exit 0
 fi
 
 git config user.name "stratrelay-release-bot"
 git config user.email "release-bot@stratrelay.app"
-git add "$target_path"
+git add "$target_path" $changed_paths
 git commit -m "Update ${app_name} desired state to ${short_sha}
 
 Application repository: ${gitops_repo%%/*} (see release.json's own "repository" field for the
