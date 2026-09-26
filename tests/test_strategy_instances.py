@@ -106,6 +106,12 @@ class ManifestSourceTests(unittest.TestCase):
                                      "max_hold_minutes", "broker_symbol") if f'"{k}"' in source}
         self.assertEqual(set(PARAMETER_KEYS), fingerprinted)
 
+    def test_bundled_manifest_matches_the_strategy_code(self):
+        from platform_api.strategy_manifest_publisher import BUNDLE_PATH, to_bundle
+        from strategy_manifests import all_manifests
+        self.assertEqual(BUNDLE_PATH.read_text(encoding="utf-8"), to_bundle(all_manifests()),
+                         "platform_api/strategy_manifests.json is stale: run `python -m strategy_manifests`")
+
     def test_manifests_never_mark_parameters_editable(self):
         from strategy_manifests import all_manifests
         for manifest, sets in all_manifests():
@@ -381,6 +387,50 @@ class StrategyInstanceTests(unittest.TestCase):
                 self.repo.set_instance_lifecycle(LIQUIDITY, "liquidity-xau33", "ONLINE", expected_revision=1,
                                                  updated_by="t")
 
+    def _manifest(self, strategy_id):
+        return next(s for s in self.repo.list_strategies() if s["strategy_id"] == strategy_id)["manifest"]
+
+    def test_publish_action_publishes_the_bundled_manifest_and_reports_status(self):
+        with self.db.connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM platform.strategy_instance_parameter_set")
+            cur.execute("DELETE FROM platform.strategy_version_manifest")
+            conn.commit()
+        self.assertEqual(self._manifest(LIQUIDITY)["status"], "NOT_PUBLISHED")
+        with self._unchanged("platform.strategy_instance", "platform.strategy_definition", *self.EXECUTION_TABLES[:-1]):
+            row = self.repo.publish_manifest(LIQUIDITY, updated_by="operator")
+        self.assertEqual(row["manifest"]["status"], "CURRENT")
+        self.assertEqual(sorted(row["publish_report"]["parameter_sets_changed"]), ["liquidity-btc25", "liquidity-xau33"])
+        self.assertEqual(self._manifest(CONTEXT)["status"], "NOT_PUBLISHED")   # only the requested strategy
+        again = self.repo.publish_manifest(LIQUIDITY, updated_by="operator")
+        self.assertEqual(again["publish_report"]["parameter_sets_changed"], [])
+
+    def test_a_changed_parameter_set_reads_as_outdated(self):
+        self.assertEqual(self._manifest(LIQUIDITY)["status"], "CURRENT")
+        with self.db.connect() as conn, conn.cursor() as cur:
+            cur.execute("""UPDATE platform.strategy_instance_parameter_set SET config_fingerprint = 'old'
+                           WHERE instance_id = 'liquidity-xau33'""")
+            conn.commit()
+        status = self._manifest(LIQUIDITY)
+        self.assertEqual((status["status"], status["instances_outdated"]), ("OUTDATED", ["liquidity-xau33"]))
+
+    def test_publish_refuses_unknown_strategies_and_strategies_without_a_bundle(self):
+        from platform_api.strategy_catalog import InstanceNotFound, ManifestNotAvailable
+        with self.assertRaises(InstanceNotFound):
+            self.repo.publish_manifest("NOPE", updated_by="t")
+        with self.db.connect() as conn, conn.cursor() as cur:
+            cur.execute("""INSERT INTO platform.strategy_definition (strategy_id, strategy_version, display_name,
+                           adapter, enabled, routes, updated_by) VALUES ('NO_BUNDLE_V1','V1','x','x',false,'{}','t')
+                           ON CONFLICT DO NOTHING""")
+            conn.commit()
+        try:
+            with self.assertRaises(ManifestNotAvailable):
+                self.repo.publish_manifest("NO_BUNDLE_V1", updated_by="t")
+            self.assertEqual(self._manifest("NO_BUNDLE_V1")["status"], "NOT_AVAILABLE")
+        finally:
+            with self.db.connect() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM platform.strategy_definition WHERE strategy_id = 'NO_BUNDLE_V1'")
+                conn.commit()
+
     # --- strategy suspend / metadata ---------------------------------------------
 
     def test_strategy_suspend_and_resume_touch_only_the_definition(self):
@@ -463,6 +513,14 @@ class StrategyInstanceTests(unittest.TestCase):
         status, body = api.execute("POST", f"/api/v1/strategies/{LIQUIDITY}/metadata",
                                    json.dumps({"displayName": "Liquidity V1", "expectedRevision": 1}).encode())
         self.assertEqual((status, body["data"]["display_name"]), (200, "Liquidity V1"))
+
+    def test_manifest_route(self):
+        api = self._api()
+        status, body = api.execute("POST", f"/api/v1/strategies/{LIQUIDITY}/manifest",
+                                   json.dumps({"updatedBy": "op"}).encode())
+        self.assertEqual((status, body["data"]["manifest"]["status"]), (200, "CURRENT"))
+        self.assertEqual(api.execute("POST", "/api/v1/strategies/NOPE/manifest", b"{}")[0], 404)
+        self.assertEqual(api.execute("GET", f"/api/v1/strategies/{LIQUIDITY}/manifest")[0], 405)
 
     def test_membership_route_applies_the_guards(self):
         api = self._api()

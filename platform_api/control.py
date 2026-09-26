@@ -516,22 +516,27 @@ class PlatformControlApi:
 
     @staticmethod
     def _strategy_write_route(path: str) -> tuple[str, str] | None:
-        """/api/v1/strategies/{strategyId}/(lifecycle|metadata) -> (strategyId, action)."""
+        """/api/v1/strategies/{strategyId}/(lifecycle|metadata|manifest) -> (strategyId, action)."""
         prefix = "/api/v1/strategies/"
         if not path.startswith(prefix):
             return None
         parts = [unquote(p) for p in path[len(prefix):].split("/")]
-        if len(parts) == 2 and parts[0] and parts[1] in ("lifecycle", "metadata"):
+        if len(parts) == 2 and parts[0] and parts[1] in ("lifecycle", "metadata", "manifest"):
             return parts[0], parts[1]
         return None
 
     def _save_strategy(self, strategy_id: str, action: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
-        from .strategy_catalog import InstanceNotFound, InstanceRevisionConflict, LifecycleNotEnforced
+        from .strategy_catalog import (InstanceNotFound, InstanceRevisionConflict, LifecycleNotEnforced,
+                                       ManifestNotAvailable)
         source = "canonical_postgres"
         try:
             payload = json.loads((body or b"{}").decode("utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("request body must be a JSON object")
+            if action == "manifest":
+                row = self.strategy_catalog.publish_manifest(strategy_id,
+                                                             updated_by=str(payload.get("updatedBy") or "control-api"))
+                return 200, self._body(row, source=source)
             common = {"expected_revision": payload.get("expectedRevision"),
                       "updated_by": str(payload.get("updatedBy") or "control-api")}
             if action == "lifecycle":
@@ -545,6 +550,8 @@ class PlatformControlApi:
             return 404, self._body(None, source=source, error="RESOURCE_NOT_FOUND", message=str(exc))
         except LifecycleNotEnforced as exc:
             return 409, self._body(None, source=source, error="LIFECYCLE_NOT_ENFORCED", message=str(exc))
+        except ManifestNotAvailable as exc:
+            return 409, self._body(None, source=source, error="MANIFEST_NOT_AVAILABLE", message=str(exc))
         except InstanceRevisionConflict as exc:
             return 409, self._body(None, source=source, error="REVISION_CONFLICT", message=str(exc))
         except (ValueError, json.JSONDecodeError) as exc:

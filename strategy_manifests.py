@@ -13,10 +13,10 @@ manifests so the Control API can render configuration without importing strategy
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import fields
 from typing import Any
+
+from platform_api.strategy_manifest_publisher import BUNDLE_PATH, fingerprint, to_bundle  # noqa: F401
 
 MANIFEST_SCHEMA_VERSION = "strategy-parameter-manifest.v1"
 VERSION_OWNED = "VERSION_OWNED_IMMUTABLE"
@@ -30,10 +30,6 @@ EDIT_POLICY = {
                "(a reviewed code change and deploy), never an in-place edit."),
     "config_reload": "RESTART_REQUIRED",
 }
-
-
-def fingerprint(value: Any) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
 def _manifest(strategy_id: str, version: str, parameters: list[dict[str, Any]],
@@ -76,3 +72,9 @@ def context_manifests() -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
 def all_manifests() -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
     return [context_manifests(), liquidity_manifests()]
+
+
+if __name__ == "__main__":
+    # Regenerate the bundle the Control API publishes from:  python -m strategy_manifests
+    BUNDLE_PATH.write_text(to_bundle(all_manifests()), encoding="utf-8")
+    print(f"wrote {BUNDLE_PATH}")
