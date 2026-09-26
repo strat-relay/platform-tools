@@ -16,6 +16,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from platform_api.control import PlatformControlApi
 from platform_api.v2_risk import V2RiskExecutionApi
@@ -91,7 +92,11 @@ class FakeCursor:
         elif upper.startswith("INSERT INTO EXECUTION_V2.RISK_POLICY_CHANGE"):
             pass
         elif "FROM EXECUTION_V2.CANARY_STATE" in upper:
-            self._result = self.conn.canary_rows.get(params[0])
+            row = self.conn.canary_rows.get(params[0])
+            if "LIFECYCLE_STATE" in upper and row is not None:
+                self._results = [(params[0], 1, "ACTIVE", row[0], row[1])]
+            else:
+                self._result = row
         else:
             raise AssertionError(f"unexpected SQL: {sql}")
 
@@ -137,11 +142,12 @@ def make_api(*, policy=None, revision=1, environ=None):
     conn = FakeConnection(policy=policy, revision=revision)
     def connect_fn(readonly=False):
         return conn
-    v2_api = V2RiskExecutionApi(connect_fn, environ=environ or {"EXECUTION_AUTHORITY_MODE": "DISABLED"})
+    test_environ = environ or {"EXECUTION_AUTHORITY_MODE": "DISABLED", "V2_EXECUTION_BRIDGE_MODE": "demo"}
+    v2_api = V2RiskExecutionApi(connect_fn, environ=test_environ)
     td = tempfile.TemporaryDirectory()
     config = Path(td.name) / "platform.json"
     config.write_text(json.dumps({"strategies": []}))
-    api = PlatformControlApi(environ=environ or {"EXECUTION_AUTHORITY_MODE": "DISABLED"},
+    api = PlatformControlApi(environ=test_environ,
                              strategy_config_path=str(config), v2_risk_api=v2_api)
     return api, conn
 
@@ -173,7 +179,7 @@ class ReadTests(unittest.TestCase):
 
     def test_canary_status_is_present_and_reflects_the_real_counter(self):
         api, conn = make_api(policy=VALID_POLICY)
-        conn.canary_rows["execution:demo:188428665"] = (1, 0)
+        conn.canary_rows["demo"] = (1, 0)
         _, body = api.execute("GET", "/api/v1/v2-execution/risk-policy")
         self.assertEqual(body["data"]["canary"]["maxNewExecutions"], 1)
         self.assertEqual(body["data"]["canary"]["remaining"], 1)
@@ -193,6 +199,7 @@ class SaveTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["data"]["riskPerTrade"], 0.01)
         self.assertEqual(body["data"]["revision"], 2)
+
         self.assertEqual(conn.row["risk_per_trade"], 0.01)
 
     def test_a_missing_revision_is_a_409_not_a_validation_error(self):
@@ -276,3 +283,19 @@ class ReadOnlyGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CanaryWindowRouteTests(unittest.TestCase):
+    def test_open_window_route_is_explicit_and_does_not_arm(self):
+        api, _ = make_api(policy=VALID_POLICY)
+        window = {"canary_key": "execution:real:188428665:g2", "generation": 2,
+                  "state": "ACTIVE", "max_new_executions": 1, "consumed": 0,
+                  "remaining": 1}
+        with patch("platform_api.v2_risk.open_canary_window", return_value=window):
+            status, body = api.execute("POST", "/api/v1/v2-execution/canary-windows",
+                                       json.dumps({"accountId": "188428665", "environment": "real",
+                                                   "maxNewExecutions": 1, "updatedBy": "operator"}).encode())
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["generation"], 2)
+        self.assertEqual(body["data"]["state"], "ACTIVE")
+        self.assertEqual(api.execute("GET", "/api/v1/v2-execution/authority")[1]["data"]["state"], "DISABLED")

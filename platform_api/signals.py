@@ -522,7 +522,8 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
         # too so a browser's CORS preflight never promises more than the actual route dispatch
         # (PlatformControlApi.execute) is willing to accept.
         _POST_ALLOWED_PATHS = frozenset({"/api/v1/v2-execution/risk-policy",
-                                         "/api/v1/v2-execution/authority"})
+                                         "/api/v1/v2-execution/authority",
+                                         "/api/v1/v2-execution/canary-windows"})
 
         def do_OPTIONS(self) -> None:
             path = urlsplit(self.path).path.rstrip("/") or "/"

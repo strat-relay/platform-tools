@@ -178,7 +178,8 @@ async def main_async() -> None:
                          status_metadata={
                              "execution_authority_mode": authority_provider(),
                              "account_id": config.account_id,
-                             "canary_key": worker.resource,
+                             "canary_environment": config.bridge_mode,
+                             "canary_account_id": config.account_id,
                              "risk_policy": {
                                  "enabled": risk_policy.enabled,
                                  "version": risk_policy.version,

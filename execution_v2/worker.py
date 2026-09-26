@@ -93,8 +93,9 @@ class ExecutionWorker:
             return True
         with transaction(self.conn):
             with self.conn.cursor() as cur:
-                cur.execute("SELECT execution_v2.acquire_canary_slot(%s,%s,%s)",
-                            (self.resource, idempotency_key, self.risk_policy.canary_max_new_executions))
+                cur.execute("SELECT execution_v2.acquire_active_canary_slot(%s,%s,%s,%s)",
+                            (self.mode, self.account_id, idempotency_key,
+                             self.risk_policy.canary_max_new_executions))
                 row = cur.fetchone()
         return bool(row and row[0])
 
