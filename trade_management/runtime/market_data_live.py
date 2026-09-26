@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -51,13 +52,35 @@ class ReadOnlyBridgeClient(Protocol):
     def rates(self, symbol: str, timeframe: str, limit: int = 20) -> Any: ...
 
 
-def _broker_symbol_map() -> dict[str, str]:
-    """Read the existing explicit platform mapping authority.
+_MAPPING_CACHE_SECONDS = 30.0
+_mapping_cache: tuple[float, dict[str, str]] | None = None
 
-    The mapping is configuration, not a suffix convention.  An optional JSON override is
-    provided for account-specific deployments and is deliberately validated as a complete
-    canonical-to-broker mapping.
-    """
+
+def _database_symbol_map() -> dict[str, str]:
+    """ACTIVE MT5 mappings from platform.instrument_provider_mapping (migration 027), cached briefly
+    so a newly mapped instrument is observable without a restart."""
+    global _mapping_cache
+    now = time.monotonic()
+    if _mapping_cache is not None and now - _mapping_cache[0] < _MAPPING_CACHE_SECONDS:
+        return _mapping_cache[1]
+    from postgres.config import PostgresConfig
+    from postgres.db import connect
+    try:
+        with connect(PostgresConfig.from_env(), readonly=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT canonical_instrument, provider_symbol FROM platform.instrument_provider_mapping
+                               WHERE provider = 'MT5' AND state = 'ACTIVE'""")
+                value = {str(k): str(v) for k, v in cur.fetchall()}
+    except Exception as exc:  # noqa: BLE001 - no guessed fallback; the instrument is simply unavailable
+        raise MarketDataError(f"instrument provider mapping unavailable: {exc}") from exc
+    _mapping_cache = (now, value)
+    return value
+
+
+def _broker_symbol_map() -> dict[str, str]:
+    """Canonical -> broker symbol for market-data reads. Explicit configuration, never a suffix
+    convention: an optional P4_BROKER_SYMBOL_MAP_JSON override (validated as complete string
+    pairs), otherwise the database mapping. There is no platform.json fallback."""
     raw = os.environ.get("P4_BROKER_SYMBOL_MAP_JSON", "").strip()
     if raw:
         try:
@@ -68,15 +91,7 @@ def _broker_symbol_map() -> dict[str, str]:
                                                    for k, v in value.items()):
             raise MarketDataError("P4_BROKER_SYMBOL_MAP_JSON must contain string pairs")
         return value
-    config_path = Path(__file__).resolve().parents[2] / "orchestration" / "config" / "platform.json"
-    try:
-        value = json.loads(config_path.read_text(encoding="utf-8")).get("symbol_mappings", {})
-    except (OSError, json.JSONDecodeError) as exc:
-        raise MarketDataError(f"platform symbol mapping unavailable: {config_path}") from exc
-    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) and v
-                                               for k, v in value.items()):
-        raise MarketDataError("platform symbol_mappings must contain string pairs")
-    return value
+    return _database_symbol_map()
 
 
 def resolve_broker_symbol(canonical_instrument: str) -> str:

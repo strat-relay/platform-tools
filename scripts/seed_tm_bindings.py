@@ -1,5 +1,5 @@
-"""Registers a frozen TmVersion + a legacy_stream_binding for every strategy in
-orchestration/config/platform.json that carries its own `trade_management` block.
+"""Registers a frozen TmVersion + a legacy_stream_binding for every strategy whose definition in
+platform.strategy_definition (migration 028) carries its own `trade_management` block.
 
     "trade_management": {
         "policy": "tm-breakeven-trail.v1",
@@ -36,7 +36,6 @@ from postgres.db import connect
 from trade_management.ids import binding_id as _binding_id
 from trade_management.versions import TmVersionManifest, tm_breakeven_trail_manifest
 
-PLATFORM_CONFIG_PATH = Path("orchestration/config/platform.json")
 
 # Extend this as new evaluators are built - each entry maps a config `policy` string to a
 # manifest builder. Keeps this script from silently accepting a policy name no evaluator actually
@@ -98,13 +97,30 @@ def _ensure_binding(cur: Any, *, strategy_id: str, tm_version_id: str, valid_fro
     return binding_id
 
 
-def seed(*, config_path: Path = PLATFORM_CONFIG_PATH, valid_from: str, decided_by: str,
-        connect_fn: Any = connect) -> list[dict[str, str]]:
-    strategies = json.loads(config_path.read_text(encoding="utf-8"))["strategies"]
-    configured = [s for s in strategies if "trade_management" in s]
+def _configured_from_database(cur: Any) -> list[dict[str, Any]]:
+    """Strategies whose definition (platform.strategy_definition, migration 028) carries a
+    trade_management policy block."""
+    cur.execute("""SELECT strategy_id, trade_management FROM platform.strategy_definition
+                   WHERE trade_management IS NOT NULL ORDER BY strategy_id""")
+    rows = []
+    for strategy_id, policy in cur.fetchall():
+        rows.append({"strategy_id": strategy_id,
+                     "trade_management": json.loads(policy) if isinstance(policy, str) else policy})
+    return rows
+
+
+def seed(*, config_path: Path | None = None, valid_from: str, decided_by: str,
+         connect_fn: Any = connect) -> list[dict[str, str]]:
+    """Policies come from the database by default. `config_path` is an explicit one-off override
+    (e.g. importing a legacy platform.json); there is no implicit file read."""
     results: list[dict[str, str]] = []
     with connect_fn() as conn:
         with conn.cursor() as cur:
+            if config_path is not None:
+                strategies = json.loads(Path(config_path).read_text(encoding="utf-8"))["strategies"]
+                configured = [s for s in strategies if "trade_management" in s]
+            else:
+                configured = _configured_from_database(cur)
             for strategy in configured:
                 manifest = _manifest_for(strategy)
                 tm_version_id = _ensure_version(cur, manifest, decided_by=decided_by)

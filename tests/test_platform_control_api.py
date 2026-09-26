@@ -10,6 +10,30 @@ from platform_api.control import PlatformControlApi, PlatformControlRepository
 from platform_api.signals import CanonicalSourceUnavailable, UnifiedPlatformApi
 
 
+class FakeStrategyCatalog:
+    """Stands in for platform_api.strategy_catalog.StrategyCatalogRepository (migration 028)."""
+
+    ROWS = [{"strategy_id": "S", "strategy_version": "V1", "enabled": True, "adapter": "Adapter",
+             "routes": {"audit": True}},
+            {"strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1", "strategy_version": "V1", "enabled": True,
+             "adapter": "Context", "routes": {"audit": True}}]
+
+    def __init__(self, *, unavailable: bool = False):
+        self.unavailable = unavailable
+
+    def _ok(self):
+        if self.unavailable:
+            raise CanonicalSourceUnavailable("test strategy catalog unavailable")
+
+    def list_strategies(self):
+        self._ok()
+        return [dict(r) for r in self.ROWS]
+
+    def strategy_page(self, strategy_id):
+        self._ok()
+        return next((dict(r) for r in self.ROWS if r["strategy_id"] == strategy_id), None)
+
+
 class FakeRepository:
     def __init__(self, *, unavailable: bool = False):
         self.unavailable = unavailable
@@ -106,8 +130,10 @@ class PlatformControlApiTests(unittest.TestCase):
         authority = {"ORCHESTRATOR_MODE": "PRIMARY", "SIGNAL_AUTHORITY_MODE": "DB_PRIMARY",
                      "EXECUTION_AUTHORITY_MODE": "DISABLED", "SIGNAL_DB_PRIMARY_ENABLED": "true"}
         authority.update(env or {})
-        return PlatformControlApi(FakeRepository(unavailable=unavailable), authority, str(config),
-                                  bridge_reader=bridge_reader)
+        api = PlatformControlApi(FakeRepository(unavailable=unavailable), authority, str(config),
+                                 bridge_reader=bridge_reader)
+        api.strategy_catalog = FakeStrategyCatalog(unavailable=unavailable)
+        return api
 
     def test_runtime_projection_preserves_lifecycle_status_for_arm_preflight(self):
         repository = PlatformControlRepository()
@@ -202,12 +228,13 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertEqual(body["error"], "SOURCE_UNAVAILABLE")
 
-    def test_strategy_reads_current_config_not_runtime_files(self):
+    def test_strategies_come_from_the_database_catalog(self):
         api = self.make_api()
         status, body = api.execute("GET", "/api/v1/strategies")
-        self.assertEqual(status, 200)
+        self.assertEqual((status, body["source"]), (200, "canonical_postgres"))
         self.assertEqual(body["data"][0]["strategy_id"], "S")
-        self.assertEqual(api.execute("GET", "/api/v1/strategies/S")[1]["data"]["strategy_version"], "V1")
+        detail = api.execute("GET", "/api/v1/strategies/S")[1]
+        self.assertEqual((detail["data"]["strategy_version"], detail["source"]), ("V1", "canonical_postgres"))
         self.assertEqual(api.execute("GET", "/api/v1/strategies/MISSING")[0], 404)
         self.assertEqual(api.execute("GET", "/api/v1/strategies/S/report")[0], 503)
 
@@ -219,12 +246,16 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(body["data"]["report"]["outcome_authority"], "canonical_postgres")
         self.assertEqual(body["data"]["report"]["outcome_type"], "ENTRY_ONLY")
 
-    def test_stale_strategy_file_is_never_consulted(self):
+    def test_strategy_file_is_never_consulted(self):
         api = self.make_api()
         api.strategy_config_path = "/path/that/must/not/be/read/runtime/execution/state.json"
         status, body = api.execute("GET", "/api/v1/strategies")
-        self.assertEqual(status, 503)
+        self.assertEqual(status, 200)
         self.assertNotIn("LEGACY", json.dumps(body))
+
+    def test_strategy_catalog_outage_is_unavailable_not_empty(self):
+        status, body = self.make_api(unavailable=True).execute("GET", "/api/v1/strategies")
+        self.assertEqual((status, body["error"]), (503, "SOURCE_UNAVAILABLE"))
 
     def test_events_are_canonical_and_audit_truthfully_unavailable(self):
         api = self.make_api()

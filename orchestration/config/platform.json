@@ -8,12 +8,6 @@
   "virtual_starting_equity": 200.0,
   "virtual_risk_fraction": 0.01,
   "sizing_scenarios": [0.0025, 0.005, 0.01, 0.02],
-  "symbol_mappings": {
-    "XAUUSD": "XAUUSDm",
-    "BTCUSD": "BTCUSDm",
-    "USDJPY": "USDJPYm",
-    "EURUSD": "EURUSDm"
-  },
   "demo_symbol_mappings": {
     "XAUUSDm": {"broker_symbol": "XAUUSD", "status": "UNSAFE", "policy": "REJECT_CROSS_FEED"},
     "USDJPYm": {"broker_symbol": "USDJPY", "status": "UNSAFE", "policy": "REJECT_CROSS_FEED"},

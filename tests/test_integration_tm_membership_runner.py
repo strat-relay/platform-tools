@@ -64,18 +64,18 @@ class FreshDatabase:
 
 @unittest.skipUnless(_server_available(), "PostgreSQL is not available; set TRADING_POSTGRES_DSN")
 class MigrationChainTests(unittest.TestCase):
-    def test_clean_database_migrates_through_026(self):
+    def test_clean_database_migrates_through_028(self):
         db = FreshDatabase()
         try:
             with db.connect() as conn:
                 applied = apply_migrations(conn)
             numbers = [name[:3] for name in applied]
-            self.assertEqual(numbers[-3:], ["024", "025", "026"])
+            self.assertEqual(numbers[-5:], ["024", "025", "026", "027", "028"])
             self.assertEqual(len(numbers), len(set(numbers)))
         finally:
             db.drop()
 
-    def test_database_at_023_upgrades_024_025_026_and_mode_code_needs_024(self):
+    def test_database_at_023_upgrades_through_028_and_mode_code_needs_024(self):
         from trade_management.mode import TradeManagerModeUnavailable, current_mode
         db = FreshDatabase()
         try:
@@ -93,7 +93,7 @@ class MigrationChainTests(unittest.TestCase):
                                     or "trade_manager_mode" in str(raised.exception))
             with db.connect() as conn:
                 upgraded = apply_migrations(conn)
-                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026"])
+                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026", "027", "028"])
                 self.assertEqual(current_mode(conn), "SHADOW")                     # 024 seed
                 with conn.cursor() as cur:
                     cur.execute("""SELECT canonical_instrument FROM strategy.instrument_membership
@@ -101,6 +101,10 @@ class MigrationChainTests(unittest.TestCase):
                     self.assertEqual([r[0] for r in cur.fetchall()], ["BTCUSD", "EURUSD", "USDJPY", "XAUUSD"])  # 025 seed
                     cur.execute("SELECT to_regclass('trade_management.managed_trade_lifecycle_event')")
                     self.assertIsNotNone(cur.fetchone()[0])                         # 026
+                    cur.execute("""SELECT canonical_instrument, provider_symbol FROM platform.instrument_provider_mapping
+                                  WHERE provider='MT5' AND state='ACTIVE' ORDER BY 1""")
+                    self.assertEqual(cur.fetchall(), [("BTCUSD", "BTCUSDm"), ("EURUSD", "EURUSDm"),
+                                                      ("USDJPY", "USDJPYm"), ("XAUUSD", "XAUUSDm")])  # 027 seed
                 self.assertEqual(apply_migrations(conn), [])                        # idempotent
         finally:
             db.drop()
@@ -222,15 +226,16 @@ class CrossFeatureFlowTests(unittest.TestCase):
         from trade_management.mode import current_mode
         import context_structure_retrace_forward as fwd
 
-        # 1. Active strategy instance, instrument added & enabled (instance-scoped, canonical identity).
+        # 1. Provider mapping in the database (027), then the instrument added & enabled for the
+        #    instance (025, canonical identity). The runner resolves the provider symbol from the DB.
         repo = InstrumentMembershipRepository(connect_fn=lambda readonly=False: self.db.connect(readonly=readonly))
+        mapped = repo.save_mapping("GBPUSD", "GBPUSDm", "FX", actor="integration")
+        self.assertIn("GBPUSD", [c.canonical_instrument for c in repo.list_catalog()])
+        self.assertEqual(mapped["revision"], 1)
         saved = repo.save_membership(STRATEGY, "phase6", "gbpusd", "ACTIVE", None, "integration")
         self.assertEqual((saved["canonical_instrument"], saved["state"], saved["revision"]), ("GBPUSD", "ACTIVE", 1))
-        with tempfile.TemporaryDirectory() as td:
-            cfg = Path(td) / "platform.json"
-            cfg.write_text(json.dumps({"symbol_mappings": {"GBPUSD": "GBPUSDm", "EURUSD": "EURUSDm"}}))
-            with patch.dict(os.environ, {"TRADING_POSTGRES_DSN": self.db.dsn, "PLATFORM_STRATEGY_CONFIG_PATH": str(cfg)}):
-                symbols, revision = fwd.load_active_membership(Namespace(symbols=["XAUUSDm"]))
+        with patch.dict(os.environ, {"TRADING_POSTGRES_DSN": self.db.dsn}):
+            symbols, revision = fwd.load_active_membership(Namespace(symbols=["XAUUSDm"]))
         self.assertIn("GBPUSDm", symbols)
         self.assertEqual(revision, 1)
 

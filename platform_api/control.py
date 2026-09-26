@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 from .instrument_membership import (DEFAULT_INSTANCE_BY_STRATEGY, InstrumentMembershipRepository,
-                                     MembershipConflict, UnsupportedInstrument, catalog_from_config)
+                                     MembershipConflict, UnsupportedInstrument)
 
 SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
@@ -465,6 +465,8 @@ class PlatformControlApi:
                  trade_manager_mode_api: Any | None = None):
         self.repository = repository or PlatformControlRepository()
         self.instrument_membership = InstrumentMembershipRepository()
+        from .strategy_catalog import StrategyCatalogRepository
+        self.strategy_catalog = StrategyCatalogRepository()
         self.environ = os.environ if environ is None else environ
         self.strategy_config_path = strategy_config_path or self.environ.get(
             "PLATFORM_STRATEGY_CONFIG_PATH", "/etc/platform-config/platform.json")
@@ -532,32 +534,15 @@ class PlatformControlApi:
             return self.repository.platform_status()
         return self.repository.platform_status(include_event_counts=False)
 
-    def _strategies(self) -> list[dict[str, Any]]:
-        try:
-            config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
-            items = config.get("strategies")
-            if not isinstance(items, list):
-                raise ValueError("platform config strategies must be a list")
-            projected = []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                projected.append({key: item[key] for key in (
-                    "strategy_id", "strategy_version", "enabled", "adapter", "routes") if key in item})
-            return projected
-        except Exception as exc:
-            raise CanonicalSourceUnavailable("active platform strategy configuration unavailable") from exc
-
     def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
         if path == "/api/v1/instruments" and method == "GET":
             try:
-                config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
-                return 200, self._body([item.__dict__ for item in catalog_from_config(config)],
-                                       source="configured_provider_catalog")
-            except Exception as exc:
-                return 503, self._body(None, source="configured_provider_catalog", status="UNAVAILABLE",
+                return 200, self._body([item.__dict__ for item in self.instrument_membership.list_catalog()],
+                                       source="canonical_postgres")
+            except CanonicalSourceUnavailable as exc:
+                return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
                                        error="SOURCE_UNAVAILABLE", message=str(exc))
         if path.startswith("/api/v1/strategies/") and path.endswith("/instruments"):
             strategy_id = unquote(path[len("/api/v1/strategies/"):-len("/instruments")].strip("/"))
@@ -580,10 +565,9 @@ class PlatformControlApi:
                     payload = json.loads((body or b"{}").decode("utf-8"))
                     canonical = str(payload.get("canonicalInstrument", "")).strip().upper()
                     state = str(payload.get("state") or ("ACTIVE" if payload.get("enable") else "DISABLED")).upper()
-                    config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
-                    catalog = {x.canonical_instrument: x for x in catalog_from_config(config)}
+                    catalog = {x.canonical_instrument: x for x in self.instrument_membership.list_catalog()}
                     if canonical not in catalog:
-                        raise UnsupportedInstrument(f"{canonical} is not available in the configured provider catalog")
+                        raise UnsupportedInstrument(f"{canonical} has no active provider mapping in the instrument catalog")
                     if state == "ACTIVE" and not catalog[canonical].provider_symbol:
                         raise UnsupportedInstrument(f"{canonical} has no provider mapping")
                     row = self.instrument_membership.save_membership(
@@ -591,7 +575,7 @@ class PlatformControlApi:
                         payload.get("expectedRevision"), str(payload.get("updatedBy") or "control-api"))
                     return 200, self._body(row, source="canonical_postgres")
                 except UnsupportedInstrument as exc:
-                    return 409, self._body(None, source="configured_provider_catalog", status="DEGRADED",
+                    return 409, self._body(None, source="canonical_postgres", status="DEGRADED",
                                            error="UNSUPPORTED_INSTRUMENT", message=str(exc))
                 except MembershipConflict as exc:
                     return 409, self._body(None, source="canonical_postgres", error="REVISION_CONFLICT", message=str(exc))
@@ -685,24 +669,17 @@ class PlatformControlApi:
                         "blockers": [], "execution": execution}
                 return 200, self._body(data, source="canonical_platform")
             if path == "/api/v1/strategies" or path.startswith("/api/v1/strategies/"):
-                strategies = self._strategies()
+                # Strategy definitions and every statistic come from PostgreSQL (migration 028);
+                # the detail is the complete page model, computed over full history.
                 suffix = path[len("/api/v1/strategies"):].strip("/")
                 if not suffix:
-                    return 200, self._body(strategies, source="active_platform_config", status="ACTIVE")
+                    return 200, self._body(self.strategy_catalog.list_strategies(), source="canonical_postgres")
                 parts = [unquote(p) for p in suffix.split("/")]
-                strategy = next((s for s in strategies if s.get("strategy_id") == parts[0]), None)
-                if strategy is None:
-                    return 404, self._body(None, source="active_platform_config", status="ACTIVE", error="RESOURCE_NOT_FOUND")
                 if len(parts) == 1:
-                    try:
-                        tm_reader = getattr(self.repository, "strategy_trade_management", None)
-                        tm = tm_reader(parts[0]) if tm_reader else None
-                        if tm is not None:
-                            strategy = {**strategy, "tradeManagement": tm}
-                    except CanonicalSourceUnavailable:
-                        strategy = {**strategy, "tradeManagement": None,
-                                    "tradeManagementStatus": "UNAVAILABLE"}
-                    return 200, self._body(strategy, source="active_platform_config")
+                    page = self.strategy_catalog.strategy_page(parts[0])
+                    if page is None:
+                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                    return 200, self._body(page, source="canonical_postgres")
                 if (parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1" and len(parts) == 2
                         and parts[1] == "report"):
                     report = self.repository.context_entry_outcome_report()
