@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
-from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -38,20 +37,28 @@ READ_ONLY_BROKER_TOOLS = {
 class ReadOnlyBridgeReader:
     """Allow-listed read-only client for the MT5 bridge."""
 
-    def __init__(self, endpoint: str | None, timeout: float = 20.0):
-        self.endpoint = endpoint
+    def __init__(self, endpoint: str | Callable[[], str | None] | None, timeout: float = 20.0):
+        # A callable endpoint is resolved per call (e.g. from platform.runtime_setting), so API
+        # startup never depends on the database.
+        self._endpoint = endpoint
         self.timeout = timeout
+
+    @property
+    def endpoint(self) -> str | None:
+        value = self._endpoint() if callable(self._endpoint) else self._endpoint
+        return value or None
 
     def call(self, tool: str, arguments: dict[str, Any] | None = None) -> Any:
         if tool not in {name for name, _ in READ_ONLY_BROKER_TOOLS.values()}:
             raise ValueError("Control API permits only read-only broker tools")
-        if not self.endpoint:
+        endpoint = self.endpoint
+        if not endpoint:
             raise RuntimeError("Read-only MT5 bridge endpoint is not configured")
         payload = {"jsonrpc": "2.0", "id": "platform-control-api",
                    "method": "tools/call",
                    "params": {"name": tool, "arguments": arguments or {}}}
         request = urllib.request.Request(
-            self.endpoint, data=json.dumps(payload).encode("utf-8"),
+            endpoint, data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json", "X-Bridge-Origin": "CONTROL_API"},
             method="POST")
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
@@ -254,6 +261,17 @@ class PlatformControlRepository:
             FROM trade_management.trade_manager_decision d
             LEFT JOIN trade_management.publication_decision p ON p.decision_id = d.decision_id
             WHERE d.managed_trade_id = %s ORDER BY d.observation_seq DESC, d.persisted_at DESC""", (trade_id,))
+
+    def runtime_setting_reader(self, key: str) -> Callable[[], str | None]:
+        """Lazy reader for one platform.runtime_setting value (migration 029)."""
+        def read() -> str | None:
+            try:
+                rows = self.query("SELECT value FROM platform.runtime_setting WHERE key = %s", (key,))
+            except CanonicalSourceUnavailable:
+                return None
+            value = rows[0]["value"] if rows else None
+            return value if isinstance(value, str) else None
+        return read
 
     def _live_linkage_query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         """Live linkage joins trade_management to execution_v2 and needs
@@ -468,20 +486,15 @@ class PlatformControlApi:
         from .strategy_catalog import StrategyCatalogRepository
         self.strategy_catalog = StrategyCatalogRepository()
         self.environ = os.environ if environ is None else environ
-        self.strategy_config_path = strategy_config_path or self.environ.get(
-            "PLATFORM_STRATEGY_CONFIG_PATH", "/etc/platform-config/platform.json")
+        # platform.json is no longer read. `strategy_config_path` is accepted for compatibility only.
+        self.strategy_config_path = strategy_config_path
         if bridge_reader is None:
-            endpoint = self.environ.get("MT5_BRIDGE_MCP_URL")
-            if not endpoint:
-                try:
-                    config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
-                    endpoint = config.get("mcp_url")
-                except Exception:
-                    endpoint = None
             # Live projections issue account, positions, and orders reads concurrently;
             # keep a stalled bridge from holding the API request open for tens of seconds.
             timeout = float(self.environ.get("MT5_BRIDGE_READ_TIMEOUT_SECONDS", "5"))
-            bridge_reader = ReadOnlyBridgeReader(endpoint, timeout=timeout)
+            setting = getattr(self.repository, "runtime_setting_reader", None)
+            bridge_reader = ReadOnlyBridgeReader(self.environ.get("MT5_BRIDGE_MCP_URL")
+                                                 or (setting("mcp_url") if setting else None), timeout=timeout)
         self.bridge_reader = bridge_reader
         if v2_risk_api is None:
             from .v2_risk import V2RiskExecutionApi
