@@ -275,6 +275,66 @@ class LiveObservationTests(unittest.TestCase):
         self.assertEqual(trade["observation"]["status"], "FRESH")
 
 
+class OrderTicketIdentityTests(unittest.TestCase):
+    """MT5 order_send returns order + deal tickets only, so real fills record no position id."""
+
+    HEDGING = {"login": int(ACCOUNT), "server": "Exness-MT5Real27", "type": 2,
+               "account_margin_mode_raw": 2, "position_mode": "HEDGING"}
+    NETTING = {"login": int(ACCOUNT), "server": "Exness-MT5Real27", "type": 2,
+               "account_margin_mode_raw": 0, "position_mode": "NETTING"}
+
+    def order_only(self, **overrides):
+        return linked_row(broker_position_id=None, broker_order_id="257161530", broker_deal_id="209800687",
+                          **overrides)
+
+    def tearDown(self):
+        for tool in self.bridge.calls:
+            self.assertIn(tool, READ_TOOLS)
+
+    def test_hedging_account_links_the_open_position_by_its_opening_order_ticket(self):
+        self.bridge = RecordingBridge(positions=[position("257161530", symbol="BTCUSDm")], account=self.HEDGING)
+        result = project(FakeRepository(linked=[self.order_only()],
+                                        counts={"BROKER_FILLED_ORDER_TICKET_ONLY": 1}), self.bridge)
+        self.assertEqual(result["unlinked_broker_positions"], [])
+        self.assertEqual(result["system_state"], LIVE)
+        trade = result["active"][0]
+        self.assertEqual((trade["broker"]["position_id"], trade["broker"]["position_id_source"]),
+                         ("257161530", "ORDER_TICKET_HEDGING"))
+        self.assertEqual(result["historical_unreconciled"], {"count": 0, "by_linkage": {}})
+
+    def test_hedging_account_closed_order_ticket_fill_is_history(self):
+        self.bridge = RecordingBridge(positions=[], account=self.HEDGING)
+        result = project(FakeRepository(linked=[self.order_only()]), self.bridge)
+        self.assertEqual([t["broker_status"] for t in result["closed"]], ["CLOSED"])
+        self.assertEqual(result["active"], [])
+
+    def test_netting_account_never_links_by_order_ticket(self):
+        # On netting a deal may join an existing position with a different ticket.
+        self.bridge = RecordingBridge(positions=[position("257161530", symbol="BTCUSDm")], account=self.NETTING)
+        result = project(FakeRepository(linked=[self.order_only()],
+                                        counts={"BROKER_FILLED_ORDER_TICKET_ONLY": 1}), self.bridge)
+        self.assertEqual(result["active"], [])
+        self.assertEqual([p["position_id"] for p in result["unlinked_broker_positions"]], ["257161530"])
+        self.assertEqual(result["historical_unreconciled"]["by_linkage"], {"BROKER_FILLED_ORDER_TICKET_ONLY": 1})
+
+    def test_unknown_margin_mode_never_links_by_order_ticket(self):
+        self.bridge = RecordingBridge(positions=[position("257161530", symbol="BTCUSDm")])
+        result = project(FakeRepository(linked=[self.order_only()]), self.bridge)
+        self.assertEqual(result["active"], [])
+        self.assertEqual(len(result["unlinked_broker_positions"]), 1)
+
+    def test_recorded_position_id_wins_over_the_order_ticket(self):
+        self.bridge = RecordingBridge(positions=[position("5001")], account=self.HEDGING)
+        row = linked_row(broker_order_id="4999", broker_position_id="5001")
+        result = project(FakeRepository(linked=[row], counts={"BROKER_LINKED": 1}), self.bridge)
+        self.assertEqual(result["active"][0]["broker"]["position_id_source"], "EXECUTION_RESULT")
+
+    def test_disconnected_broker_does_not_assert_order_ticket_links(self):
+        self.bridge = RecordingBridge(fail=True, account=self.HEDGING)
+        result = project(FakeRepository(linked=[self.order_only()]), self.bridge)
+        self.assertEqual((result["system_state"], result["unresolved"]), (DISCONNECTED, []))
+
+
 class LiveRouteTests(unittest.TestCase):
     def test_route_serves_the_projection_read_only(self):
         bridge = RecordingBridge(positions=[])

@@ -41,13 +41,14 @@ def _database_available() -> bool:
 
 
 class FakeReadOnlyBridge:
-    def __init__(self):
+    def __init__(self, account_extra: dict | None = None):
         self.positions: list[dict] = []
         self.calls: list[str] = []
+        self.account = {"login": int(ACCOUNT), "type": 2, **(account_extra or {})}
 
     def call(self, tool, arguments=None):
         self.calls.append(tool)
-        return {"mt5_account_info": {"login": int(ACCOUNT), "type": 2},
+        return {"mt5_account_info": self.account,
                 "mt5_positions": self.positions, "mt5_orders": []}[tool]
 
 
@@ -94,7 +95,7 @@ class LiveTradeManagerRealPostgresTests(unittest.TestCase):
         self.assertEqual(result.status, "CREATED")
         return result.managed_trade_id
 
-    def _v2_fill(self, signal_id: str, *, position_id: str | None) -> None:
+    def _v2_fill(self, signal_id: str, *, position_id: str | None, order_id: str | None = None) -> None:
         intent_id = _intent_id(entry_signal_id=signal_id, account_id=ACCOUNT)
         att_id = _attempt_id(execution_intent_id=intent_id)
         confirmed = self.now - timedelta(minutes=10)
@@ -115,7 +116,7 @@ class LiveTradeManagerRealPostgresTests(unittest.TestCase):
                 (execution_result_id, attempt_id, execution_intent_id, outcome, account_id, broker_order_id,
                  broker_deal_id, broker_position_id, symbol, volume, actual_price, submitted_at, confirmed_at)
                 VALUES (%s,%s,%s,'FILLED',%s,%s,%s,%s,'XAUUSD',0.01,2001.0,%s,%s)""",
-                        (_result_id(attempt_id=att_id), att_id, intent_id, ACCOUNT, position_id,
+                        (_result_id(attempt_id=att_id), att_id, intent_id, ACCOUNT, order_id or position_id,
                          f"D{position_id}", position_id, confirmed, confirmed))
         self.conn.commit()
 
@@ -180,6 +181,30 @@ class LiveTradeManagerRealPostgresTests(unittest.TestCase):
         ids = {t["managed_trade_id"] for t in live["active"] + live["closed"] + live["unresolved"]}
         self.assertNotIn(trade_id, ids)
         self.assertGreaterEqual(live["historical_unreconciled"]["by_linkage"]["BROKER_RESULT_WITHOUT_POSITION_ID"], 1)
+
+    def test_order_ticket_only_fill_links_on_a_hedging_account_only(self):
+        # Real MT5 fills record order + deal tickets only (execution_result 2026-09-26).
+        order_id = str(800000 + int(uuid.uuid4().int % 99999))
+        signal_id = self._signal()
+        trade_id = self._managed_trade(signal_id)
+        self._v2_fill(signal_id, position_id=None, order_id=order_id)
+        live_position = {"ticket": int(order_id), "symbol": "XAUUSDm", "type": 0, "volume": 0.01,
+                         "price_open": 2001.0, "sl": 1990.0, "tp": 2020.0, "profit": 0.0, "time": 0}
+
+        netting = FakeReadOnlyBridge({"account_margin_mode_raw": 0})
+        netting.positions = [live_position]
+        live = self._project(netting)
+        self.assertNotIn(trade_id, {t["managed_trade_id"] for t in live["active"]})
+        self.assertIn(order_id, {p["position_id"] for p in live["unlinked_broker_positions"]})
+        self.assertGreaterEqual(live["historical_unreconciled"]["by_linkage"]["BROKER_FILLED_ORDER_TICKET_ONLY"], 1)
+
+        hedging = FakeReadOnlyBridge({"account_margin_mode_raw": 2, "position_mode": "HEDGING"})
+        hedging.positions = [live_position]
+        live = self._project(hedging)
+        active = {t["managed_trade_id"]: t for t in live["active"]}
+        self.assertEqual(active[trade_id]["broker"]["position_id_source"], "ORDER_TICKET_HEDGING")
+        self.assertNotIn(order_id, {p["position_id"] for p in live["unlinked_broker_positions"]})
+        self.assertNotIn("BROKER_FILLED_ORDER_TICKET_ONLY", live["historical_unreconciled"]["by_linkage"])
 
     def test_zero_broker_positions_is_zero_active(self):
         self._managed_trade(self._signal())
