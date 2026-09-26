@@ -58,6 +58,11 @@ paths_by_image = {
     "trading-platform-runtime": [
         "apps/trading-platform/runtimes.yaml",
         "apps/trading-platform/execution-v2-workload.yaml",
+        # Keep auxiliary runtime consumers on the same immutable release digest.
+        # These are hand-authored manifests rather than generated Deployments,
+        # so they must be included explicitly in release promotion.
+        "apps/trading-platform/mt5-native-bridge-main-runtime.yaml",
+        "apps/trading-platform/trading-platform-schema-migrations.yaml",
     ],
     "trading-platform-realtime-api": ["apps/trading-platform/platform-realtime-api.yaml"],
 }
