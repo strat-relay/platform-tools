@@ -215,6 +215,7 @@ jobs:
         if: env.GITOPS_REPO != '' && env.GITOPS_TOKEN != ''
         with:
           name: release-manifest
+          path: .
 
       - name: Open a GitOps update PR
         if: env.GITOPS_REPO != '' && env.GITOPS_TOKEN != ''
