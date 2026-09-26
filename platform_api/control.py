@@ -478,7 +478,9 @@ class PlatformControlApi:
                     endpoint = config.get("mcp_url")
                 except Exception:
                     endpoint = None
-            timeout = float(self.environ.get("MT5_BRIDGE_READ_TIMEOUT_SECONDS", "20"))
+            # Live projections issue account, positions, and orders reads concurrently;
+            # keep a stalled bridge from holding the API request open for tens of seconds.
+            timeout = float(self.environ.get("MT5_BRIDGE_READ_TIMEOUT_SECONDS", "5"))
             bridge_reader = ReadOnlyBridgeReader(endpoint, timeout=timeout)
         self.bridge_reader = bridge_reader
         if v2_risk_api is None:
