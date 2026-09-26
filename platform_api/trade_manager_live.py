@@ -20,6 +20,7 @@ No broker writes: the only bridge calls are the allow-listed read-only tools of
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -107,10 +108,35 @@ class TradeManagerLiveProjection:
 
     def _read_broker(self) -> dict[str, Any]:
         observed_at = self.clock()
+        calls = {
+            "account": "mt5_account_info",
+            "positions": "mt5_positions",
+            "orders": "mt5_orders",
+        }
+        futures = {}
+        executor = ThreadPoolExecutor(max_workers=len(calls), thread_name_prefix="tm-live-read")
         try:
-            account = self.bridge_reader.call("mt5_account_info")
-            positions = self.bridge_reader.call("mt5_positions")
-            orders = self.bridge_reader.call("mt5_orders")
+            futures = {key: executor.submit(self.bridge_reader.call, tool)
+                       for key, tool in calls.items()}
+            timeout = max(float(getattr(self.bridge_reader, "timeout", 5.0)), 0.1)
+            done, _ = wait(futures.values(), timeout=timeout)
+            results: dict[str, Any] = {}
+            errors: list[str] = []
+            for key, future in futures.items():
+                if future not in done:
+                    errors.append(f"{key} read timed out after {timeout:g}s")
+                    continue
+                try:
+                    results[key] = future.result()
+                except Exception as exc:  # noqa: BLE001 - failed read means broker truth is unknown
+                    errors.append(f"{key} read failed: {exc}")
+            if errors:
+                return {"status": "UNAVAILABLE", "observed_at": _iso(observed_at),
+                        "reason": "; ".join(errors), "account_id": None, "environment": None,
+                        "positions": None, "pending_orders": None}
+            account = results["account"]
+            positions = results["positions"]
+            orders = results["orders"]
             if not isinstance(account, dict) or account.get("login") is None:
                 raise RuntimeError("broker account identity unavailable")
             if not isinstance(positions, list) or not isinstance(orders, list):
@@ -118,6 +144,9 @@ class TradeManagerLiveProjection:
         except Exception as exc:  # noqa: BLE001 - any failed read means broker truth is unknown
             return {"status": "UNAVAILABLE", "observed_at": _iso(observed_at), "reason": str(exc),
                     "account_id": None, "environment": None, "positions": None, "pending_orders": None}
+        finally:
+            # Do not hold the HTTP request open for a stalled bridge worker.
+            executor.shutdown(wait=False, cancel_futures=True)
         return {"status": "CONNECTED", "observed_at": _iso(observed_at), "reason": None,
                 "account_id": str(account["login"]), "environment": broker_environment(account),
                 "server": account.get("server"), "positions": positions, "pending_orders": orders}

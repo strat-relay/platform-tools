@@ -6,6 +6,7 @@ ACTIVE. Every test also asserts that no non-read bridge tool was ever called.
 from __future__ import annotations
 
 import unittest
+import time
 from datetime import datetime, timedelta, timezone
 
 from platform_api.control import READ_ONLY_BROKER_TOOLS, PlatformControlApi, ReadOnlyBridgeReader
@@ -168,6 +169,22 @@ class LiveActiveAuthorityTests(unittest.TestCase):
         self.bridge = RecordingBridge(positions=[position()], account={"server": "x"})
         result = project(FakeRepository(linked=[linked_row()]), self.bridge)
         self.assertEqual(result["system_state"], DISCONNECTED)
+
+    def test_stalled_bridge_reads_are_parallel_and_bounded(self):
+        class SlowBridge(RecordingBridge):
+            timeout = 0.05
+
+            def call(self, tool, arguments=None):
+                time.sleep(0.2)
+                return super().call(tool, arguments)
+
+        self.bridge = SlowBridge()
+        started = time.monotonic()
+        result = project(FakeRepository(), self.bridge)
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 0.15)
+        self.assertEqual(result["system_state"], DISCONNECTED)
+        self.assertIsNone(result["broker"]["open_positions"])
 
 
 class LiveObservationTests(unittest.TestCase):
