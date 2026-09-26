@@ -38,7 +38,7 @@ __all__ = ["DECISION_CONSUMER_NAME", "DecisionResult", "record_decision"]
 
 @dataclass(frozen=True)
 class DecisionResult:
-    status: str  # RECORDED | DUPLICATE | INBOX_DUPLICATE | OBSERVATION_MISSING | TRADE_MANAGER_OFF
+    status: str  # RECORDED | DUPLICATE | INBOX_DUPLICATE | OBSERVATION_MISSING | TRADE_MANAGER_OFF | TRADE_NOT_OPEN
     decision_id: str | None
     action: str | None
     reason_codes: tuple[str, ...] = ()
@@ -188,6 +188,12 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
             raise UnknownEvaluator(
                 f"cannot evaluate observation {observation_id!r}: "
                 f"trade={'missing' if trade is None else 'ok'} version={'missing' if version is None else 'ok'}")
+
+        # A terminal (CLOSED) trade gets no further decisions, including for observations that
+        # were recorded or queued before it closed.
+        if (trade["state"] or "OPEN") != "OPEN":
+            mark_inbox_processed(conn, consumer_name, event_id)
+            return DecisionResult(status="TRADE_NOT_OPEN", decision_id=None, action=None)
 
         snapshot = _load_market_snapshot(conn, observation["market_snapshot_id"]) or {}
         latest_decision = _load_latest_decision(conn, observation["managed_trade_id"])

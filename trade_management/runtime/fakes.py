@@ -23,7 +23,8 @@ class RuntimeFakeCursor(FakeCursor):
     existing, already-proven test coverage is unaffected by this additive subclass."""
 
     def _select(self, upper: str, sql: str, params: Any) -> None:
-        if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "STATE = 'OPEN'" in upper:
+        if ("TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "STATE = 'OPEN'" in upper
+                and "ENTRY_SIGNAL_OUTCOMES" not in upper):
             rows = [(r["managed_trade_id"], r["instrument"])
                     for r in self.conn.view("trade_management.managed_trade").values()
                     if r["state"] == "OPEN"]

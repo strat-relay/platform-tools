@@ -125,7 +125,13 @@ class EvaluationFoundationTests(unittest.TestCase):
             # assert_frozen's docstring). This whole-file hash is intentionally stricter than that
             # guard (it catches any byte change, not just to the five fingerprinted functions);
             # re-pinning it is a deliberate, evidenced decision, not a blind hash refresh.
-            "context_structure_retrace_forward.py": "b3ee0c1f0bf9325544a5d43c8f1232a38e5f1717776b2d935bb74683ea4873f6",
+            # Re-pinned again (was b3ee0c1f...) by the orphaned-OPEN-position lifecycle fix. Unlike
+            # the previous re-pin, the decision code DID change on purpose: the decision fingerprint
+            # moved 70dba71d... -> 0a990dd5... (prior kept in PRIOR_DECISION_CODE_HASHES) while
+            # config_hash (the trading rules) is unchanged. Evidence:
+            # tests/test_context_runner_position_lifecycle.py and a 20k-path old-vs-new differential
+            # replay in which outcomes differ only where the old code orphaned an OPEN position.
+            "context_structure_retrace_forward.py": "5ee2cdbef32426a9db37e5f37336d131c96a44ff094a21efd0f1d0990cddade7",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)

@@ -24,6 +24,7 @@ from infrastructure.messaging.contracts import EventEnvelope
 from infrastructure.messaging.jetstream import JetStreamPublisher
 from postgres.foundation import mark_outbox_published
 from trade_management.market_data import MarketDataProvider
+from trade_management.lifecycle import reconcile_strategy_outcomes
 from trade_management.mode import OFF, current_mode
 from trade_management.observation import ObservationResult, record_observation
 
@@ -123,6 +124,15 @@ async def observation_tick(conn: Any, publisher: JetStreamPublisher, provider: M
         return {"mode": "UNAVAILABLE", "skipped": True, "error": str(exc)}
     if mode == OFF:
         return {"mode": OFF, "skipped": True}
+    # Terminal lifecycle first (migration 026): trades whose canonical strategy outcome is
+    # TARGET_HIT/STOPPED become CLOSED, so the WHERE state = 'OPEN' selection below only ever
+    # sees legitimately active trades. If reconciliation cannot run, skip the tick rather than
+    # observe trades that may already be terminal.
+    try:
+        closed = reconcile_strategy_outcomes(conn)
+    except Exception as exc:  # noqa: BLE001 - fail safe: no observation without reconciliation
+        conn.rollback()
+        return {"mode": mode, "skipped": True, "error": f"lifecycle reconciliation failed: {exc}"}
     relayed = await relay_pending_observations(conn, publisher)
     by_instrument = load_open_managed_trades_by_instrument(conn)
     recorded, failed_instruments = 0, []
@@ -133,5 +143,5 @@ async def observation_tick(conn: Any, publisher: JetStreamPublisher, provider: M
             recorded += sum(1 for r in results if r.status == "RECORDED")
         except Exception as exc:  # noqa: BLE001 - one instrument's failure must not stop the tick
             failed_instruments.append({"instrument": instrument, "error": str(exc)})
-    return {"mode": mode, "skipped": False, "open_trades": sum(len(v) for v in by_instrument.values()), "instruments": len(by_instrument),
+    return {"mode": mode, "skipped": False, "closed_by_strategy_outcome": len(closed), "open_trades": sum(len(v) for v in by_instrument.values()), "instruments": len(by_instrument),
             "observations_recorded": recorded, "backlog_relayed": relayed, "failed_instruments": failed_instruments}
