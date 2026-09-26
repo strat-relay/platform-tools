@@ -49,6 +49,29 @@ class LiquidityParameterSet:
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+# Machine-readable schema of the LiquidityParameterSet fields (strategy-owned; published to
+# platform.strategy_version_manifest by scripts/publish_strategy_manifests.py). A ParameterSet is
+# frozen and identified by parameter_set_id + config_fingerprint: changing any value is a new
+# ParameterSet, never an in-place edit. broker_symbol is a provider mapping, not strategy config.
+PARAMETER_SCHEMA: tuple[dict[str, Any], ...] = (
+    {"key": "canonical_instrument", "label": "Instrument", "type": "instrument", "required": True,
+     "description": "Canonical instrument this parameter set evaluates; membership of any other "
+                    "instrument is ignored by the runtime"},
+    {"key": "entry_fraction", "label": "Entry retracement", "type": "decimal", "required": True,
+     "min": 0.0, "max": 1.0, "unit": "fraction of displacement",
+     "description": "Depth of the displacement retracement at which the entry is placed"},
+    {"key": "max_retrace_candles", "label": "Retrace window", "type": "integer", "required": True,
+     "min": 1, "unit": "M5 candles",
+     "description": "Completed M5 candles after displacement within which the retracement must fill"},
+    {"key": "target_r", "label": "Target", "type": "decimal", "required": True, "min": 0.0,
+     "exclusive_min": True, "unit": "R", "default": 1.25,
+     "description": "Target distance as a multiple of the initial risk"},
+    {"key": "max_hold_minutes", "label": "Maximum hold", "type": "integer", "required": True, "min": 1,
+     "unit": "minutes", "default": 120, "description": "Time exit after entry"},
+)
+PARAMETER_KEYS = tuple(field["key"] for field in PARAMETER_SCHEMA)
+
+
 PARAMETER_SETS: dict[str, LiquidityParameterSet] = {
     "liquidity-xau-base": LiquidityParameterSet("liquidity-v1-xau-50", "liquidity-xau-base", "XAUUSD", "XAUUSDm", 0.50, 3),
     "liquidity-xau33": LiquidityParameterSet("liquidity-v1-xau-33", "liquidity-xau33", "XAUUSD", "XAUUSDm", 1 / 3, 5),

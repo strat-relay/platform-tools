@@ -96,14 +96,43 @@ def load_config_from_database(conn: Any) -> dict[str, Any]:
             if tm is not None:
                 record["trade_management"] = _json(tm)
             strategies.append(record)
+    return {**settings, "accounts": accounts, "portfolios": portfolios,
+            "strategies": strategies, "instances": load_instances_from_database(conn)}
+
+
+def load_instances_from_database(conn: Any) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
         cur.execute("""SELECT instance_id, strategy_id, display_name, enabled, attributes
                        FROM platform.strategy_instance ORDER BY strategy_id, instance_id""")
-        instances = []
-        for iid, sid, display_name, enabled, attrs in cur.fetchall():
-            instances.append({**_json(attrs), "instance_id": iid, "strategy_id": sid,
-                              "display_name": display_name, "enabled": bool(enabled)})
-    return {**settings, "accounts": accounts, "portfolios": portfolios,
-            "strategies": strategies, "instances": instances}
+        return [{**_json(attrs), "instance_id": iid, "strategy_id": sid,
+                 "display_name": display_name, "enabled": bool(enabled)}
+                for iid, sid, display_name, enabled, attrs in cur.fetchall()]
+
+
+def refresh_lifecycle(config: dict[str, Any], *, connect_fn: Any = None) -> dict[str, Any]:
+    """Re-read lifecycle state for the next orchestration cycle - instance ONLINE/OFFLINE and parent
+    strategy ACTIVE/SUSPENDED (`enabled`) - so a change takes effect without a restart. Everything
+    else in the config stays as loaded at start. Without a database the config is unchanged. A
+    failed read keeps the previous state; the full configuration already fails closed at startup,
+    and no lifecycle change can be written while the database is unreachable."""
+    if connect_fn is None:
+        if not _database_configured():
+            return config
+        from postgres.config import PostgresConfig
+        from postgres.db import connect
+        connect_fn = lambda: connect(PostgresConfig.from_env(), readonly=True)  # noqa: E731
+    try:
+        with connect_fn() as conn:
+            instances = load_instances_from_database(conn)
+            with conn.cursor() as cur:
+                cur.execute("SELECT strategy_id, enabled FROM platform.strategy_definition")
+                enabled = {sid: bool(on) for sid, on in cur.fetchall()}
+        strategies = [{**s, "enabled": enabled.get(s["strategy_id"], s.get("enabled"))}
+                      for s in config.get("strategies", [])]
+        return {**config, "strategies": strategies, "instances": instances}
+    except Exception as exc:  # noqa: BLE001
+        print(f"STRATEGY_INSTANCE_REFRESH_UNAVAILABLE {type(exc).__name__}: {exc}")
+        return config
 
 
 def _json(value: Any) -> Any:
