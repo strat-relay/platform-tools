@@ -132,6 +132,12 @@ class FakeCursor:
             row = self.conn.view("trade_management.trade_manager_decision").get(params[0])
             self._result = (row["action"],) if row else None
             return
+        if "TRADE_MANAGEMENT.TRADE_MANAGER_MODE" in upper:
+            # Unseeded = the migration 024 seed (SHADOW, revision 1).
+            row = self.conn.view("trade_management.trade_manager_mode").get(
+                "current", {"mode": "SHADOW", "revision": 1, "updated_at": None, "updated_by": "migration:024"})
+            self._result = (row["mode"], row["revision"], row["updated_at"], row["updated_by"])
+            return
         if "TRADE_MANAGEMENT.MARKET_SNAPSHOT" in upper:
             row = self.conn.view("trade_management.market_snapshot").get(params[0])
             self._result = (row["bid"], row["ask"]) if row else None
@@ -235,6 +241,10 @@ class FakeConnection:
 
     def pending_and_committed(self, table: str) -> dict[Any, dict[str, Any]]:
         return {**self.tables.get(table, {}), **self.pending.get(table, {})}
+
+    def set_tm_mode(self, mode: str, revision: int = 1) -> None:
+        self.tables["trade_management.trade_manager_mode"]["current"] = {
+            "mode": mode, "revision": revision, "updated_at": None, "updated_by": "test"}
 
     def seed_entry_signal(self, **fields: Any) -> None:
         row = {k: fields.get(k) for k in _ENTRY_SIGNAL_COLUMNS}

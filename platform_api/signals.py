@@ -523,7 +523,8 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
         # (PlatformControlApi.execute) is willing to accept.
         _POST_ALLOWED_PATHS = frozenset({"/api/v1/v2-execution/risk-policy",
                                          "/api/v1/v2-execution/authority",
-                                         "/api/v1/v2-execution/canary-windows"})
+                                         "/api/v1/v2-execution/canary-windows",
+                                         "/api/v1/trade-manager/mode"})
 
         def do_OPTIONS(self) -> None:
             path = urlsplit(self.path).path.rstrip("/") or "/"

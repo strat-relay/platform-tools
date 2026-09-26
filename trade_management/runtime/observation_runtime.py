@@ -24,6 +24,7 @@ from infrastructure.messaging.contracts import EventEnvelope
 from infrastructure.messaging.jetstream import JetStreamPublisher
 from postgres.foundation import mark_outbox_published
 from trade_management.market_data import MarketDataProvider
+from trade_management.mode import OFF, current_mode
 from trade_management.observation import ObservationResult, record_observation
 
 OBSERVATION_EVENT_TYPE = "trade.observation.recorded.v1"
@@ -111,7 +112,17 @@ async def observation_tick(conn: Any, publisher: JetStreamPublisher, provider: M
     """One full scheduler tick: relay any backlog first, then observe every open trade grouped
     by instrument. Returns a small summary for logging/health, never raises for an individual
     instrument's provider failure - one instrument's market-data outage must not stop
-    observations for every other open trade."""
+    observations for every other open trade.
+
+    Mode OFF (or an unreadable mode) skips the whole tick: nothing observed, nothing relayed."""
+    try:
+        mode = current_mode(conn)
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001 - fail closed: no work without a readable mode
+        conn.rollback()
+        return {"mode": "UNAVAILABLE", "skipped": True, "error": str(exc)}
+    if mode == OFF:
+        return {"mode": OFF, "skipped": True}
     relayed = await relay_pending_observations(conn, publisher)
     by_instrument = load_open_managed_trades_by_instrument(conn)
     recorded, failed_instruments = 0, []
@@ -122,5 +133,5 @@ async def observation_tick(conn: Any, publisher: JetStreamPublisher, provider: M
             recorded += sum(1 for r in results if r.status == "RECORDED")
         except Exception as exc:  # noqa: BLE001 - one instrument's failure must not stop the tick
             failed_instruments.append({"instrument": instrument, "error": str(exc)})
-    return {"open_trades": sum(len(v) for v in by_instrument.values()), "instruments": len(by_instrument),
+    return {"mode": mode, "skipped": False, "open_trades": sum(len(v) for v in by_instrument.values()), "instruments": len(by_instrument),
             "observations_recorded": recorded, "backlog_relayed": relayed, "failed_instruments": failed_instruments}

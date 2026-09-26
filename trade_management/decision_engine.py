@@ -27,6 +27,7 @@ from postgres.db import transaction
 from postgres.foundation import claim_inbox, mark_inbox_processed
 
 from .ids import decision_id as _decision_id
+from .mode import OFF, SKIP_REASON_OFF, current_mode
 from .publication_gate import GateInputs, evaluate_publication_gate
 from .tm_breakeven_trail import EVALUATOR_ID as BREAKEVEN_TRAIL_EVALUATOR_ID
 from .tm_breakeven_trail import BreakevenTrailPolicy, TmBreakevenTrailEvaluator
@@ -37,7 +38,7 @@ __all__ = ["DECISION_CONSUMER_NAME", "DecisionResult", "record_decision"]
 
 @dataclass(frozen=True)
 class DecisionResult:
-    status: str  # RECORDED | DUPLICATE | INBOX_DUPLICATE | OBSERVATION_MISSING
+    status: str  # RECORDED | DUPLICATE | INBOX_DUPLICATE | OBSERVATION_MISSING | TRADE_MANAGER_OFF
     decision_id: str | None
     action: str | None
     reason_codes: tuple[str, ...] = ()
@@ -157,6 +158,10 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
     with transaction(conn):
         if not claim_inbox(conn, consumer_name, event_id):
             return DecisionResult(status="INBOX_DUPLICATE", decision_id=None, action=None)
+
+        if current_mode(conn) == OFF:
+            mark_inbox_processed(conn, consumer_name, event_id)
+            return DecisionResult(status=SKIP_REASON_OFF, decision_id=None, action=None)
 
         observation = _load_observation(conn, observation_id)
         if observation is None:

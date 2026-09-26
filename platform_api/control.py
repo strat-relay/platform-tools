@@ -432,12 +432,14 @@ class PlatformControlApi:
     V2_RISK_POLICY_PATH = "/api/v1/v2-execution/risk-policy"
     V2_AUTHORITY_PATH = "/api/v1/v2-execution/authority"
     V2_CANARY_WINDOW_PATH = "/api/v1/v2-execution/canary-windows"
+    TRADE_MANAGER_MODE_PATH = "/api/v1/trade-manager/mode"
 
     def __init__(self, repository: PlatformControlRepository | None = None,
                  environ: dict[str, str] | None = None,
                  strategy_config_path: str | None = None,
                  v2_risk_api: Any | None = None,
-                 bridge_reader: Any | None = None):
+                 bridge_reader: Any | None = None,
+                 trade_manager_mode_api: Any | None = None):
         self.repository = repository or PlatformControlRepository()
         self.environ = os.environ if environ is None else environ
         self.strategy_config_path = strategy_config_path or self.environ.get(
@@ -459,6 +461,10 @@ class PlatformControlApi:
         self.v2_risk_api = v2_risk_api
         from .execution_authority import ExecutionAuthorityApi
         self.execution_authority_api = ExecutionAuthorityApi(runtime_status_fn=self.repository.execution_runtime_status)
+        if trade_manager_mode_api is None:
+            from .trade_manager_mode import TradeManagerModeApi
+            trade_manager_mode_api = TradeManagerModeApi()
+        self.trade_manager_mode_api = trade_manager_mode_api
 
     @staticmethod
     def _body(data: Any = None, *, source: str, status: str = "ACTIVE",
@@ -526,6 +532,11 @@ class PlatformControlApi:
                 return self.execution_authority_api.read()
             if method == "POST":
                 return self.execution_authority_api.save(body)
+        if path == self.TRADE_MANAGER_MODE_PATH:
+            if method == "GET":
+                return self.trade_manager_mode_api.read()
+            if method == "POST":
+                return self.trade_manager_mode_api.save(body)
         if method == "POST" and path == self.V2_CANARY_WINDOW_PATH:
             return self.v2_risk_api.open_window(body)
         if method != "GET":
@@ -648,6 +659,9 @@ class PlatformControlApi:
                 projection = TradeManagerLiveProjection(
                     self.repository, self.bridge_reader,
                     stale_after_seconds=float(self.environ.get("TM_LIVE_OBSERVATION_STALE_SECONDS", "120"))).project()
+                mode = self.trade_manager_mode_api.read()[1].get("data") or {}
+                projection["trade_manager_mode"] = {"mode": mode.get("mode", "OFF"), "revision": mode.get("revision", 0),
+                                                    "error": mode.get("error")}
                 return 200, self._body(projection, source="canonical_postgres+mt5_bridge_read_only",
                                        status="ACTIVE" if projection["system_state"] == "LIVE" else "DEGRADED")
             if path.startswith("/api/v1/managed-trades/") and path.endswith("/decisions"):
