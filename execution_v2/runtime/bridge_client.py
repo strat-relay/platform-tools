@@ -70,6 +70,9 @@ class HttpBridgeFenceClient:
             raise ValueError("request_args are required for the real /mcp bridge")
         if authorization.request_fingerprint != request_fingerprint:
             raise RequestFingerprintMismatch("authorization is not bound to this exact request")
+        wire_fingerprint = request_args.get("request_fingerprint")
+        if wire_fingerprint != request_fingerprint:
+            raise RequestFingerprintMismatch("request arguments are not bound to the authorized request")
         headers = {"Content-Type": "application/json"}
         headers["X-Execution-Mode"] = self.execution_mode
         header_values = {

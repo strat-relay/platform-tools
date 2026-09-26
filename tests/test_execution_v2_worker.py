@@ -18,6 +18,7 @@ from execution_v2.fakes import FakeBroker, FakeConnection
 from execution_v2.fence import FenceAuthority
 from execution_v2.risk import RiskPolicy
 from execution_v2.worker import ExecutionAuthorityDisabled, ExecutionWorker
+from execution_v2.symbols import canonical_request_fingerprint
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=timezone.utc)
 ACCOUNT = "ACC1"
@@ -72,6 +73,29 @@ def run(worker: ExecutionWorker, conn: FakeConnection, broker: FakeBroker, signa
 
 
 class EndToEndTests(unittest.TestCase):
+    def test_authorization_fingerprint_matches_canonical_wire_request(self):
+        conn = seeded_conn()
+        broker = FakeBroker(mode="fill")
+        worker = make_worker(conn, broker=broker)
+        captured = {}
+        original_submit = worker.bridge.submit
+
+        def capture_submit(*, authorization, request_fingerprint, broker_call, request_args=None):
+            captured["authorization"] = authorization
+            captured["request_fingerprint"] = request_fingerprint
+            captured["request_args"] = request_args
+            return original_submit(authorization=authorization, request_fingerprint=request_fingerprint,
+                                   broker_call=broker_call, request_args=request_args)
+
+        worker.bridge.submit = capture_submit
+        outcome = run(worker, conn, broker)
+
+        self.assertEqual(outcome.result_outcome, "FILLED")
+        wire = captured["request_args"]
+        expected = canonical_request_fingerprint(wire)
+        self.assertEqual(captured["request_fingerprint"], expected)
+        self.assertEqual(captured["authorization"].request_fingerprint, expected)
+
     def test_one_signal_produces_exactly_one_intent_one_attempt_one_result_and_outbox_events(self):
         conn = seeded_conn()
         broker = FakeBroker(mode="fill")
