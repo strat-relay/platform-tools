@@ -19,6 +19,7 @@ from .signals import CanonicalSourceUnavailable, _row_dict
 
 SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
+BROKER_POSITION_SCHEMA_VERSION = "022"
 EXECUTION_RUNTIME_COMPONENT = "execution_v2"
 LIMIT = 100
 
@@ -230,6 +231,82 @@ class PlatformControlRepository:
             FROM trade_management.trade_manager_decision d
             LEFT JOIN trade_management.publication_decision p ON p.decision_id = d.decision_id
             WHERE d.managed_trade_id = %s ORDER BY d.observation_seq DESC, d.persisted_at DESC""", (trade_id,))
+
+    def _live_linkage_query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        """Live linkage joins trade_management to execution_v2 and needs
+        `execution_result.broker_position_id` (migration 022)."""
+        try:
+            with self._connect(readonly=True) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute("SELECT count(*) FROM platform.schema_migrations WHERE version IN (%s, %s)",
+                                (TRADE_MANAGEMENT_SCHEMA_VERSION, BROKER_POSITION_SCHEMA_VERSION))
+                    if cur.fetchone()[0] != 2:
+                        raise CanonicalSourceUnavailable("canonical PostgreSQL schemas 013 and 022 are required")
+                    cur.execute(sql, params)
+                    return [_row_dict(cur, row) for row in cur.fetchall()]
+        except CanonicalSourceUnavailable:
+            raise
+        except Exception as exc:
+            raise CanonicalSourceUnavailable("canonical PostgreSQL live trade linkage unavailable") from exc
+
+    def broker_linked_managed_trades(self) -> list[dict[str, Any]]:
+        """ManagedTrades with an authoritative broker position id from a FILLED V2 result, plus
+        the market observations recorded since that fill (close side: bid LONG / ask SHORT)."""
+        return self._live_linkage_query("""SELECT mt.managed_trade_id, mt.entry_signal_id,
+            mt.strategy_id, mt.strategy_version, mt.instrument, mt.direction,
+            mt.reference_entry_price, mt.initial_stop, mt.initial_target, mt.tm_version_id,
+            i.execution_intent_id, a.attempt_id, a.resource AS attempt_resource,
+            r.execution_result_id, r.outcome, r.account_id, r.broker_order_id, r.broker_deal_id,
+            r.broker_position_id, r.volume AS fill_volume, r.actual_price AS fill_price,
+            r.submitted_at, r.confirmed_at,
+            obs.observation_count, obs.latest_observed_at, obs.latest_quote_timestamp,
+            obs.latest_bid, obs.latest_ask, obs.max_bid, obs.min_bid, obs.max_ask, obs.min_ask,
+            dec.action AS latest_action, dec.reason_codes AS latest_reason_codes,
+            dec.decision_time AS latest_decision_at
+            FROM trade_management.managed_trade mt
+            JOIN execution_v2.execution_intent i ON i.entry_signal_id = mt.entry_signal_id
+            JOIN execution_v2.execution_attempt a ON a.execution_intent_id = i.execution_intent_id
+            JOIN execution_v2.execution_result r ON r.attempt_id = a.attempt_id
+            LEFT JOIN LATERAL (
+                SELECT count(*) AS observation_count,
+                       max(s.bid) AS max_bid, min(s.bid) AS min_bid,
+                       max(s.ask) AS max_ask, min(s.ask) AS min_ask,
+                       (array_agg(o.observed_at ORDER BY o.observation_seq DESC))[1] AS latest_observed_at,
+                       (array_agg(s.source_timestamp ORDER BY o.observation_seq DESC))[1] AS latest_quote_timestamp,
+                       (array_agg(s.bid ORDER BY o.observation_seq DESC))[1] AS latest_bid,
+                       (array_agg(s.ask ORDER BY o.observation_seq DESC))[1] AS latest_ask
+                FROM trade_management.trade_observation o
+                JOIN trade_management.market_snapshot s ON s.market_snapshot_id = o.market_snapshot_id
+                WHERE o.managed_trade_id = mt.managed_trade_id
+                  AND o.observed_at >= COALESCE(r.confirmed_at, r.submitted_at, r.created_at)) obs ON TRUE
+            LEFT JOIN LATERAL (SELECT d.action, d.reason_codes, d.decision_time
+                FROM trade_management.trade_manager_decision d
+                WHERE d.managed_trade_id = mt.managed_trade_id
+                ORDER BY d.observation_seq DESC, d.persisted_at DESC LIMIT 1) dec ON TRUE
+            WHERE r.outcome = 'FILLED' AND r.broker_position_id IS NOT NULL
+            ORDER BY r.confirmed_at DESC NULLS LAST, mt.managed_trade_id""")
+
+    def managed_trade_linkage_counts(self) -> dict[str, int]:
+        """Classify every ManagedTrade by how far its broker lineage can be proven."""
+        rows = self._live_linkage_query("""SELECT linkage, count(*) AS n FROM (
+            SELECT CASE
+                WHEN EXISTS (SELECT 1 FROM execution_v2.execution_intent i
+                             JOIN execution_v2.execution_result r ON r.execution_intent_id = i.execution_intent_id
+                             WHERE i.entry_signal_id = mt.entry_signal_id
+                               AND r.outcome = 'FILLED' AND r.broker_position_id IS NOT NULL) THEN 'BROKER_LINKED'
+                WHEN EXISTS (SELECT 1 FROM execution_v2.execution_intent i
+                             JOIN execution_v2.execution_result r ON r.execution_intent_id = i.execution_intent_id
+                             WHERE i.entry_signal_id = mt.entry_signal_id) THEN 'BROKER_RESULT_WITHOUT_POSITION_ID'
+                WHEN EXISTS (SELECT 1 FROM execution_v2.execution_intent i
+                             JOIN execution_v2.execution_attempt a ON a.execution_intent_id = i.execution_intent_id
+                             WHERE i.entry_signal_id = mt.entry_signal_id) THEN 'ATTEMPT_WITHOUT_RESULT'
+                WHEN EXISTS (SELECT 1 FROM execution_v2.execution_intent i
+                             WHERE i.entry_signal_id = mt.entry_signal_id) THEN 'INTENT_NOT_SENT'
+                ELSE 'NO_EXECUTION_INTENT' END AS linkage
+            FROM trade_management.managed_trade mt) classified
+            GROUP BY linkage""")
+        return {row["linkage"]: int(row["n"]) for row in rows}
 
     def context_entry_outcome_report(self) -> dict[str, Any]:
         """Build the Context ENTRY_ONLY report strictly from PostgreSQL rows."""
@@ -566,6 +643,13 @@ class PlatformControlApi:
                                         "execution_channel": {"status": "INACTIVE", "reason": "execution authority disabled"}}, source="platform_and_bridge", status="DEGRADED")
             if path == "/api/v1/trade-manager/summary":
                 return 200, self._body(self.repository.trade_manager_summary(), source="canonical_postgres")
+            if path == "/api/v1/trade-manager/live":
+                from .trade_manager_live import TradeManagerLiveProjection
+                projection = TradeManagerLiveProjection(
+                    self.repository, self.bridge_reader,
+                    stale_after_seconds=float(self.environ.get("TM_LIVE_OBSERVATION_STALE_SECONDS", "120"))).project()
+                return 200, self._body(projection, source="canonical_postgres+mt5_bridge_read_only",
+                                       status="ACTIVE" if projection["system_state"] == "LIVE" else "DEGRADED")
             if path.startswith("/api/v1/managed-trades/") and path.endswith("/decisions"):
                 trade_id = unquote(path[len("/api/v1/managed-trades/"):-len("/decisions")].strip("/"))
                 return 200, self._body(self.repository.trade_decisions(trade_id), source="canonical_postgres")
