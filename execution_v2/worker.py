@@ -59,9 +59,11 @@ class ExecutionOutcome:
 
 def request_fingerprint(*, instrument: str, direction: str, volume: float, stop_price: float,
                         target_price: float | None) -> str:
-    # Normalize numeric wire values exactly as the bridge's independent verifier does before
-    # canonical JSON serialization.  This prevents an int/float spelling difference (4300 vs
-    # 4300.0) from making an otherwise identical signed request unverifiable.
+    """Legacy intent-level fingerprint retained for callers outside the submit path.
+
+    Broker authorization uses the canonical wire-request fingerprint built in ``order_args``;
+    this helper must not be used to authorize a bridge submission.
+    """
     payload = {"instrument": instrument, "direction": direction, "volume": float(volume),
               "stop_price": float(stop_price),
               "target_price": float(target_price) if target_price is not None else None}
@@ -296,9 +298,11 @@ class ExecutionWorker:
                 cur.execute("SELECT platform.assert_generation(%s,%s)", (self.resource, generation))
             self._set_attempt_state(att_id, "SENDING", sending=True)
 
-        fingerprint = request_fingerprint(instrument=broker_symbol, direction=intent["direction"],
-                                          volume=float(intent["approved_volume"]), stop_price=float(intent["stop_price"]),
-                                          target_price=float(intent["target_price"]) if intent["target_price"] is not None else None)
+        # The authorization must bind the exact canonical wire request sent to the bridge.  The
+        # old path signed a separate intent-level fingerprint while `order_args` carried the
+        # canonical MT5-request fingerprint, so the bridge correctly rejected every submission
+        # with `fence/request fingerprint mismatch` before dispatch.
+        fingerprint = order_args["request_fingerprint"]
         authorization = self.fence_authority.mint_authorization(resource=self.resource, generation=generation,
                                                                  attempt_id=att_id, tool=TOOL,
                                                                  request_fingerprint=fingerprint)
