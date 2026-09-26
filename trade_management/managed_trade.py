@@ -20,6 +20,7 @@ from postgres.foundation import claim_inbox, mark_inbox_processed
 
 from .binding import BindingResolution, StreamBindingResolver, TmVersionUnavailable
 from .ids import managed_trade_id as _managed_trade_id
+from .lifecycle import close_terminal_trades
 from .mode import OFF, SKIP_REASON_OFF, current_mode
 
 OPEN_CONSUMER_NAME = "trade-mgmt-open"
@@ -190,5 +191,11 @@ def create_managed_trade(conn: Any, *, event_id: str, signal_id: str, resolver: 
                         "event-envelope.v1", canonical_bytes(payload).decode("utf-8"), occurred_at,
                         signal_id, event_id))
 
+        # The strategy may already have a terminal outcome for this signal (exits can precede
+        # signal emission). Close it now, in the same transaction, so it never enters the
+        # observation work set.
+        closed_on_creation = close_terminal_trades(conn, now_utc=now_utc, managed_trade_id=trade_id)
+
         mark_inbox_processed(conn, consumer_name, event_id)
-        return CreationResult(status="CREATED", managed_trade_id=trade_id, tm_version_id=binding.tm_version_id)
+        return CreationResult(status="CREATED", managed_trade_id=trade_id, tm_version_id=binding.tm_version_id,
+                              reason="CLOSED_ON_CREATION_STRATEGY_OUTCOME" if closed_on_creation else None)

@@ -46,6 +46,22 @@ class FakeCursor:
     # -- SELECT ------------------------------------------------------------------------
 
     def _select(self, upper: str, sql: str, params: Any) -> None:
+        if "STRATEGY.ENTRY_SIGNAL_OUTCOMES" in upper:
+            # trade_management.lifecycle.close_terminal_trades: OPEN trades joined to a terminal
+            # canonical strategy outcome, optionally restricted to one managed_trade_id.
+            outcomes = self.conn.view("strategy.entry_signal_outcomes")
+            only = params[0] if params else None
+            rows = []
+            for trade in sorted(self.conn.view("trade_management.managed_trade").values(),
+                                key=lambda r: r["managed_trade_id"]):
+                outcome = outcomes.get(trade["entry_signal_id"])
+                if (trade["state"] == "OPEN" and outcome and outcome["status"] in ("TARGET_HIT", "STOPPED")
+                        and (only is None or trade["managed_trade_id"] == only)):
+                    rows.append((trade["managed_trade_id"], trade["entry_signal_id"], outcome["status"],
+                                 outcome["exit_timestamp"], outcome["realized_r"], outcome["source"]))
+            self._rows = rows
+            self._result = "MULTI"
+            return
         if "STRATEGY.ENTRY_SIGNALS" in upper:
             row = self.conn.view("strategy.entry_signals").get(params[0])
             self._result = tuple(row[k] for k in _ENTRY_SIGNAL_COLUMNS) if row else None
@@ -192,6 +208,15 @@ class FakeCursor:
             self.conn.pending["trade_management.managed_trade"][managed_trade_id] = updated
             self.rowcount = 1
             return
+        if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "SET STATE = 'CLOSED'" in upper:
+            (managed_trade_id,) = params
+            row = self.conn.pending_and_committed("trade_management.managed_trade").get(managed_trade_id)
+            if row is None or row["state"] != "OPEN":
+                self.rowcount = 0
+                return
+            self.conn.pending["trade_management.managed_trade"][managed_trade_id] = {**row, "state": "CLOSED"}
+            self.rowcount = 1
+            return
         raise AssertionError(f"FakeCursor cannot UPDATE: {sql[:100]}")
 
 
@@ -205,6 +230,7 @@ _INSERT_TABLE_MARKERS = (
     ("PLATFORM.OUTBOX_EVENTS", "platform.outbox_events"),
     ("TRADE_MANAGEMENT.MANAGED_TRADE_QUARANTINE", "trade_management.managed_trade_quarantine"),
     ("TRADE_MANAGEMENT.MANAGED_TRADE_SKIP", "trade_management.managed_trade_skip"),
+    ("TRADE_MANAGEMENT.MANAGED_TRADE_LIFECYCLE_EVENT", "trade_management.managed_trade_lifecycle_event"),
     ("TRADE_MANAGEMENT.MANAGED_TRADE", "trade_management.managed_trade"),
     ("TRADE_MANAGEMENT.TRADE_MANAGER_VERSION", "trade_management.trade_manager_version"),
     ("TRADE_MANAGEMENT.LEGACY_STREAM_BINDING", "trade_management.legacy_stream_binding"),
@@ -241,6 +267,13 @@ class FakeConnection:
 
     def pending_and_committed(self, table: str) -> dict[Any, dict[str, Any]]:
         return {**self.tables.get(table, {}), **self.pending.get(table, {})}
+
+    def seed_strategy_outcome(self, *, signal_id: str, status: str, exit_timestamp: Any = None,
+                              realized_r: Any = None, source: str = "CONTEXT_STRUCTURE_RETRACE_V1") -> None:
+        """Stands in for the strategy runner's canonical strategy.entry_signal_outcomes row."""
+        self.tables["strategy.entry_signal_outcomes"][signal_id] = {
+            "signal_id": signal_id, "status": status, "exit_timestamp": exit_timestamp,
+            "realized_r": realized_r, "source": source}
 
     def set_tm_mode(self, mode: str, revision: int = 1) -> None:
         self.tables["trade_management.trade_manager_mode"]["current"] = {
@@ -295,6 +328,15 @@ class FakeConnection:
     def _row_trade_management_managed_trade_skip(self, params: Any) -> tuple[Any, dict[str, Any]]:
         entry_signal_id, reason, detail = params
         return entry_signal_id, {"entry_signal_id": entry_signal_id, "reason": reason, "detail": detail}
+
+    def _row_trade_management_managed_trade_lifecycle_event(self, params: Any) -> tuple[Any, dict[str, Any]]:
+        (event_id, managed_trade_id, entry_signal_id, reason, strategy_outcome, outcome_source,
+         exit_timestamp, realized_r, transitioned_at) = params
+        return event_id, {"lifecycle_event_id": event_id, "managed_trade_id": managed_trade_id,
+                          "entry_signal_id": entry_signal_id, "previous_state": "OPEN", "new_state": "CLOSED",
+                          "reason": reason, "strategy_outcome": strategy_outcome, "outcome_source": outcome_source,
+                          "exit_timestamp": exit_timestamp, "realized_r": realized_r,
+                          "transitioned_at": transitioned_at}
 
     def _row_trade_management_managed_trade(self, params: Any) -> tuple[Any, dict[str, Any]]:
         keys = ("managed_trade_id", "entry_signal_id", "entry_signal_hash", "strategy_id", "strategy_version",
