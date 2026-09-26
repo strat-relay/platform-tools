@@ -127,6 +127,11 @@ class StrategyPageModelTests(unittest.TestCase):
                          ("V1", "ContextStructureRetraceAdapter", True, "phase6"))
         self.assertEqual(row["routes"], {"audit": True, "shadow_execution": True, "distribution_queue": True})
 
+    def test_strategy_instances_are_children_of_the_parent_definition(self):
+        instances = self.repo.strategy_instances(STRATEGY)
+        self.assertEqual([(row["instance_id"], row["strategy_id"], row["enabled"]) for row in instances],
+                         [("phase6", STRATEGY, True)])
+
 
 if __name__ == "__main__":
     unittest.main()

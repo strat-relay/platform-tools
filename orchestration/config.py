@@ -47,10 +47,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
          "routes": {"audit": False, "shadow_execution": False, "distribution_queue": False},
          "portfolio_routing": False},
     ],
+    "instances": [{"instance_id": "phase6", "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+                    "display_name": "Context Structure Retrace phase6", "enabled": True}],
 }
 
 
-CONFIG_SCHEMA_VERSION = "029"
+CONFIG_SCHEMA_VERSION = "030"
 STRATEGY_COLUMNS = ("strategy_id", "strategy_version", "enabled", "adapter", "routes")
 
 
@@ -65,8 +67,7 @@ def _database_configured() -> bool:
 
 
 def load_config_from_database(conn: Any) -> dict[str, Any]:
-    """Assemble the orchestration configuration (the shape platform.json used to have) from
-    platform.runtime_setting, orchestration_account/portfolio (029) and strategy_definition (028)."""
+    """Assemble orchestration configuration from canonical DB strategy definitions and instances."""
     with conn.cursor() as cur:
         cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s", (CONFIG_SCHEMA_VERSION,))
         if cur.fetchone() is None:
@@ -95,7 +96,14 @@ def load_config_from_database(conn: Any) -> dict[str, Any]:
             if tm is not None:
                 record["trade_management"] = _json(tm)
             strategies.append(record)
-    return {**settings, "accounts": accounts, "portfolios": portfolios, "strategies": strategies}
+        cur.execute("""SELECT instance_id, strategy_id, display_name, enabled, attributes
+                       FROM platform.strategy_instance ORDER BY strategy_id, instance_id""")
+        instances = []
+        for iid, sid, display_name, enabled, attrs in cur.fetchall():
+            instances.append({**_json(attrs), "instance_id": iid, "strategy_id": sid,
+                              "display_name": display_name, "enabled": bool(enabled)})
+    return {**settings, "accounts": accounts, "portfolios": portfolios,
+            "strategies": strategies, "instances": instances}
 
 
 def _json(value: Any) -> Any:

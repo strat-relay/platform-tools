@@ -17,6 +17,7 @@ from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 
 STRATEGY_SCHEMA_VERSION = "028"
+INSTANCE_SCHEMA_VERSION = "030"
 RECENT_LIMIT = 50
 
 _SUMMARY_SQL = """
@@ -114,6 +115,18 @@ class StrategyCatalogRepository:
 
     def strategy_ids(self) -> set[str]:
         return {s["strategy_id"] for s in self.list_strategies()}
+
+    def strategy_instances(self, strategy_id: str) -> list[dict[str, Any]]:
+        def read(cur: Any) -> list[dict[str, Any]]:
+            cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s",
+                        (INSTANCE_SCHEMA_VERSION,))
+            if cur.fetchone() is None:
+                raise CanonicalSourceUnavailable("canonical PostgreSQL schema 030 is required")
+            return self._rows(cur, """SELECT instance_id, strategy_id, display_name, enabled,
+                                      attributes, revision, created_at, updated_at
+                               FROM platform.strategy_instance
+                               WHERE strategy_id = %s ORDER BY instance_id""", (strategy_id,))
+        return self._run(read)
 
     def strategy_page(self, strategy_id: str) -> dict[str, Any] | None:
         return self._run(lambda cur: self._page(cur, strategy_id))

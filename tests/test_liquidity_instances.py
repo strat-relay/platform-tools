@@ -13,9 +13,20 @@ from orchestration.liquidity_instances import (
     LiquidityInstanceAdapter,
     LiquidityLivePublisher,
 )
+from signal_orchestrator import load_adapters
 
 
 class LiquidityInstancePlumbingTests(unittest.TestCase):
+    def test_parent_record_selects_enabled_child_instances(self):
+        adapters = load_adapters({
+            "strategies": [{"strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1", "enabled": True}],
+            "instances": [
+                {"instance_id": "liquidity-xau33", "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1", "enabled": True},
+                {"instance_id": "liquidity-btc25", "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1", "enabled": False},
+            ],
+        }, "2026-09-26T00:00:00+00:00")
+        self.assertEqual([adapter.definition.instance_id for adapter in adapters], ["liquidity-xau33"])
+
     def test_four_instances_are_unique_and_disabled_in_plan(self):
         ids = [x.strategy_id for x in LIQUIDITY_INSTANCE_DEFINITIONS]
         instances = [x.instance_id for x in LIQUIDITY_INSTANCE_DEFINITIONS]

@@ -6,10 +6,10 @@ nothing reads the file.
     python -m scripts.import_platform_config platform.json --apply    # writes
 
 Targets: platform.runtime_setting (every top-level scalar/object key), orchestration_account,
-orchestration_portfolio (029), strategy_definition (028; unknown keys kept in `attributes`) and
-instrument_provider_mapping (027, from `symbol_mappings`). Idempotent: rows only change (and bump
-their revision) when their content differs. Existing display_name / description /
-default_instance_id of a strategy are preserved. Nothing is deleted.
+orchestration_portfolio (029), strategy_definition (028), strategy_instance (030; unknown keys
+kept in `attributes`) and instrument_provider_mapping (027, from `symbol_mappings`). Idempotent:
+rows only change (and bump their revision) when their content differs. Existing display_name /
+description / default_instance_id of a strategy are preserved. Nothing is deleted.
 """
 from __future__ import annotations
 
@@ -26,10 +26,11 @@ if str(ROOT) not in sys.path:
 from postgres.config import PostgresConfig  # noqa: E402
 from postgres.db import connect  # noqa: E402
 
-LIST_KEYS = ("accounts", "portfolios", "strategies", "symbol_mappings")
+LIST_KEYS = ("accounts", "portfolios", "strategies", "instances", "symbol_mappings")
 ACCOUNT_COLUMNS = ("account_id", "broker", "broker_environment", "broker_account_reference", "currency", "enabled", "execution_mode")
 PORTFOLIO_COLUMNS = ("portfolio_id", "name", "enabled", "base_currency", "sizing_policy_id", "account_ids", "strategy_ids")
 STRATEGY_COLUMNS = ("strategy_id", "strategy_version", "enabled", "adapter", "routes", "trade_management")
+INSTANCE_COLUMNS = ("instance_id", "strategy_id", "display_name", "enabled")
 METALS = {"XAU", "XAG", "XPT", "XPD"}
 COINS = {"BTC", "ETH", "LTC", "XRP", "BCH", "ADA", "DOT", "SOL", "DOGE", "LINK", "XLM", "UNI", "AVAX", "MATIC", "TRX",
          "BNB", "ATOM", "XTZ", "EOS", "ETC", "FIL", "AAVE", "SHIB", "TON", "NEAR", "APT", "ARB", "OP", "SUI"}
@@ -55,10 +56,11 @@ def import_config(config: dict[str, Any], *, apply: bool, actor: str = "import_p
     plan = {"settings": sorted(settings), "accounts": [a["account_id"] for a in config.get("accounts", [])],
             "portfolios": [p["portfolio_id"] for p in config.get("portfolios", [])],
             "strategies": [s["strategy_id"] for s in config.get("strategies", [])],
+            "instances": [i["instance_id"] for i in config.get("instances", [])],
             "symbol_mappings": sorted((config.get("symbol_mappings") or {}).keys()), "dry_run": not apply}
     if not apply:
         return plan
-    changed: dict[str, list[str]] = {k: [] for k in ("settings", "accounts", "portfolios", "strategies", "symbol_mappings")}
+    changed: dict[str, list[str]] = {k: [] for k in ("settings", "accounts", "portfolios", "strategies", "instances", "symbol_mappings")}
     connect_fn = connect_fn or (lambda: connect(PostgresConfig.from_env()))
     with connect_fn() as conn:
         with conn.cursor() as cur:
@@ -134,6 +136,24 @@ def import_config(config: dict[str, Any], *, apply: bool, actor: str = "import_p
                             json.dumps(s.get("routes") or {}), None if tm is None else json.dumps(tm),
                             json.dumps(attrs), actor)):
                     changed["strategies"].append(s["strategy_id"])
+            for instance in config.get("instances", []):
+                attrs = {k: v for k, v in instance.items() if k not in INSTANCE_COLUMNS}
+                if _upsert(cur, """INSERT INTO platform.strategy_instance
+                            (instance_id, strategy_id, display_name, enabled, attributes, updated_by)
+                        VALUES (%s,%s,%s,%s,%s::jsonb,%s)
+                        ON CONFLICT (instance_id) DO UPDATE SET strategy_id = EXCLUDED.strategy_id,
+                            display_name = EXCLUDED.display_name, enabled = EXCLUDED.enabled,
+                            attributes = EXCLUDED.attributes, updated_by = EXCLUDED.updated_by,
+                            revision = platform.strategy_instance.revision + 1, updated_at = now()
+                        WHERE (platform.strategy_instance.strategy_id, platform.strategy_instance.display_name,
+                               platform.strategy_instance.enabled, platform.strategy_instance.attributes)
+                              IS DISTINCT FROM (EXCLUDED.strategy_id, EXCLUDED.display_name,
+                                                EXCLUDED.enabled, EXCLUDED.attributes)
+                        RETURNING instance_id""",
+                           (instance["instance_id"], instance["strategy_id"],
+                            instance.get("display_name", instance["instance_id"]), bool(instance.get("enabled")),
+                            json.dumps(attrs), actor)):
+                    changed["instances"].append(instance["instance_id"])
             for canonical, symbol in sorted((config.get("symbol_mappings") or {}).items()):
                 canonical = canonical.upper()
                 if _upsert(cur, """INSERT INTO platform.instrument_provider_mapping

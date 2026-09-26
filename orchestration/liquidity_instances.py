@@ -121,6 +121,7 @@ LIQUIDITY_INSTANCE_DEFINITIONS: tuple[LiquidityInstanceDefinition, ...] = (
 )
 
 DEFINITIONS_BY_ID = {x.strategy_id: x for x in LIQUIDITY_INSTANCE_DEFINITIONS}
+DEFINITIONS_BY_INSTANCE_ID = {x.instance_id: x for x in LIQUIDITY_INSTANCE_DEFINITIONS}
 
 
 def liquidity_definition(strategy_id: str) -> LiquidityInstanceDefinition:

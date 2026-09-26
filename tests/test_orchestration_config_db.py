@@ -37,6 +37,8 @@ PRODUCTION_LIKE = {
     "portfolios": [{"portfolio_id": "portfolio-shadow-k8s", "name": "Kubernetes Shadow Portfolio", "enabled": True,
                     "base_currency": "USD", "sizing_policy_id": "equity-fractional-v1",
                     "account_ids": ["exness-shadow-k8s"], "strategy_ids": ["CONTEXT_STRUCTURE_RETRACE_V1"]}],
+    "instances": [{"instance_id": "phase6", "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+                   "display_name": "Context Structure Retrace phase6", "enabled": True}],
     "strategies": [{"strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1", "strategy_version": "V1", "enabled": True,
                     "adapter": "ContextStructureRetraceAdapter", "portfolio_routing": True,
                     "routes": {"audit": True, "shadow_execution": True, "distribution_queue": True},
