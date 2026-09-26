@@ -46,13 +46,14 @@ class FoundationTests(unittest.TestCase):
             validate_subject("signal.entry.created")
 
     def test_topology_has_separate_core_and_execution_streams(self):
-        # TRADING_OBSERVATION (architecture/p4-2-managed-trade) is a third, deliberately
-        # isolated stream for the (not activated) trade-observation hot path; additive, does
-        # not change TRADING_CORE/EXECUTION's own subject sets below.
-        self.assertEqual(set(STREAMS), {"TRADING_CORE", "EXECUTION", "TRADING_OBSERVATION"})
+        # TRADING_OBSERVATION (architecture/p4-2-managed-trade) and SIGNAL_REALTIME
+        # (architecture/nats-first-data-plane, dormant NATS-first hot path) are deliberately
+        # isolated additive streams; neither changes TRADING_CORE/EXECUTION's subject sets below.
+        self.assertEqual(set(STREAMS), {"TRADING_CORE", "EXECUTION", "TRADING_OBSERVATION", "SIGNAL_REALTIME"})
         self.assertTrue(all(x.endswith(".v1") for x in STREAMS["TRADING_CORE"]["subjects"]))
         self.assertTrue(all(x.endswith(".v1") for x in STREAMS["EXECUTION"]["subjects"]))
         self.assertTrue(all(x.endswith(".v1") for x in STREAMS["TRADING_OBSERVATION"]["subjects"]))
+        self.assertTrue(all(x.endswith(".v1") for x in STREAMS["SIGNAL_REALTIME"]["subjects"]))
         self.assertEqual(set(JetStreamTopology.v1().streams), set(STREAMS))
 
     def test_topology_creation_is_idempotent(self):
@@ -75,8 +76,9 @@ class FoundationTests(unittest.TestCase):
             topology = JetStreamTopology.v1()
             await topology.ensure(manager)
             await topology.ensure(manager)
-            self.assertEqual(len(manager.calls), 3)
-            self.assertEqual({x["name"] for x in manager.calls}, {"TRADING_CORE", "EXECUTION", "TRADING_OBSERVATION"})
+            self.assertEqual(len(manager.calls), 4)
+            self.assertEqual({x["name"] for x in manager.calls},
+                             {"TRADING_CORE", "EXECUTION", "TRADING_OBSERVATION", "SIGNAL_REALTIME"})
         asyncio.run(run())
 
     def test_publish_and_redelivery_harness(self):
