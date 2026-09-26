@@ -1,0 +1,15 @@
+{
+  "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+  "strategy_version": "V1",
+  "enabled": false,
+  "production_apply": false,
+  "parameter_sets": [
+    {"instance_id": "liquidity-xau-base", "parameter_set_id": "liquidity-v1-xau-50", "canonical_instrument": "XAUUSD", "entry_fraction": 0.5, "max_retrace_candles": 3},
+    {"instance_id": "liquidity-xau33", "parameter_set_id": "liquidity-v1-xau-33", "canonical_instrument": "XAUUSD", "entry_fraction": 0.3333333333333333, "max_retrace_candles": 5},
+    {"instance_id": "liquidity-btc25", "parameter_set_id": "liquidity-v1-btc-25", "canonical_instrument": "BTCUSD", "entry_fraction": 0.25, "max_retrace_candles": 5},
+    {"instance_id": "liquidity-usdjpy25", "parameter_set_id": "liquidity-v1-usdjpy-25", "canonical_instrument": "USDJPY", "entry_fraction": 0.25, "max_retrace_candles": 5}
+  ],
+  "trade_management": {"tm_version_id": null, "mode": "OBSERVATION_ONLY", "status": "TBD", "broker_effects": false},
+  "account_route": {"production_apply": false, "current_route": "exness-shadow-k8s", "execution_account": "188428665"},
+  "risk_allowlist": {"production_apply": false, "strategy_ref": "LIQUIDITY_DISPLACEMENT_SCALP_V1@V1"}
+}
