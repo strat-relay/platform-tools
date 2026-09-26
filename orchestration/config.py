@@ -13,9 +13,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "execution_mode": "SHADOW",
     "mcp_url": "http://127.0.0.1:22347/mcp",
     "sizing_scenarios": [0.0025, 0.005, 0.01, 0.02],
-    "symbol_mappings": {
-        "XAUUSD": "XAUUSDm", "BTCUSD": "BTCUSDm", "USDJPY": "USDJPYm", "EURUSD": "EURUSDm",
-    },
     "accounts": [{"account_id": "exness-shadow-1", "broker": "Exness", "broker_environment": "DEMO",
                    "broker_account_reference": "REDACTED", "currency": "USD", "enabled": True,
                    "execution_mode": "SHADOW"}],

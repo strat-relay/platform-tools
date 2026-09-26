@@ -131,7 +131,10 @@ class EvaluationFoundationTests(unittest.TestCase):
             # config_hash (the trading rules) is unchanged. Evidence:
             # tests/test_context_runner_position_lifecycle.py and a 20k-path old-vs-new differential
             # replay in which outcomes differ only where the old code orphaned an OPEN position.
-            "context_structure_retrace_forward.py": "5ee2cdbef32426a9db37e5f37336d131c96a44ff094a21efd0f1d0990cddade7",
+            # Re-pinned (was 5ee2cdbe...) when load_active_membership moved provider symbols from
+            # platform.json to platform.instrument_provider_mapping (migration 027). Ancillary only: the
+            # decision fingerprint (FROZEN_DECISION_CODE_HASH) is unchanged.
+            "context_structure_retrace_forward.py": "34ec0e9ca9eb37e1ce8058da143a80b1027c57e55e09b939479a3cfb6309c6f2",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)

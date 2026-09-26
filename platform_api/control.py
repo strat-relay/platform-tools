@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 from .instrument_membership import (DEFAULT_INSTANCE_BY_STRATEGY, InstrumentMembershipRepository,
-                                     MembershipConflict, UnsupportedInstrument, catalog_from_config)
+                                     MembershipConflict, UnsupportedInstrument)
 
 SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
@@ -553,11 +553,10 @@ class PlatformControlApi:
         path = parsed.path.rstrip("/") or "/"
         if path == "/api/v1/instruments" and method == "GET":
             try:
-                config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
-                return 200, self._body([item.__dict__ for item in catalog_from_config(config)],
-                                       source="configured_provider_catalog")
-            except Exception as exc:
-                return 503, self._body(None, source="configured_provider_catalog", status="UNAVAILABLE",
+                return 200, self._body([item.__dict__ for item in self.instrument_membership.list_catalog()],
+                                       source="canonical_postgres")
+            except CanonicalSourceUnavailable as exc:
+                return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
                                        error="SOURCE_UNAVAILABLE", message=str(exc))
         if path.startswith("/api/v1/strategies/") and path.endswith("/instruments"):
             strategy_id = unquote(path[len("/api/v1/strategies/"):-len("/instruments")].strip("/"))
@@ -580,10 +579,9 @@ class PlatformControlApi:
                     payload = json.loads((body or b"{}").decode("utf-8"))
                     canonical = str(payload.get("canonicalInstrument", "")).strip().upper()
                     state = str(payload.get("state") or ("ACTIVE" if payload.get("enable") else "DISABLED")).upper()
-                    config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
-                    catalog = {x.canonical_instrument: x for x in catalog_from_config(config)}
+                    catalog = {x.canonical_instrument: x for x in self.instrument_membership.list_catalog()}
                     if canonical not in catalog:
-                        raise UnsupportedInstrument(f"{canonical} is not available in the configured provider catalog")
+                        raise UnsupportedInstrument(f"{canonical} has no active provider mapping in the instrument catalog")
                     if state == "ACTIVE" and not catalog[canonical].provider_symbol:
                         raise UnsupportedInstrument(f"{canonical} has no provider mapping")
                     row = self.instrument_membership.save_membership(
@@ -591,7 +589,7 @@ class PlatformControlApi:
                         payload.get("expectedRevision"), str(payload.get("updatedBy") or "control-api"))
                     return 200, self._body(row, source="canonical_postgres")
                 except UnsupportedInstrument as exc:
-                    return 409, self._body(None, source="configured_provider_catalog", status="DEGRADED",
+                    return 409, self._body(None, source="canonical_postgres", status="DEGRADED",
                                            error="UNSUPPORTED_INSTRUMENT", message=str(exc))
                 except MembershipConflict as exc:
                     return 409, self._body(None, source="canonical_postgres", error="REVISION_CONFLICT", message=str(exc))

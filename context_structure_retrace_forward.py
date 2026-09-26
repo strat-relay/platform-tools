@@ -55,7 +55,7 @@ _ACTIVE_RECOVERY_CONTEXT: dict[str, Any] | None = None
 
 
 def load_active_membership(args: argparse.Namespace) -> tuple[tuple[str, ...], int | None]:
-    """Resolve canonical instance membership to provider symbols at runtime.
+    """Resolve canonical instance membership to provider symbols at runtime (database mapping).
 
     The runner polls this durable snapshot; it never writes membership and it
     does not make provider symbols part of the strategy domain model. The CLI
@@ -68,16 +68,16 @@ def load_active_membership(args: argparse.Namespace) -> tuple[tuple[str, ...], i
         import psycopg
         with psycopg.connect(dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
-                cur.execute("""SELECT m.canonical_instrument, m.revision
+                # Provider symbols come from the database mapping (migration 027), never from a
+                # file. An ACTIVE member without an ACTIVE mapping is simply not evaluated.
+                cur.execute("""SELECT p.provider_symbol, greatest(m.revision, p.revision)
                     FROM strategy.instrument_membership m
+                    JOIN platform.instrument_provider_mapping p
+                      ON p.canonical_instrument = m.canonical_instrument AND p.provider = 'MT5' AND p.state = 'ACTIVE'
                     WHERE m.strategy_instance_id = %s AND m.strategy_id = %s AND m.state = 'ACTIVE'
                     ORDER BY m.canonical_instrument""", ("phase6", VERSION))
                 rows = cur.fetchall()
-        config_path = os.getenv("PLATFORM_STRATEGY_CONFIG_PATH", str(ROOT / "orchestration/config/platform.json"))
-        config = json.loads(Path(config_path).read_text(encoding="utf-8"))
-        mapping = {str(k).upper(): str(v) for k, v in (config.get("symbol_mappings") or {}).items()}
-        symbols = tuple(mapping[canonical] for canonical, _ in rows if canonical in mapping)
-        return symbols, max((int(revision) for _, revision in rows), default=0)
+        return tuple(symbol for symbol, _ in rows), max((int(revision) for _, revision in rows), default=0)
     except Exception as exc:
         # A membership read outage must not silently re-enable stale symbols.
         # Keep the process alive for observability, but evaluate no symbols.

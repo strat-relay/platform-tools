@@ -29,6 +29,13 @@ class FakeReadOnlyBridge:
 
 
 class LiveMarketDataProviderTests(unittest.TestCase):
+    def setUp(self):
+        # The mapping is explicit configuration (env override or the database, migration 027);
+        # there is no platform.json fallback, so tests state the mapping they rely on.
+        patcher = patch.dict(os.environ, {"P4_BROKER_SYMBOL_MAP_JSON": json.dumps({"XAUUSD": "XAUUSDm"})})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_quote_uses_only_the_read_only_client(self):
         bridge = FakeReadOnlyBridge()
         provider = LiveMarketDataProvider(bridge)
