@@ -12,6 +12,10 @@ RUN pip install --no-cache-dir --disable-pip-version-check -r requirements-postg
 
 COPY postgres ./postgres
 COPY platform_api ./platform_api
+# PlatformControlApi exposes Trade Manager mode as part of the unified API
+# startup path. Keep the domain package in the API image so import-time
+# construction cannot crash with ModuleNotFoundError.
+COPY trade_management ./trade_management
 # The API image carries only the V2 policy/authority validators and stores; it never runs the
 # execution consumer/worker. Runtime authority is resolved from PostgreSQL, not the policy file.
 COPY execution_v2/__init__.py execution_v2/risk.py execution_v2/risk_policy_store.py execution_v2/authority_store.py execution_v2/canary_windows.py ./execution_v2/
