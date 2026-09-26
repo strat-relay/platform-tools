@@ -29,6 +29,28 @@ git checkout -b "$branch"
 mkdir -p "apps/${app_name}"
 cp "$OLDPWD/$manifest" "$target_path"
 
+# Keep the runtime workloads on the exact digest published by platform-tools.  These workloads
+# are owned by the GitOps repository, while their immutable image provenance is owned by the
+# platform-tools release manifest.  The update remains a desired-state PR; this script never
+# contacts Kubernetes.
+runtime_ref=$(python3 -c "import json,sys; print(next(x['reference'] for x in json.load(open('$manifest'))['images'] if x['name'] == 'trading-platform-runtime'))")
+if test -f apps/trading-platform/runtimes.yaml; then
+  python3 - "$runtime_ref" apps/trading-platform/runtimes.yaml <<'PY'
+import pathlib
+import sys
+
+reference, path = sys.argv[1:]
+file = pathlib.Path(path)
+text = file.read_text()
+lines = text.splitlines(keepends=True)
+for index, line in enumerate(lines):
+    if "image: ghcr.io/strat-relay/trading-platform-runtime@sha256:" in line:
+        indent = line[:len(line) - len(line.lstrip())]
+        lines[index] = f"{indent}image: {reference}\n"
+file.write_text("".join(lines))
+PY
+fi
+
 # `target_path` is absent in the bootstrap GitOps repository.  A copied new file is
 # untracked, and `git diff --quiet` intentionally ignores untracked files; checking
 # only the diff therefore falsely treats the first release as identical.  Include
