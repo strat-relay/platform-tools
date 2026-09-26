@@ -151,7 +151,7 @@ def _configuration(row: dict[str, Any], published: dict[str, Any] | None) -> dic
         return {"status": "NOT_PUBLISHED", "parameters": [], "immutable": [], "operational": list(OPERATIONAL_FIELDS),
                 "edit_policy": None, "runtime": runtime, "sync": "UNKNOWN",
                 "detail": "No parameter manifest has been published for this instance "
-                          "(scripts/publish_strategy_manifests.py)"}
+                          "(Publish parameter manifest in the strategy's menu)"}
     manifest = published["manifest"]
     values = published["parameters"] or {}
     parameters = [{**field, "value": values.get(field["key"])} for field in manifest.get("parameters", [])]
@@ -249,6 +249,10 @@ class ParameterSetNotPublished(RuntimeError):
     pass
 
 
+class ManifestNotAvailable(RuntimeError):
+    pass
+
+
 class MembershipRefused(RuntimeError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -291,11 +295,40 @@ class StrategyCatalogRepository:
             instances = self._instances(cur)
             for s in summaries:
                 self._attach_instances(s, [i for i in instances if i["strategy_id"] == s["strategy_id"]])
+                s["manifest"] = self._manifest_status(cur, s["strategy_id"], s["instances"])
             return summaries
         return self._run(read)
 
     def strategy_ids(self) -> set[str]:
         return {s["strategy_id"] for s in self.list_strategies()}
+
+    def _manifest_status(self, cur: Any, strategy_id: str, instances: list[dict[str, Any]]) -> dict[str, Any]:
+        """Is the manifest bundled with this API build published? CURRENT when the version manifest
+        and every existing instance's ParameterSet match the bundle, OUTDATED when any differs,
+        NOT_PUBLISHED when nothing is, NOT_AVAILABLE when this build carries no manifest."""
+        from .strategy_manifest_publisher import bundled_manifests, fingerprint
+        bundle = next(((m, sets) for m, sets in bundled_manifests() if m["strategy_id"] == strategy_id), None)
+        if bundle is None:
+            return {"status": "NOT_AVAILABLE", "detail": "This API build carries no parameter manifest for the strategy"}
+        manifest, sets = bundle
+        published = self._published_parameter_sets(cur)
+        cur.execute("SELECT to_regclass('platform.strategy_version_manifest') IS NOT NULL")
+        version_fp = None
+        if cur.fetchone()[0]:
+            cur.execute("""SELECT manifest_fingerprint FROM platform.strategy_version_manifest
+                           WHERE strategy_id = %s AND strategy_version = %s""",
+                        (strategy_id, manifest["strategy_version"]))
+            row = cur.fetchone()
+            version_fp = row[0] if row else None
+        existing = {i["instance_id"] for i in instances}
+        stale = [p["instance_id"] for p in sets if p["instance_id"] in existing and (
+            (published.get(p["instance_id"]) or {}).get("config_fingerprint") != p["config_fingerprint"]
+            or (published.get(p["instance_id"]) or {}).get("parameters") != p["parameters"])]
+        bundled_fp = fingerprint(manifest)
+        status = ("NOT_PUBLISHED" if version_fp is None and len(stale) == len([p for p in sets if p["instance_id"] in existing])
+                  else "CURRENT" if version_fp == bundled_fp and not stale else "OUTDATED")
+        return {"status": status, "strategy_version": manifest["strategy_version"], "bundled_fingerprint": bundled_fp,
+                "published_fingerprint": version_fp, "instances_outdated": stale}
 
     @staticmethod
     def _attach_instances(summary: dict[str, Any], instances: list[dict[str, Any]]) -> None:
@@ -449,6 +482,7 @@ class StrategyCatalogRepository:
             return None
         page = _summary(rows[0])
         self._attach_instances(page, self._instances(cur, "WHERE i.strategy_id = %s", (strategy_id,)))
+        page["manifest"] = self._manifest_status(cur, strategy_id, page["instances"])
         out = page["outcomes"]
 
         series_rows = self._rows(cur, """SELECT (o.exit_timestamp AT TIME ZONE 'UTC')::date AS day,
@@ -659,3 +693,23 @@ class StrategyCatalogRepository:
                                             f"{open_n} open {canonical} trade(s): this runtime stops monitoring "
                                             "exits of disabled instruments, so it cannot be disabled until they close")
         self._run(read)
+
+    def publish_manifest(self, strategy_id: str, *, updated_by: str) -> dict[str, Any]:
+        """Publish this API build's bundled parameter manifest for one strategy (idempotent).
+        Writes only the manifest tables; never creates instances or changes lifecycle, membership,
+        execution or risk state."""
+        from .strategy_manifest_publisher import bundled_manifests, publish
+        if not updated_by.strip():
+            raise ValueError("updatedBy is required")
+        if strategy_id not in self.strategy_ids():
+            raise InstanceNotFound(f"{strategy_id} does not exist")
+        selected = [(m, sets) for m, sets in bundled_manifests() if m["strategy_id"] == strategy_id]
+        if not selected:
+            raise ManifestNotAvailable(f"this API build carries no parameter manifest for {strategy_id}")
+        try:
+            report = publish(selected, apply=True, connect_fn=lambda: self._connect(readonly=False),
+                             published_by=updated_by.strip())
+        except Exception as exc:
+            raise CanonicalSourceUnavailable(f"canonical PostgreSQL manifest write unavailable: {exc}") from exc
+        return {**self.list_strategy(strategy_id), "publish_report": report}
+

@@ -538,7 +538,8 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
                 return
             from .control import PlatformControlApi  # local: control imports this module
             post_allowed = (path in self._POST_ALLOWED_PATHS
-                            or PlatformControlApi._instance_lifecycle_route(path) is not None)
+                            or PlatformControlApi._instance_lifecycle_route(path) is not None
+                            or PlatformControlApi._strategy_write_route(path) is not None)
             allowed_methods = {"GET", "OPTIONS"} | ({"POST"} if post_allowed else set())
             requested_method = self.headers.get("Access-Control-Request-Method", "GET").upper()
             if requested_method not in allowed_methods:

@@ -1,0 +1,289 @@
+[
+  {
+    "manifest": {
+      "code_fingerprint": "0a990dd5b3418bd065a702a3a50ffcebcf20dd26565fd432326b1f32ef3aeacf",
+      "edit_policy": {
+        "config_reload": "RESTART_REQUIRED",
+        "instance_parameters": "NEW_PARAMETER_SET_REQUIRED",
+        "reason": "ParameterSets are frozen in strategy code and identified by parameter_set_id + config_fingerprint; runtimes load them at start. Changing a value is a new ParameterSet (a reviewed code change and deploy), never an in-place edit."
+      },
+      "immutable": [
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "commission",
+          "label": "Commission",
+          "value": "UNKNOWN_UNRESOLVED"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "execution_timeframe",
+          "label": "Execution timeframe",
+          "value": "M15"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "higher_context",
+          "label": "Higher context",
+          "value": [
+            "H1",
+            "H4"
+          ]
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "lower_context",
+          "label": "Lower context",
+          "value": [
+            "M5"
+          ]
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "no_remaining_target",
+          "label": "No remaining target",
+          "value": "target behind or at executable entry is non-tradable"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "reentry",
+          "label": "Reentry",
+          "value": "INTERACT -> LEAVE_ZONE -> COMPLETED_LOWER_TF_CLOSE_OUTSIDE -> RETURN -> THESIS_VALID -> TARGET_NOT_COMPLETED; target completion returns are RETURN_AFTER_SETUP_TARGET_COMPLETED"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "retracement",
+          "label": "Retracement",
+          "value": "DEPTH_ONLY at 20% of originating setup range; other mechanisms recorded when observed"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "scale_in",
+          "label": "Scale in",
+          "value": "DISABLED; potential scale-in is logged only"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "setup_events",
+          "label": "Setup events",
+          "value": [
+            "BULLISH_ENGULFING",
+            "BEARISH_ENGULFING",
+            "MORNING_STAR",
+            "EVENING_STAR",
+            "BULLISH_REJECTION_WICK",
+            "BEARISH_REJECTION_WICK"
+          ]
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "slippage",
+          "label": "Slippage",
+          "value": "SHADOW_SENSITIVITY_ONLY"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "stop",
+          "label": "Stop",
+          "value": "ORIGINATING_SETUP_EXTREME with minimal causal volatility/spread safety buffer"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "strategy_version",
+          "label": "Strategy version",
+          "value": "CONTEXT_STRUCTURE_RETRACE_V1"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "symbols",
+          "label": "Symbols",
+          "value": [
+            "XAUUSDm",
+            "BTCUSDm",
+            "USDJPYm",
+            "EURUSDm"
+          ]
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "target",
+          "label": "Target",
+          "value": "STRUCTURE_CAPPED_EXTENSION; setup extreme plus 0.50*setup range, capped only by directionally valid opposing structure"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "time_exit",
+          "label": "Time exit",
+          "value": "NONE"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "two_leg_risk",
+          "label": "Two leg risk",
+          "value": {
+            "leg_a": 0.5,
+            "leg_b": 0.5,
+            "total": 1.0
+          }
+        }
+      ],
+      "parameters": [],
+      "schema_version": "strategy-parameter-manifest.v1",
+      "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+      "strategy_version": "V1"
+    },
+    "parameter_sets": [
+      {
+        "config_fingerprint": "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e",
+        "instance_id": "phase6",
+        "parameter_set_id": "context-v1-frozen",
+        "parameters": {},
+        "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+        "strategy_version": "V1"
+      }
+    ]
+  },
+  {
+    "manifest": {
+      "code_fingerprint": "4f22747b5654e123fd6be49dc820aa58f2bad5c166f42f8c9e445fc6debe88ea",
+      "edit_policy": {
+        "config_reload": "RESTART_REQUIRED",
+        "instance_parameters": "NEW_PARAMETER_SET_REQUIRED",
+        "reason": "ParameterSets are frozen in strategy code and identified by parameter_set_id + config_fingerprint; runtimes load them at start. Changing a value is a new ParameterSet (a reviewed code change and deploy), never an in-place edit."
+      },
+      "immutable": [
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "entry_semantics",
+          "label": "Entry model",
+          "value": "V1 sweep -> reclaim -> displacement -> micro structure shift -> frozen displacement retracement"
+        },
+        {
+          "classification": "VERSION_OWNED_IMMUTABLE",
+          "key": "stop_semantics",
+          "label": "Stop model",
+          "value": "sweep extreme plus max(0.10 ATR, 1.25x spread, broker stop minimum)"
+        }
+      ],
+      "parameters": [
+        {
+          "classification": "INSTANCE_CONFIGURABLE",
+          "description": "Canonical instrument this parameter set evaluates; membership of any other instrument is ignored by the runtime",
+          "editable": false,
+          "key": "canonical_instrument",
+          "label": "Instrument",
+          "required": true,
+          "type": "instrument"
+        },
+        {
+          "classification": "INSTANCE_CONFIGURABLE",
+          "description": "Depth of the displacement retracement at which the entry is placed",
+          "editable": false,
+          "key": "entry_fraction",
+          "label": "Entry retracement",
+          "max": 1.0,
+          "min": 0.0,
+          "required": true,
+          "type": "decimal",
+          "unit": "fraction of displacement"
+        },
+        {
+          "classification": "INSTANCE_CONFIGURABLE",
+          "description": "Completed M5 candles after displacement within which the retracement must fill",
+          "editable": false,
+          "key": "max_retrace_candles",
+          "label": "Retrace window",
+          "min": 1,
+          "required": true,
+          "type": "integer",
+          "unit": "M5 candles"
+        },
+        {
+          "classification": "INSTANCE_CONFIGURABLE",
+          "default": 1.25,
+          "description": "Target distance as a multiple of the initial risk",
+          "editable": false,
+          "exclusive_min": true,
+          "key": "target_r",
+          "label": "Target",
+          "min": 0.0,
+          "required": true,
+          "type": "decimal",
+          "unit": "R"
+        },
+        {
+          "classification": "INSTANCE_CONFIGURABLE",
+          "default": 120,
+          "description": "Time exit after entry",
+          "editable": false,
+          "key": "max_hold_minutes",
+          "label": "Maximum hold",
+          "min": 1,
+          "required": true,
+          "type": "integer",
+          "unit": "minutes"
+        }
+      ],
+      "schema_version": "strategy-parameter-manifest.v1",
+      "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+      "strategy_version": "V1"
+    },
+    "parameter_sets": [
+      {
+        "config_fingerprint": "3546486fe53ac0c8ae4ba8221498b0bd63f572ad2629b3efdc3a30b4a2e7ecdf",
+        "instance_id": "liquidity-btc25",
+        "parameter_set_id": "liquidity-v1-btc-25",
+        "parameters": {
+          "canonical_instrument": "BTCUSD",
+          "entry_fraction": 0.25,
+          "max_hold_minutes": 120,
+          "max_retrace_candles": 5,
+          "target_r": 1.25
+        },
+        "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+        "strategy_version": "V1"
+      },
+      {
+        "config_fingerprint": "1de84965881753a860d06f69d94a38297bfaa07acd31d78633950c28fe850cc3",
+        "instance_id": "liquidity-usdjpy25",
+        "parameter_set_id": "liquidity-v1-usdjpy-25",
+        "parameters": {
+          "canonical_instrument": "USDJPY",
+          "entry_fraction": 0.25,
+          "max_hold_minutes": 120,
+          "max_retrace_candles": 5,
+          "target_r": 1.25
+        },
+        "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+        "strategy_version": "V1"
+      },
+      {
+        "config_fingerprint": "035f677fbb6df6c492907b69fd99ad72baabb969de41fb522ee8e483a7e7c07d",
+        "instance_id": "liquidity-xau-base",
+        "parameter_set_id": "liquidity-v1-xau-50",
+        "parameters": {
+          "canonical_instrument": "XAUUSD",
+          "entry_fraction": 0.5,
+          "max_hold_minutes": 120,
+          "max_retrace_candles": 3,
+          "target_r": 1.25
+        },
+        "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+        "strategy_version": "V1"
+      },
+      {
+        "config_fingerprint": "6e87907683378b64b724d4b98f98eb7a9ba530b631796cf5cb7a860a422e6ca3",
+        "instance_id": "liquidity-xau33",
+        "parameter_set_id": "liquidity-v1-xau-33",
+        "parameters": {
+          "canonical_instrument": "XAUUSD",
+          "entry_fraction": 0.3333333333333333,
+          "max_hold_minutes": 120,
+          "max_retrace_candles": 5,
+          "target_r": 1.25
+        },
+        "strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+        "strategy_version": "V1"
+      }
+    ]
+  }
+]
