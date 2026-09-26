@@ -10,13 +10,15 @@ import argparse
 import hashlib
 import json
 import time
+import os
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent
-FULL_STATE = ROOT / "context_structure_retrace_forward_state.json"
-COMPACT_STATE = ROOT / "context_structure_retrace_forward_state_compact.json"
+STATE_DIR = Path(os.environ.get("CONTEXT_RUNNER_STATE_DIR") or ROOT)  # see context_structure_retrace_forward.py
+FULL_STATE = STATE_DIR / "context_structure_retrace_forward_state.json"
+COMPACT_STATE = STATE_DIR / "context_structure_retrace_forward_state_compact.json"
 MANIFEST = ROOT / "context_structure_retrace_forward_manifest.json"
 COHORT = ROOT / "context_structure_retrace_forward_cohort.json"
 

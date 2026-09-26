@@ -134,7 +134,10 @@ class EvaluationFoundationTests(unittest.TestCase):
             # Re-pinned (was 5ee2cdbe...) when load_active_membership moved provider symbols from
             # platform.json to platform.instrument_provider_mapping (migration 027). Ancillary only: the
             # decision fingerprint (FROZEN_DECISION_CODE_HASH) is unchanged.
-            "context_structure_retrace_forward.py": "34ec0e9ca9eb37e1ce8058da143a80b1027c57e55e09b939479a3cfb6309c6f2",
+            # Re-pinned (was 34ec0e9c...) when runtime artifact paths became configurable via
+            # CONTEXT_RUNNER_STATE_DIR (run from the release image, state on the volume). Module-level
+            # paths only; the decision fingerprint is unchanged.
+            "context_structure_retrace_forward.py": "05664e3355eef188fe3dc6d74b288a7203771d29cb8b9aedd9d1300f9dad9bc9",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
