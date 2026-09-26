@@ -7,6 +7,7 @@ It never imports an execution client and never reads paper/forward state files.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -116,7 +117,7 @@ class LiquidityLiveRuntime:
                     component = EXCLUDED.component, status = EXCLUDED.status,
                     last_heartbeat_at = now(), metadata = EXCLUDED.metadata,
                     stopped_at = NULL""", (self.runtime_instance_id, status,
-                                             {"broker_writes": 0, "source": "LIVE_MARKET"}))
+                                             json.dumps({"broker_writes": 0, "source": "LIVE_MARKET"})))
 
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
