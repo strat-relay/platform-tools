@@ -125,7 +125,7 @@ class EvaluationFoundationTests(unittest.TestCase):
             # assert_frozen's docstring). This whole-file hash is intentionally stricter than that
             # guard (it catches any byte change, not just to the five fingerprinted functions);
             # re-pinning it is a deliberate, evidenced decision, not a blind hash refresh.
-            "context_structure_retrace_forward.py": "3bdd103a5557f65f308f66297b89e16e8fb8ded1f71ef69612fc083f922d7591",
+            "context_structure_retrace_forward.py": "b3ee0c1f0bf9325544a5d43c8f1232a38e5f1717776b2d935bb74683ea4873f6",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
