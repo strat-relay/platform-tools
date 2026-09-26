@@ -20,6 +20,7 @@ from postgres.foundation import claim_inbox, mark_inbox_processed
 
 from .binding import BindingResolution, StreamBindingResolver, TmVersionUnavailable
 from .ids import managed_trade_id as _managed_trade_id
+from .mode import OFF, SKIP_REASON_OFF, current_mode
 
 OPEN_CONSUMER_NAME = "trade-mgmt-open"
 
@@ -92,6 +93,16 @@ def create_managed_trade(conn: Any, *, event_id: str, signal_id: str, resolver: 
     with transaction(conn):
         if not claim_inbox(conn, consumer_name, event_id):
             return CreationResult(status="INBOX_DUPLICATE", managed_trade_id=_managed_trade_id(signal_id))
+
+        # Operator mode (migration 024). OFF: no ManagedTrade; the event is consumed and the skip
+        # recorded. An unreadable mode raises, rolling back the inbox claim for redelivery.
+        if current_mode(conn) == OFF:
+            with conn.cursor() as cur:
+                cur.execute("""INSERT INTO trade_management.managed_trade_skip (entry_signal_id, reason, detail)
+                              VALUES (%s,%s,%s) ON CONFLICT (entry_signal_id) DO NOTHING""",
+                            (signal_id, SKIP_REASON_OFF, f"event {event_id}"))
+            mark_inbox_processed(conn, consumer_name, event_id)
+            return CreationResult(status="SKIPPED", managed_trade_id=None, reason=SKIP_REASON_OFF)
 
         record = _load_entry_signal(conn, signal_id)
         if record is None:
