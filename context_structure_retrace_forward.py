@@ -38,6 +38,7 @@ PHASE2_HASH = "923d0d2762b6b78515a96e96dba17e42e34818aa82c406dc9ebc6f43b1a54c41"
 DEFAULT_SYMBOLS = ("XAUUSDm", "BTCUSDm", "USDJPYm", "EURUSDm")
 TF = ResearchTimeframes(execution="M15", lower=("M5",), higher=("H1", "H4"))
 READ_ONLY_BRIDGE_TOOLS = frozenset({"mt5_symbol_info", "mt5_quote", "mt5_rates", "mt5_symbol_snapshot"})
+MEMBERSHIP_REFRESH_SECONDS = 15
 
 LEGACY_STATE = ROOT / "context_structure_retrace_forward_state.json"
 STATE = ROOT / "context_structure_retrace_forward_state_compact.json"
@@ -51,6 +52,37 @@ STOP_FILE = Path("/tmp/context-structure-retrace-v1-paper.stop")
 # Recovery classification is transport/continuity metadata around the frozen
 # evaluator.  It is deliberately outside the decision-function fingerprint.
 _ACTIVE_RECOVERY_CONTEXT: dict[str, Any] | None = None
+
+
+def load_active_membership(args: argparse.Namespace) -> tuple[tuple[str, ...], int | None]:
+    """Resolve canonical instance membership to provider symbols at runtime.
+
+    The runner polls this durable snapshot; it never writes membership and it
+    does not make provider symbols part of the strategy domain model. The CLI
+    list remains a test/local fallback when no canonical database is configured.
+    """
+    dsn = os.getenv("TRADING_POSTGRES_DSN") or os.getenv("DATABASE_URL")
+    if not dsn:
+        return tuple(args.symbols), None
+    try:
+        import psycopg
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT m.canonical_instrument, m.revision
+                    FROM strategy.instrument_membership m
+                    WHERE m.strategy_instance_id = %s AND m.strategy_id = %s AND m.state = 'ACTIVE'
+                    ORDER BY m.canonical_instrument""", ("phase6", VERSION))
+                rows = cur.fetchall()
+        config_path = os.getenv("PLATFORM_STRATEGY_CONFIG_PATH", str(ROOT / "orchestration/config/platform.json"))
+        config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        mapping = {str(k).upper(): str(v) for k, v in (config.get("symbol_mappings") or {}).items()}
+        symbols = tuple(mapping[canonical] for canonical, _ in rows if canonical in mapping)
+        return symbols, max((int(revision) for _, revision in rows), default=0)
+    except Exception as exc:
+        # A membership read outage must not silently re-enable stale symbols.
+        # Keep the process alive for observability, but evaluate no symbols.
+        print(f"INSTRUMENT_MEMBERSHIP_UNAVAILABLE {type(exc).__name__}: {exc}")
+        return (), None
 
 
 def atomic_json(path: Path, value: Any) -> None:
@@ -1031,12 +1063,20 @@ def run(args: argparse.Namespace) -> None:
     # _process_bar() or participates in frozen ENTRY_ONLY decisions.
     _project_entry_only_outcomes(state)
     stopping = {"value": False}
+    last_membership_refresh = 0.0
+    membership_symbols = tuple(args.symbols)
+    membership_revision = None
     def stop_handler(signum: int, frame: Any) -> None:
         stopping["value"] = True
     signal.signal(signal.SIGINT, stop_handler); signal.signal(signal.SIGTERM, stop_handler)
     try:
         while not stopping["value"] and not STOP_FILE.exists():
-            poll(state, tuple(args.symbols), args.mcp_url, args.limit)
+            if time.monotonic() - last_membership_refresh >= MEMBERSHIP_REFRESH_SECONDS:
+                membership_symbols, membership_revision = load_active_membership(args)
+                state["instrument_membership_revision"] = membership_revision
+                state["instrument_membership_symbols"] = list(membership_symbols)
+                last_membership_refresh = time.monotonic()
+            poll(state, membership_symbols, args.mcp_url, args.limit)
             _project_entry_only_outcomes(state)
             if args.once: break
             for _ in range(max(1, args.interval)):

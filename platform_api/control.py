@@ -16,6 +16,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
+from .instrument_membership import (DEFAULT_INSTANCE_BY_STRATEGY, InstrumentMembershipRepository,
+                                     MembershipConflict, UnsupportedInstrument, catalog_from_config)
 
 SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
@@ -208,6 +210,20 @@ class PlatformControlRepository:
             (SELECT json_agg(v ORDER BY v.tm_version_id) FROM
                 (SELECT tm_version_id, evaluator_id, label, status FROM trade_management.trade_manager_version) v) AS policy_versions""")
         return rows[0]
+
+    def strategy_trade_management(self, strategy_id: str) -> dict[str, Any] | None:
+        rows = self._trade_management_query("""SELECT b.binding_id, b.strategy_id,
+            b.strategy_instance_id, b.instrument, b.tm_version_id, b.valid_from,
+            v.evaluator_id, v.label, v.status, v.manifest
+            FROM trade_management.legacy_stream_binding b
+            JOIN trade_management.trade_manager_version v ON v.tm_version_id = b.tm_version_id
+            WHERE b.strategy_id = %s
+            ORDER BY b.valid_from DESC, b.binding_id""", (strategy_id,))
+        if not rows:
+            return None
+        return {"strategyId": strategy_id, "bindings": rows,
+                "versions": sorted({r["tm_version_id"] for r in rows}),
+                "source": "canonical_postgres"}
 
     def managed_trades(self, limit: int, offset: int, trade_id: str | None = None) -> list[dict[str, Any]]:
         where = "WHERE mt.managed_trade_id = %s" if trade_id else ""
@@ -448,6 +464,7 @@ class PlatformControlApi:
                  bridge_reader: Any | None = None,
                  trade_manager_mode_api: Any | None = None):
         self.repository = repository or PlatformControlRepository()
+        self.instrument_membership = InstrumentMembershipRepository()
         self.environ = os.environ if environ is None else environ
         self.strategy_config_path = strategy_config_path or self.environ.get(
             "PLATFORM_STRATEGY_CONFIG_PATH", "/etc/platform-config/platform.json")
@@ -534,6 +551,56 @@ class PlatformControlApi:
     def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
+        if path == "/api/v1/instruments" and method == "GET":
+            try:
+                config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
+                return 200, self._body([item.__dict__ for item in catalog_from_config(config)],
+                                       source="configured_provider_catalog")
+            except Exception as exc:
+                return 503, self._body(None, source="configured_provider_catalog", status="UNAVAILABLE",
+                                       error="SOURCE_UNAVAILABLE", message=str(exc))
+        if path.startswith("/api/v1/strategies/") and path.endswith("/instruments"):
+            strategy_id = unquote(path[len("/api/v1/strategies/"):-len("/instruments")].strip("/"))
+            query_values = parse_qs(parsed.query, keep_blank_values=False)
+            instance_id = (query_values.get("strategy_instance_id") or
+                            [DEFAULT_INSTANCE_BY_STRATEGY.get(strategy_id, "")])[0]
+            if not instance_id:
+                return 400, self._body(None, source="canonical_postgres", error="INSTANCE_REQUIRED")
+            if method == "GET":
+                try:
+                    rows = self.instrument_membership.list_membership(strategy_id, instance_id)
+                    return 200, self._body({"strategyId": strategy_id, "strategyInstanceId": instance_id,
+                                           "items": rows, "configuredRevision": max((int(r["revision"]) for r in rows), default=0)},
+                                          source="canonical_postgres")
+                except CanonicalSourceUnavailable as exc:
+                    return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
+                                           error="SOURCE_UNAVAILABLE", message=str(exc))
+            if method == "POST":
+                try:
+                    payload = json.loads((body or b"{}").decode("utf-8"))
+                    canonical = str(payload.get("canonicalInstrument", "")).strip().upper()
+                    state = str(payload.get("state") or ("ACTIVE" if payload.get("enable") else "DISABLED")).upper()
+                    config = json.loads(Path(self.strategy_config_path).read_text(encoding="utf-8"))
+                    catalog = {x.canonical_instrument: x for x in catalog_from_config(config)}
+                    if canonical not in catalog:
+                        raise UnsupportedInstrument(f"{canonical} is not available in the configured provider catalog")
+                    if state == "ACTIVE" and not catalog[canonical].provider_symbol:
+                        raise UnsupportedInstrument(f"{canonical} has no provider mapping")
+                    row = self.instrument_membership.save_membership(
+                        strategy_id, instance_id, canonical, state,
+                        payload.get("expectedRevision"), str(payload.get("updatedBy") or "control-api"))
+                    return 200, self._body(row, source="canonical_postgres")
+                except UnsupportedInstrument as exc:
+                    return 409, self._body(None, source="configured_provider_catalog", status="DEGRADED",
+                                           error="UNSUPPORTED_INSTRUMENT", message=str(exc))
+                except MembershipConflict as exc:
+                    return 409, self._body(None, source="canonical_postgres", error="REVISION_CONFLICT", message=str(exc))
+                except (ValueError, json.JSONDecodeError) as exc:
+                    return 400, self._body(None, source="canonical_postgres", error="INVALID_REQUEST", message=str(exc))
+                except CanonicalSourceUnavailable as exc:
+                    return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
+                                           error="SOURCE_UNAVAILABLE", message=str(exc))
+            return 405, self._body(None, source="platform", error="METHOD_NOT_ALLOWED")
         if method == "POST" and path == self.V2_RISK_POLICY_PATH:
             return self.v2_risk_api.save(body)
         if path == self.V2_AUTHORITY_PATH:
@@ -627,6 +694,14 @@ class PlatformControlApi:
                 if strategy is None:
                     return 404, self._body(None, source="active_platform_config", status="ACTIVE", error="RESOURCE_NOT_FOUND")
                 if len(parts) == 1:
+                    try:
+                        tm_reader = getattr(self.repository, "strategy_trade_management", None)
+                        tm = tm_reader(parts[0]) if tm_reader else None
+                        if tm is not None:
+                            strategy = {**strategy, "tradeManagement": tm}
+                    except CanonicalSourceUnavailable:
+                        strategy = {**strategy, "tradeManagement": None,
+                                    "tradeManagementStatus": "UNAVAILABLE"}
                     return 200, self._body(strategy, source="active_platform_config")
                 if (parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1" and len(parts) == 2
                         and parts[1] == "report"):
