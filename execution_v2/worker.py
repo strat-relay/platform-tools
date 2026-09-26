@@ -88,17 +88,6 @@ class ExecutionWorker:
         self.risk_context_provider = risk_context_provider
         self.resource = f"execution:{mode}:{account_id}"
 
-    def _acquire_canary_slot(self, idempotency_key: str) -> bool:
-        if not self.risk_policy.enabled or self.risk_policy.canary_max_new_executions <= 0:
-            return True
-        with transaction(self.conn):
-            with self.conn.cursor() as cur:
-                cur.execute("SELECT execution_v2.acquire_active_canary_slot(%s,%s,%s,%s)",
-                            (self.mode, self.account_id, idempotency_key,
-                             self.risk_policy.canary_max_new_executions))
-                row = cur.fetchone()
-        return bool(row and row[0])
-
     def _read_generation(self) -> int:
         with self.conn.cursor() as cur:
             cur.execute("SELECT generation FROM platform.ownership_leases WHERE lease_key=%s", (self.resource,))
@@ -306,14 +295,6 @@ class ExecutionWorker:
             with self.conn.cursor() as cur:
                 cur.execute("SELECT platform.assert_generation(%s,%s)", (self.resource, generation))
             self._set_attempt_state(att_id, "SENDING", sending=True)
-
-        # Claim the durable slot immediately before the broker boundary. A conservative
-        # reservation is intentional: an ambiguous/failed first attempt must never permit a
-        # second blind live attempt.
-        if not self._acquire_canary_slot(att_id):
-            with transaction(self.conn):
-                self._set_attempt_state(att_id, "FENCED", terminal=True)
-            return ExecutionOutcome("BLOCKED", intent_result, att_id, None, "CANARY_LIMIT_EXCEEDED")
 
         fingerprint = request_fingerprint(instrument=broker_symbol, direction=intent["direction"],
                                           volume=float(intent["approved_volume"]), stop_price=float(intent["stop_price"]),

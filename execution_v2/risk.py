@@ -175,7 +175,10 @@ def evaluate_candidate(record: Mapping[str, Any], *, policy: RiskPolicy, account
     symbol = record.get("instrument")
     if symbol not in (policy.allowed_symbols or ()):
         return RiskDecision(False, "SYMBOL_NOT_ALLOWED")
-    required_state = ("daily_loss", "concurrent_positions", "concurrent_orders", "account_exposure", "canary_used")
+    # Canary counters are historical/observability data only.  Normal V2 execution is
+    # guarded by the explicit authority switch and the safety limits below; it must not
+    # become unavailable merely because an old canary window is exhausted or absent.
+    required_state = ("daily_loss", "concurrent_positions", "concurrent_orders", "account_exposure")
     if any(k not in state or state[k] is None for k in required_state):
         return RiskDecision(False, "RISK_STATE_UNAVAILABLE")
     if float(state["daily_loss"]) >= policy.max_daily_loss:
@@ -186,8 +189,6 @@ def evaluate_candidate(record: Mapping[str, Any], *, policy: RiskPolicy, account
         return RiskDecision(False, "MAX_CONCURRENT_ORDERS_EXCEEDED")
     if float(state["account_exposure"]) >= policy.max_account_exposure:
         return RiskDecision(False, "MAX_ACCOUNT_EXPOSURE_EXCEEDED")
-    if int(state["canary_used"]) >= policy.canary_max_new_executions:
-        return RiskDecision(False, "CANARY_LIMIT_EXCEEDED")
     entry, stop = record.get("entry_price"), record.get("stop_price")
     if entry is None or stop is None or float(entry) <= 0 or float(stop) <= 0:
         return RiskDecision(False, "INVALID_GEOMETRY")

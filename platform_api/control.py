@@ -130,11 +130,13 @@ class PlatformControlRepository:
             "execution_authority_mode": metadata.get("execution_authority_mode", "UNKNOWN"),
             "account_id": metadata.get("account_id"),
             "risk_policy": policy,
+            # Canary counters remain visible for historical/operator context, but
+            # normal V2 execution does not require an active window or capacity.
             "canary": {"key": (canary or {}).get("canary_key"),
                        "generation": (canary or {}).get("generation"),
                        "state": (canary or {}).get("lifecycle_state", "NONE"),
                        "max_new_executions": max_new, "consumed": consumed,
-                       "remaining": max(0, max_new - consumed)},
+                       "remaining": max(0, max_new - consumed), "required": False},
             "execution_bridge": metadata.get("execution_bridge") or {"status": "UNKNOWN"},
             "broker_account": metadata.get("broker_account") or {"status": "UNKNOWN"},
         }
@@ -504,8 +506,7 @@ class PlatformControlApi:
                             "execution": execution}
                     return 200, self._body(data, source="canonical_platform", status="DEGRADED")
                 armed = (execution["execution_authority_mode"] == "ENABLED"
-                         and bool(execution["risk_policy"].get("enabled"))
-                         and execution["canary"].get("remaining", 0) > 0)
+                         and bool(execution["risk_policy"].get("enabled")))
                 data = {**authority, "status": "ARMED" if armed else "SAFE",
                         "execution_enabled": execution["execution_authority_mode"] == "ENABLED",
                         "real_execution": {"armed": armed, "mode": execution["execution_authority_mode"]},

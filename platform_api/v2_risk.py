@@ -98,10 +98,10 @@ class V2RiskExecutionApi:
         data["executionAuthorityMode"] = self.execution_authority_mode()
         data["canary"] = ({"key": canary["canary_key"], "generation": canary["generation"],
                            "state": canary["state"], "maxNewExecutions": canary["max_new_executions"],
-                           "consumed": canary["consumed"], "remaining": canary["remaining"]}
+                           "consumed": canary["consumed"], "remaining": canary["remaining"], "required": False}
                           if canary else {"key": None, "generation": None, "state": "NONE",
                                           "maxNewExecutions": policy.canary_max_new_executions,
-                                          "consumed": 0, "remaining": 0})
+                                          "consumed": 0, "remaining": 0, "required": False})
         return 200, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "ACTIVE",
                     "degraded": False, "read_only": False, "data": data, "unavailable": []}
 
