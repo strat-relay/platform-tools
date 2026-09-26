@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +20,10 @@ class ContextStructureRetraceAdapter:
         # Phase6's active producer writes the compact runtime.  Do not fall
         # back to the removed legacy full-state file: doing so hides a live
         # source failure as an empty/old pipeline.
-        self.state_path = root / "context_structure_retrace_forward_state_compact.json"
-        self.manifest_path = root / "context_structure_retrace_forward_manifest.json"
+        # The runner's artifacts live in CONTEXT_RUNNER_STATE_DIR when it runs from a release image.
+        state_dir = Path(os.environ.get("CONTEXT_RUNNER_STATE_DIR") or root)
+        self.state_path = state_dir / "context_structure_retrace_forward_state_compact.json"
+        self.manifest_path = state_dir / "context_structure_retrace_forward_manifest.json"
 
     @staticmethod
     def _epoch(value: Any) -> int:

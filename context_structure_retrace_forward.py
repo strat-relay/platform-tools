@@ -40,13 +40,17 @@ TF = ResearchTimeframes(execution="M15", lower=("M5",), higher=("H1", "H4"))
 READ_ONLY_BRIDGE_TOOLS = frozenset({"mt5_symbol_info", "mt5_quote", "mt5_rates", "mt5_symbol_snapshot"})
 MEMBERSHIP_REFRESH_SECONDS = 15
 
-LEGACY_STATE = ROOT / "context_structure_retrace_forward_state.json"
-STATE = ROOT / "context_structure_retrace_forward_state_compact.json"
-EVENTS = ROOT / "context_structure_retrace_forward.jsonl"
-HEARTBEAT = ROOT / "context_structure_retrace_forward.heartbeat.json"
-PID = ROOT / "context_structure_retrace_forward.pid"
-MANIFEST = ROOT / "context_structure_retrace_forward_manifest.json"
-SUMMARY = ROOT / "context_structure_retrace_forward_summary.md"
+# Runtime artifacts (state, event ledger, heartbeat, pid, summary, frozen manifest) live in
+# CONTEXT_RUNNER_STATE_DIR, so the runner can execute from an immutable release image while its
+# state stays on persistent storage. Defaults to the code directory (previous behaviour).
+STATE_DIR = Path(os.environ.get("CONTEXT_RUNNER_STATE_DIR") or ROOT)
+LEGACY_STATE = STATE_DIR / "context_structure_retrace_forward_state.json"
+STATE = STATE_DIR / "context_structure_retrace_forward_state_compact.json"
+EVENTS = STATE_DIR / "context_structure_retrace_forward.jsonl"
+HEARTBEAT = STATE_DIR / "context_structure_retrace_forward.heartbeat.json"
+PID = STATE_DIR / "context_structure_retrace_forward.pid"
+MANIFEST = STATE_DIR / "context_structure_retrace_forward_manifest.json"
+SUMMARY = STATE_DIR / "context_structure_retrace_forward_summary.md"
 STOP_FILE = Path("/tmp/context-structure-retrace-v1-paper.stop")
 
 # Recovery classification is transport/continuity metadata around the frozen
