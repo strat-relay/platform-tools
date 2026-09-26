@@ -88,8 +88,7 @@ class ApiWiringTests(unittest.TestCase):
                      "context_structure_retrace_forward.py", "trade_management/runtime/market_data_live.py",
                      "orchestration/config.py"):
             self.assertNotIn("symbol_mappings", (ROOT / path).read_text(), path)
-        config = json.loads((ROOT / "orchestration/config/platform.json").read_text())
-        self.assertNotIn("symbol_mappings", config)
+        self.assertFalse((ROOT / "orchestration/config/platform.json").exists())   # the file is gone
 
 
 def _server_available() -> bool:

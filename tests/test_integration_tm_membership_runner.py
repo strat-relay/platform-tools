@@ -70,7 +70,7 @@ class MigrationChainTests(unittest.TestCase):
             with db.connect() as conn:
                 applied = apply_migrations(conn)
             numbers = [name[:3] for name in applied]
-            self.assertEqual(numbers[-5:], ["024", "025", "026", "027", "028"])
+            self.assertEqual(numbers[-6:], ["024", "025", "026", "027", "028", "029"])
             self.assertEqual(len(numbers), len(set(numbers)))
         finally:
             db.drop()
@@ -93,7 +93,7 @@ class MigrationChainTests(unittest.TestCase):
                                     or "trade_manager_mode" in str(raised.exception))
             with db.connect() as conn:
                 upgraded = apply_migrations(conn)
-                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026", "027", "028"])
+                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026", "027", "028", "029"])
                 self.assertEqual(current_mode(conn), "SHADOW")                     # 024 seed
                 with conn.cursor() as cur:
                     cur.execute("""SELECT canonical_instrument FROM strategy.instrument_membership

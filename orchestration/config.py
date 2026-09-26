@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG_PATH = ROOT / "orchestration" / "config" / "platform.json"
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -51,7 +50,73 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
+CONFIG_SCHEMA_VERSION = "029"
+STRATEGY_COLUMNS = ("strategy_id", "strategy_version", "enabled", "adapter", "routes")
+
+
+class PlatformConfigUnavailable(RuntimeError):
+    """The database is configured but the orchestration configuration cannot be loaded from it."""
+
+
+def _database_configured() -> bool:
+    from postgres.config import PostgresConfig
+    cfg = PostgresConfig.from_env()
+    return bool((cfg.dsn and cfg.dsn.strip()) or cfg.host)
+
+
+def load_config_from_database(conn: Any) -> dict[str, Any]:
+    """Assemble the orchestration configuration (the shape platform.json used to have) from
+    platform.runtime_setting, orchestration_account/portfolio (029) and strategy_definition (028)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s", (CONFIG_SCHEMA_VERSION,))
+        if cur.fetchone() is None:
+            raise PlatformConfigUnavailable("canonical PostgreSQL schema 029 is required")
+        cur.execute("SELECT key, value FROM platform.runtime_setting ORDER BY key")
+        settings = {key: _json(value) for key, value in cur.fetchall()}
+        if not settings:
+            raise PlatformConfigUnavailable(
+                "orchestration configuration has not been imported (scripts/import_platform_config.py)")
+        cur.execute("""SELECT account_id, broker, broker_environment, broker_account_reference, currency, enabled,
+                              execution_mode, attributes FROM platform.orchestration_account ORDER BY account_id""")
+        accounts = [{**_json(attrs), "account_id": a, "broker": b, "broker_environment": env,
+                     "broker_account_reference": ref, "currency": cur_, "enabled": bool(en), "execution_mode": mode}
+                    for a, b, env, ref, cur_, en, mode, attrs in cur.fetchall()]
+        cur.execute("""SELECT portfolio_id, name, enabled, base_currency, sizing_policy_id, account_ids, strategy_ids,
+                              attributes FROM platform.orchestration_portfolio ORDER BY portfolio_id""")
+        portfolios = [{**_json(attrs), "portfolio_id": pid, "name": name, "enabled": bool(en), "base_currency": ccy,
+                       "sizing_policy_id": policy, "account_ids": list(acc or []), "strategy_ids": list(strat or [])}
+                      for pid, name, en, ccy, policy, acc, strat, attrs in cur.fetchall()]
+        cur.execute("""SELECT strategy_id, strategy_version, enabled, adapter, routes, trade_management, attributes
+                       FROM platform.strategy_definition ORDER BY strategy_id""")
+        strategies = []
+        for sid, version, enabled, adapter, routes, tm, attrs in cur.fetchall():
+            record = {**_json(attrs), "strategy_id": sid, "strategy_version": version, "enabled": bool(enabled),
+                      "adapter": adapter, "routes": _json(routes)}
+            if tm is not None:
+                record["trade_management"] = _json(tm)
+            strategies.append(record)
+    return {**settings, "accounts": accounts, "portfolios": portfolios, "strategies": strategies}
+
+
+def _json(value: Any) -> Any:
+    # psycopg already decodes jsonb, including jsonb strings (e.g. "SHADOW" -> str); never re-parse.
+    return value
+
+
 def load_config() -> dict[str, Any]:
-    if not CONFIG_PATH.exists():
+    """The orchestration configuration comes from PostgreSQL; there is no platform.json.
+
+    With a database configured (production), a missing schema or an un-imported configuration
+    raises PlatformConfigUnavailable: the orchestrator refuses to start rather than run on
+    defaults. Without any database configured (local runs, unit tests) DEFAULT_CONFIG applies."""
+    if not _database_configured():
         return json.loads(json.dumps(DEFAULT_CONFIG))
-    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    from postgres.config import PostgresConfig
+    from postgres.db import connect
+    try:
+        with connect(PostgresConfig.from_env(), readonly=True) as conn:
+            return load_config_from_database(conn)
+    except PlatformConfigUnavailable:
+        raise
+    except Exception as exc:
+        raise PlatformConfigUnavailable(f"orchestration configuration unavailable: {exc}") from exc
