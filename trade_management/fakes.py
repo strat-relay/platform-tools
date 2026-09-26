@@ -50,6 +50,10 @@ class FakeCursor:
             row = self.conn.view("strategy.entry_signals").get(params[0])
             self._result = tuple(row[k] for k in _ENTRY_SIGNAL_COLUMNS) if row else None
             return
+        if "TRADE_MANAGEMENT.TRADE_MANAGER_VERSION" in upper and "EVALUATOR_ID, MANIFEST" in upper:
+            row = self.conn.view("trade_management.trade_manager_version").get(params[0])
+            self._result = (row["evaluator_id"], row["manifest"]) if row else None
+            return
         if "TRADE_MANAGEMENT.TRADE_MANAGER_VERSION" in upper:
             row = self.conn.view("trade_management.trade_manager_version").get(params[0])
             self._result = (row["status"],) if row else None
@@ -70,6 +74,17 @@ class FakeCursor:
                        if r["entry_signal_id"] == params[0]), None)
             self._result = (row["entry_signal_hash"],) if row else None
             return
+        if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "REFERENCE_ENTRY_PRICE" in upper:
+            # Checked before the "STATE FROM" branch below: this query's own column list ends
+            # "...RISK_DISTANCE, STATE FROM TRADE_MANAGEMENT.MANAGED_TRADE...", so "STATE FROM"
+            # is a substring of it too - order matters here, not just presence.
+            row = self.conn.view("trade_management.managed_trade").get(params[0])
+            if row is None:
+                self._result = None
+            else:
+                self._result = (row["direction"], row["reference_entry_price"], row["initial_stop"],
+                                row["risk_distance"], row["state"])
+            return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "STATE FROM" in upper:
             row = self.conn.view("trade_management.managed_trade").get(params[0])
             self._result = (row["state"],) if row else None
@@ -86,6 +101,15 @@ class FakeCursor:
             row = self.conn.view("trade_management.trade_observation").get(params[0])
             self._result = (row["observation_seq"],) if row else None
             return
+        if "TRADE_MANAGEMENT.TRADE_OBSERVATION" in upper and "MARKET_SNAPSHOT_ID" in upper:
+            row = self.conn.view("trade_management.trade_observation").get(params[0])
+            if row is None:
+                self._result = None
+            else:
+                self._result = (row["observation_id"], row["managed_trade_id"], row["observation_seq"],
+                                row["tm_version_id"], row["market_snapshot_id"], row["effective_at"],
+                                row["data_status"])
+            return
         if "TRADE_MANAGEMENT.TRADE_OBSERVATION" in upper:
             row = self.conn.view("trade_management.trade_observation").get(params[0])
             if row is None:
@@ -94,9 +118,23 @@ class FakeCursor:
                 self._result = (row["observation_id"], row["managed_trade_id"], row["observation_seq"],
                                 row["tm_version_id"], row["effective_at"], row["data_status"])
             return
+        if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper and "WHERE MANAGED_TRADE_ID" in upper:
+            managed_trade_id = params[0]
+            rows = [r for r in self.conn.view("trade_management.trade_manager_decision").values()
+                   if r["managed_trade_id"] == managed_trade_id]
+            if not rows:
+                self._result = None
+            else:
+                latest = max(rows, key=lambda r: r["observation_seq"])
+                self._result = (latest["action"], latest["parameters"])
+            return
         if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper:
             row = self.conn.view("trade_management.trade_manager_decision").get(params[0])
             self._result = (row["action"],) if row else None
+            return
+        if "TRADE_MANAGEMENT.MARKET_SNAPSHOT" in upper:
+            row = self.conn.view("trade_management.market_snapshot").get(params[0])
+            self._result = (row["bid"], row["ask"]) if row else None
             return
         raise AssertionError(f"FakeCursor cannot SELECT: {sql[:100]}")
 
@@ -203,10 +241,11 @@ class FakeConnection:
         self.tables["strategy.entry_signals"][row["signal_id"]] = row
 
     def seed_tm_version(self, *, tm_version_id: str, evaluator_id: str = "tm-none.v1",
-                        label: str = "TM-NONE-1", manifest_hash: str = "", status: str = "FROZEN") -> None:
+                        label: str = "TM-NONE-1", manifest_hash: str = "", status: str = "FROZEN",
+                        manifest: dict[str, Any] | None = None) -> None:
         self.tables["trade_management.trade_manager_version"][tm_version_id] = {
             "tm_version_id": tm_version_id, "evaluator_id": evaluator_id, "label": label,
-            "manifest_hash": manifest_hash, "status": status,
+            "manifest_hash": manifest_hash, "status": status, "manifest": manifest or {},
         }
 
     def seed_legacy_binding(self, *, binding_id: str, strategy_id: str, tm_version_id: str,

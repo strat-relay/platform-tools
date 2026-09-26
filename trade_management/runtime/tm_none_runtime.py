@@ -1,9 +1,17 @@
-"""Real JetStream wiring for TM-NONE-1 (mission section 4): a durable consumer on
-`trade.observation.recorded.v1` (`TRADING_OBSERVATION`) that invokes
-`trade_management.tm_none.record_decision` for every observation. Every eligible observation
-yields a persisted `HOLD`; the publication gate then withholds it
-(`NOT_ACTIONABLE_HOLD`) - no `ManagementSignal`, no customer distribution, both unimplemented by
-design (mission section 11).
+"""Real JetStream wiring for the trade-manager shadow decision consumer (originally TM-NONE-1
+only, mission section 4): a durable consumer on `trade.observation.recorded.v1`
+(`TRADING_OBSERVATION`) that invokes `trade_management.decision_engine.record_decision` for
+every observation. That engine dispatches each observation to whichever evaluator its trade is
+actually bound to (TM-NONE-1, or a real evaluator like TM-BREAKEVEN-TRAIL-1) - this module
+itself has no evaluator-specific knowledge, and stays a single consumer regardless of how many
+evaluators exist, so two evaluators never race each other over the same observation.
+
+A trade still bound to TM-NONE-1 behaves identically to before this module started calling the
+generalized engine: every eligible observation yields a persisted `HOLD`, and the publication
+gate withholds it (`NOT_ACTIONABLE_HOLD`). A trade bound to a real evaluator can now yield a
+different action - the gate still withholds it (`TM_VERSION_NOT_PUBLISHABLE`, since no version
+this codebase registers is ever marked PUBLISHABLE) - no `ManagementSignal`, no customer
+distribution, both unimplemented by design (mission section 11).
 """
 from __future__ import annotations
 
@@ -12,7 +20,7 @@ import uuid
 from typing import Any, Callable
 
 from infrastructure.messaging.contracts import EventEnvelope
-from trade_management.tm_none import DECISION_CONSUMER_NAME, record_decision
+from trade_management.decision_engine import DECISION_CONSUMER_NAME, record_decision
 
 SUBJECT = "trade.observation.recorded.v1"
 STREAM = "TRADING_OBSERVATION"
