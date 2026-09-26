@@ -99,11 +99,17 @@ class PlatformControlRepository:
         runtime = rows[0]
         metadata = runtime.get("metadata") or {}
         policy = metadata.get("risk_policy") or {}
-        canary_key = metadata.get("canary_key")
+        canary_environment = metadata.get("canary_environment") or metadata.get("bridge_mode") or "real"
+        canary_account_id = metadata.get("canary_account_id") or metadata.get("account_id")
         canary = None
-        if canary_key:
-            canary_rows = self.query("""SELECT max_new_executions, consumed
-                FROM execution_v2.canary_state WHERE canary_key = %s""", (canary_key,))
+        if canary_account_id:
+            canary_rows = self.query("""SELECT canary_key, generation, lifecycle_state,
+                    max_new_executions, consumed
+                FROM execution_v2.canary_state
+                WHERE environment = %s AND account_id = %s AND lifecycle_state = 'ACTIVE'
+                ORDER BY generation DESC""", (canary_environment, canary_account_id))
+            if len(canary_rows) > 1:
+                raise CanonicalSourceUnavailable("multiple active canary windows")
             if canary_rows:
                 canary = canary_rows[0]
         max_new = int((canary or {}).get("max_new_executions")
@@ -124,7 +130,10 @@ class PlatformControlRepository:
             "execution_authority_mode": metadata.get("execution_authority_mode", "UNKNOWN"),
             "account_id": metadata.get("account_id"),
             "risk_policy": policy,
-            "canary": {"max_new_executions": max_new, "consumed": consumed,
+            "canary": {"key": (canary or {}).get("canary_key"),
+                       "generation": (canary or {}).get("generation"),
+                       "state": (canary or {}).get("lifecycle_state", "NONE"),
+                       "max_new_executions": max_new, "consumed": consumed,
                        "remaining": max(0, max_new - consumed)},
             "execution_bridge": metadata.get("execution_bridge") or {"status": "UNKNOWN"},
             "broker_account": metadata.get("broker_account") or {"status": "UNKNOWN"},
@@ -343,6 +352,7 @@ class PlatformControlRepository:
 class PlatformControlApi:
     V2_RISK_POLICY_PATH = "/api/v1/v2-execution/risk-policy"
     V2_AUTHORITY_PATH = "/api/v1/v2-execution/authority"
+    V2_CANARY_WINDOW_PATH = "/api/v1/v2-execution/canary-windows"
 
     def __init__(self, repository: PlatformControlRepository | None = None,
                  environ: dict[str, str] | None = None,
@@ -437,6 +447,8 @@ class PlatformControlApi:
                 return self.execution_authority_api.read()
             if method == "POST":
                 return self.execution_authority_api.save(body)
+        if method == "POST" and path == self.V2_CANARY_WINDOW_PATH:
+            return self.v2_risk_api.open_window(body)
         if method != "GET":
             return 405, self._body(None, source="platform", status="UNAVAILABLE", error="READ_ONLY_API",
                                    message="GET only" if path != self.V2_RISK_POLICY_PATH else "GET or POST only")

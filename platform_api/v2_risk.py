@@ -16,9 +16,9 @@ import json
 import os
 from typing import Any, Callable
 
+from execution_v2.canary_windows import CanaryWindowError, open_canary_window, read_active_canary_status
 from execution_v2.risk import RiskPolicy, RiskPolicyError, RiskPolicyRevisionConflict
-from execution_v2.risk_policy_store import (read_canary_status, read_effective_policy_record,
-                                             write_policy_override)
+from execution_v2.risk_policy_store import (read_effective_policy_record, write_policy_override)
 from postgres.db import connect
 
 MAX_BODY_BYTES = 65_536  # a risk policy document is a few hundred bytes; this is generous, not tight
@@ -84,17 +84,53 @@ class V2RiskExecutionApi:
                         "degraded": True, "error": "POLICY_UNAVAILABLE", "message": str(exc), "unavailable": [
                             {"code": "POLICY_UNAVAILABLE", "source": "execution_v2_risk_policy", "message": str(exc)}]}
         account_id = policy.allowed_accounts[0] if policy.allowed_accounts else None
-        canary = None
-        if account_id:
-            resource = f"execution:{self.environ.get('V2_EXECUTION_BRIDGE_MODE', 'demo')}:{account_id}"
-            canary = read_canary_status(self._connect, canary_key=resource,
-                                        configured_max=policy.canary_max_new_executions)
+        environment = self.environ.get("V2_EXECUTION_BRIDGE_MODE", "real").strip().lower()
+        try:
+            canary = (read_active_canary_status(self._connect, environment=environment,
+                                                account_id=account_id) if account_id else None)
+        except CanaryWindowError as exc:
+            return 503, {"api_version": "v1", "source": "execution_v2_canary_window",
+                         "status": "UNAVAILABLE", "degraded": True,
+                         "error": "CANARY_WINDOW_UNAVAILABLE", "message": str(exc),
+                         "unavailable": [{"code": "CANARY_WINDOW_UNAVAILABLE",
+                                           "source": "execution_v2_canary_window", "message": str(exc)}]}
         data = _policy_to_wire(policy, source=provenance["source"], provenance=provenance)
         data["executionAuthorityMode"] = self.execution_authority_mode()
-        data["canary"] = {"maxNewExecutions": canary["max_new_executions"], "consumed": canary["consumed"],
-                          "remaining": canary["remaining"]} if canary else None
+        data["canary"] = ({"key": canary["canary_key"], "generation": canary["generation"],
+                           "state": canary["state"], "maxNewExecutions": canary["max_new_executions"],
+                           "consumed": canary["consumed"], "remaining": canary["remaining"]}
+                          if canary else {"key": None, "generation": None, "state": "NONE",
+                                          "maxNewExecutions": policy.canary_max_new_executions,
+                                          "consumed": 0, "remaining": 0})
         return 200, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "ACTIVE",
                     "degraded": False, "read_only": False, "data": data, "unavailable": []}
+
+    def open_window(self, body_bytes: bytes | None) -> tuple[int, dict[str, Any]]:
+        try:
+            body = json.loads((body_bytes or b"").decode("utf-8"))
+            account_id = str(body.get("accountId") or "")
+            environment = str(body.get("environment") or "").lower()
+            maximum = body.get("maxNewExecutions")
+            changed_by = str(body.get("updatedBy") or "")
+            if isinstance(maximum, bool) or not isinstance(maximum, int):
+                raise CanaryWindowError("maxNewExecutions must be an integer")
+            policy, _ = read_effective_policy_record(self._connect)
+            if account_id not in policy.allowed_accounts:
+                raise CanaryWindowError("account is not allowed by the canonical policy")
+            window = open_canary_window(account_id=account_id, environment=environment,
+                                        max_new_executions=maximum, changed_by=changed_by,
+                                        connect_fn=self._connect)
+        except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, CanaryWindowError) as exc:
+            return 400, {"api_version": "v1", "source": "execution_v2_canary_window",
+                         "status": "UNAVAILABLE", "error": "CANARY_WINDOW_INVALID",
+                         "message": str(exc), "unavailable": []}
+        except Exception as exc:
+            return 503, {"api_version": "v1", "source": "execution_v2_canary_window",
+                         "status": "UNAVAILABLE", "degraded": True,
+                         "error": "CANARY_WINDOW_UNAVAILABLE", "message": str(exc), "unavailable": []}
+        return 200, {"api_version": "v1", "source": "execution_v2_canary_window",
+                     "status": "ACTIVE", "degraded": False, "read_only": False,
+                     "data": window, "unavailable": []}
 
     def save(self, body_bytes: bytes | None) -> tuple[int, dict[str, Any]]:
         # 400 responses here deliberately never set "degraded": true - that field means "a
