@@ -292,7 +292,8 @@ class PlatformControlRepository:
             raise CanonicalSourceUnavailable("canonical PostgreSQL live trade linkage unavailable") from exc
 
     def broker_linked_managed_trades(self) -> list[dict[str, Any]]:
-        """ManagedTrades with an authoritative broker position id from a FILLED V2 result, plus
+        """ManagedTrades with a FILLED V2 result carrying a broker position id or order ticket
+        (trade_manager_live.position_identity decides which can be linked), plus
         the market observations recorded since that fill (close side: bid LONG / ask SHORT)."""
         return self._live_linkage_query("""SELECT mt.managed_trade_id, mt.entry_signal_id,
             mt.strategy_id, mt.strategy_version, mt.instrument, mt.direction,
@@ -325,7 +326,7 @@ class PlatformControlRepository:
                 FROM trade_management.trade_manager_decision d
                 WHERE d.managed_trade_id = mt.managed_trade_id
                 ORDER BY d.observation_seq DESC, d.persisted_at DESC LIMIT 1) dec ON TRUE
-            WHERE r.outcome = 'FILLED' AND r.broker_position_id IS NOT NULL
+            WHERE r.outcome = 'FILLED' AND (r.broker_position_id IS NOT NULL OR r.broker_order_id IS NOT NULL)
             ORDER BY r.confirmed_at DESC NULLS LAST, mt.managed_trade_id""")
 
     def managed_trade_linkage_counts(self) -> dict[str, int]:
@@ -336,6 +337,11 @@ class PlatformControlRepository:
                              JOIN execution_v2.execution_result r ON r.execution_intent_id = i.execution_intent_id
                              WHERE i.entry_signal_id = mt.entry_signal_id
                                AND r.outcome = 'FILLED' AND r.broker_position_id IS NOT NULL) THEN 'BROKER_LINKED'
+                WHEN EXISTS (SELECT 1 FROM execution_v2.execution_intent i
+                             JOIN execution_v2.execution_result r ON r.execution_intent_id = i.execution_intent_id
+                             WHERE i.entry_signal_id = mt.entry_signal_id
+                               AND r.outcome = 'FILLED' AND r.broker_order_id IS NOT NULL)
+                     THEN 'BROKER_FILLED_ORDER_TICKET_ONLY'
                 WHEN EXISTS (SELECT 1 FROM execution_v2.execution_intent i
                              JOIN execution_v2.execution_result r ON r.execution_intent_id = i.execution_intent_id
                              WHERE i.entry_signal_id = mt.entry_signal_id) THEN 'BROKER_RESULT_WITHOUT_POSITION_ID'

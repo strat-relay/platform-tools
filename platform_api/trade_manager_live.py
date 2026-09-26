@@ -10,10 +10,18 @@ nothing about whether a broker position exists. This module answers that questio
       -> execution_result.broker_position_id + account_id      (authoritative identity)
       -> read-only MT5 bridge `mt5_positions` ticket on that same account  (current truth)
 
-ACTIVE requires both: a recorded broker position id for the trade AND that position present in
+ACTIVE requires both: a broker position identity for the trade AND that position present in
 the current broker read. Nothing is inferred from symbol, direction or time. Linked trades whose
-position is absent are CLOSED (history); trades with no broker position id are
+position is absent are CLOSED (history); trades with no broker identity are
 HISTORICAL_UNRECONCILED. If the broker cannot be read, no position is asserted open.
+
+Position identity is `execution_result.broker_position_id` when recorded. MT5 order-placement
+results carry only order and deal tickets, so a FILLED result may have only
+`broker_order_id`. On a HEDGING account every market deal opens its own position whose ticket
+is the opening order's ticket (MT5 invariant), so the order ticket is then the position id
+(`position_id_source = ORDER_TICKET_HEDGING`). On netting accounts, or when the account's
+margin mode cannot be read, a deal may join an existing position, so order-ticket-only results
+stay unlinked.
 
 No broker writes: the only bridge calls are the allow-listed read-only tools of
 `platform_api.control.ReadOnlyBridgeReader`.
@@ -29,6 +37,10 @@ DEGRADED = "DEGRADED"
 DISCONNECTED = "DISCONNECTED"
 
 DEFAULT_STALE_AFTER_SECONDS = 120.0
+
+# Linkage bucket (repository.managed_trade_linkage_counts) for FILLED results that recorded an
+# order ticket but no position id; counted as linked only on a HEDGING account.
+ORDER_TICKET_ONLY = "BROKER_FILLED_ORDER_TICKET_ONLY"
 
 # MT5 ACCOUNT_TRADE_MODE / POSITION_TYPE constants as returned by the bridge.
 _ACCOUNT_TRADE_MODE = {0: "DEMO", 1: "CONTEST", 2: "REAL"}
@@ -59,6 +71,26 @@ def _ts(value: Any) -> datetime | None:
 
 def _iso(value: datetime | None) -> str | None:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if value else None
+
+
+def is_hedging_account(account: dict[str, Any] | None) -> bool:
+    """ACCOUNT_MARGIN_MODE_RETAIL_HEDGING (2), as reported by the bridge's account read."""
+    account = account or {}
+    if str(account.get("position_mode") or "").upper() == "HEDGING":
+        return True
+    try:
+        return int(account.get("account_margin_mode_raw", account.get("margin_mode"))) == 2
+    except (TypeError, ValueError):
+        return False
+
+
+def position_identity(row: dict[str, Any], *, hedging: bool) -> tuple[str | None, str | None]:
+    """(position id, source) for a FILLED result, or (None, None) when it cannot be proven."""
+    if row.get("broker_position_id") is not None:
+        return str(row["broker_position_id"]), "EXECUTION_RESULT"
+    if hedging and row.get("broker_order_id") is not None:
+        return str(row["broker_order_id"]), "ORDER_TICKET_HEDGING"
+    return None, None
 
 
 def execution_environment(resource: str | None) -> str | None:
@@ -149,6 +181,7 @@ class TradeManagerLiveProjection:
             executor.shutdown(wait=False, cancel_futures=True)
         return {"status": "CONNECTED", "observed_at": _iso(observed_at), "reason": None,
                 "account_id": str(account["login"]), "environment": broker_environment(account),
+                "hedging": is_hedging_account(account),
                 "server": account.get("server"), "positions": positions, "pending_orders": orders}
 
     def _observation(self, row: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -164,7 +197,8 @@ class TradeManagerLiveProjection:
                 "stale_after_seconds": self.stale_after_seconds}
 
     def _trade(self, row: dict[str, Any], position: dict[str, Any] | None, broker_account_env: str | None,
-               now: datetime) -> dict[str, Any]:
+               now: datetime, *, position_id: str | None = None,
+               position_id_source: str | None = None) -> dict[str, Any]:
         direction = row["direction"]
         long_side = direction == "LONG"
         entry = _num((position or {}).get("price_open")) or _num(row.get("fill_price")) \
@@ -192,7 +226,8 @@ class TradeManagerLiveProjection:
             "environment": None if env_conflict else exec_env,
             "environment_source": "EXECUTION_ATTEMPT_RESOURCE" if exec_env and not env_conflict else None,
             "environment_conflict": env_conflict,
-            "broker": {"account_id": row["account_id"], "position_id": str(row["broker_position_id"]),
+            "broker": {"account_id": row["account_id"], "position_id": position_id,
+                       "position_id_source": position_id_source,
                        "order_id": row.get("broker_order_id"), "deal_id": row.get("broker_deal_id"),
                        "symbol": (position or {}).get("symbol"), "volume": _num((position or {}).get("volume"))
                        if position else _num(row.get("fill_volume")),
@@ -232,30 +267,33 @@ class TradeManagerLiveProjection:
         active, closed, unresolved, conflicts = [], [], [], []
         claimed: set[str] = set()
         for row in linked:
-            position_id = str(row["broker_position_id"])
+            position_id, source = position_identity(row, hedging=connected and broker["hedging"])
+            if position_id is None:
+                continue  # order ticket only, and the account is not proven HEDGING
+            identity = {"position_id": position_id, "position_id_source": source}
             if not connected:
-                unresolved.append({**self._trade(row, None, None, now), "broker_status": "UNRESOLVED",
+                unresolved.append({**self._trade(row, None, None, now, **identity), "broker_status": "UNRESOLVED",
                                    "reconciliation_reason": "BROKER_READ_UNAVAILABLE"})
                 continue
             if str(row["account_id"]) != broker["account_id"]:
                 # Recorded on a different account than the one the bridge serves: cannot be
                 # confirmed open or closed from this read.
-                unresolved.append({**self._trade(row, None, broker["environment"], now),
+                unresolved.append({**self._trade(row, None, broker["environment"], now, **identity),
                                    "broker_status": "UNRESOLVED",
                                    "reconciliation_reason": "ACCOUNT_NOT_OBSERVED"})
                 continue
             position = positions_by_id.get(position_id)
             if position is None:
-                closed.append({**self._trade(row, None, broker["environment"], now), "broker_status": "CLOSED",
-                               "reconciliation_reason": "BROKER_POSITION_ABSENT"})
+                closed.append({**self._trade(row, None, broker["environment"], now, **identity),
+                               "broker_status": "CLOSED", "reconciliation_reason": "BROKER_POSITION_ABSENT"})
                 continue
             if _POSITION_TYPE_DIRECTION.get(position.get("type")) != row["direction"]:
                 conflicts.append({"managed_trade_id": row["managed_trade_id"], "position_id": position_id,
                                   "reason": "DIRECTION_MISMATCH"})
                 continue
             claimed.add(position_id)
-            active.append({**self._trade(row, position, broker["environment"], now), "broker_status": "OPEN",
-                           "reconciliation_reason": "BROKER_POSITION_PRESENT"})
+            active.append({**self._trade(row, position, broker["environment"], now, **identity),
+                           "broker_status": "OPEN", "reconciliation_reason": "BROKER_POSITION_PRESENT"})
 
         unlinked_positions = [
             {"position_id": pid, "symbol": p.get("symbol"), "direction": _POSITION_TYPE_DIRECTION.get(p.get("type")),
@@ -295,6 +333,9 @@ class TradeManagerLiveProjection:
 
         total = sum(int(v) for v in history.values())
         linked_trades = int(history.get("BROKER_LINKED", 0))
+        if connected and broker["hedging"]:
+            linked_trades += int(history.get(ORDER_TICKET_ONLY, 0))
+            history = {k: v for k, v in history.items() if k != ORDER_TICKET_ONLY}
         return {
             "projection": "trade-manager-live.v1",
             "observed_at": _iso(now),
