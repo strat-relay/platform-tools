@@ -21,7 +21,7 @@ from orchestration.adapters.context_structure_retrace import ContextStructureRet
 from orchestration.canonical_signal_publisher import CanonicalSignalPublisher
 from orchestration.adapters.liquidity_displacement import LiquidityDisplacementAdapter
 from orchestration.brokers.mt5_shadow import READ_ONLY_BRIDGE_TOOLS, MT5ShadowProvider
-from orchestration.config import load_config
+from orchestration.config import load_config, refresh_instances
 from orchestration.liquidity_instances import DEFINITIONS_BY_ID, DEFINITIONS_BY_INSTANCE_ID, LiquidityInstanceAdapter
 from orchestration.models import AccountSnapshot, StrategySignal, stable_id
 from orchestration.registry import PortfolioRegistry, StrategyRegistry
@@ -153,18 +153,19 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
         elif record["strategy_id"] == "LIQUIDITY_DISPLACEMENT_SCALP_V1":
             # The parent owns the adapter family.  Enabled children are persisted as
             # strategy instances and each keeps an isolated state/dedupe namespace.
-            instances = [x for x in config.get("instances", [])
-                         if x.get("strategy_id") == record["strategy_id"] and x.get("enabled")]
+            family = [x for x in config.get("instances", []) if x.get("strategy_id") == record["strategy_id"]]
+            instances = [x for x in family if x.get("enabled")]
             if instances:
                 for instance in instances:
                     definition = DEFINITIONS_BY_INSTANCE_ID.get(instance["instance_id"])
                     if definition is None:
                         raise RuntimeError(f"enabled strategy instance is not audited: {instance['instance_id']}")
                     adapters.append(LiquidityInstanceAdapter(ROOT, definition))
-            else:
+            elif not family:
                 # Preserve the existing parent-only forward-paper behavior while a
                 # deployment is being migrated to explicit instance rows.
                 adapters.append(LiquidityDisplacementAdapter(ROOT, freeze_timestamp))
+            # Instance rows exist but every one is OFFLINE: no Liquidity adapter at all.
         elif record["strategy_id"] in DEFINITIONS_BY_ID:
             # Compatibility for pre-instance database rows; new configuration should
             # register the parent strategy plus child instance rows instead.
@@ -724,6 +725,8 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
     signal.signal(signal.SIGINT, handler); signal.signal(signal.SIGTERM, handler)
     try:
         while not halt["x"] and not stop_path.exists():
+            # Instance ONLINE/OFFLINE is re-read every cycle; the rest of the config is fixed at start.
+            config = refresh_instances(config)
             try: poll_once(store, config, mf, orchestration_mode,
                            signal_authority_mode=signal_authority_mode,
                            canonical_publisher=canonical_publisher,

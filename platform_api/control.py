@@ -514,6 +514,41 @@ class PlatformControlApi:
         self.trade_manager_mode_api = trade_manager_mode_api
 
     @staticmethod
+    def _instance_lifecycle_route(path: str) -> tuple[str, str] | None:
+        """/api/v1/strategies/{strategyId}/instances/{instanceId}/lifecycle -> (strategyId, instanceId)."""
+        prefix = "/api/v1/strategies/"
+        if not path.startswith(prefix):
+            return None
+        parts = [unquote(p) for p in path[len(prefix):].split("/")]
+        if len(parts) == 4 and parts[1] == "instances" and parts[3] == "lifecycle" and parts[0] and parts[2]:
+            return parts[0], parts[2]
+        return None
+
+    def _save_instance_lifecycle(self, strategy_id: str, instance_id: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
+        from .strategy_catalog import InstanceNotFound, InstanceRevisionConflict, LifecycleNotEnforced
+        source = "canonical_postgres"
+        try:
+            payload = json.loads((body or b"{}").decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be a JSON object")
+            row = self.strategy_catalog.set_instance_lifecycle(
+                strategy_id, instance_id, payload.get("state"),
+                expected_revision=payload.get("expectedRevision"),
+                updated_by=str(payload.get("updatedBy") or "control-api"))
+            return 200, self._body(row, source=source)
+        except InstanceNotFound as exc:
+            return 404, self._body(None, source=source, error="RESOURCE_NOT_FOUND", message=str(exc))
+        except LifecycleNotEnforced as exc:
+            return 409, self._body(None, source=source, error="LIFECYCLE_NOT_ENFORCED", message=str(exc))
+        except InstanceRevisionConflict as exc:
+            return 409, self._body(None, source=source, error="REVISION_CONFLICT", message=str(exc))
+        except (ValueError, json.JSONDecodeError) as exc:
+            return 400, self._body(None, source=source, error="INVALID_REQUEST", message=str(exc))
+        except CanonicalSourceUnavailable as exc:
+            return 503, self._body(None, source=source, status="UNAVAILABLE", error="SOURCE_UNAVAILABLE",
+                                   message=str(exc))
+
+    @staticmethod
     def _body(data: Any = None, *, source: str, status: str = "ACTIVE",
               error: str | None = None, message: str | None = None) -> dict[str, Any]:
         result: dict[str, Any] = {"api_version": "v1", "source": source,
@@ -606,6 +641,11 @@ class PlatformControlApi:
                     return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
                                            error="SOURCE_UNAVAILABLE", message=str(exc))
             return 405, self._body(None, source="platform", error="METHOD_NOT_ALLOWED")
+        lifecycle = self._instance_lifecycle_route(path)
+        if lifecycle is not None:
+            if method != "POST":
+                return 405, self._body(None, source="platform", error="METHOD_NOT_ALLOWED")
+            return self._save_instance_lifecycle(*lifecycle, body)
         if method == "POST" and path == self.V2_RISK_POLICY_PATH:
             return self.v2_risk_api.save(body)
         if path == self.V2_AUTHORITY_PATH:
@@ -707,6 +747,11 @@ class PlatformControlApi:
                         return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
                     return 200, self._body(self.strategy_catalog.strategy_instances(parts[0]),
                                            source="canonical_postgres")
+                if len(parts) == 3 and parts[1] == "instances":
+                    page = self.strategy_catalog.instance_page(parts[0], parts[2])
+                    if page is None:
+                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                    return 200, self._body(page, source="canonical_postgres")
                 if (parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1" and len(parts) == 2
                         and parts[1] == "report"):
                     report = self.repository.context_entry_outcome_report()
