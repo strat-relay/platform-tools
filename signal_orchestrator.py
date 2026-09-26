@@ -21,7 +21,7 @@ from orchestration.adapters.context_structure_retrace import ContextStructureRet
 from orchestration.canonical_signal_publisher import CanonicalSignalPublisher
 from orchestration.adapters.liquidity_displacement import LiquidityDisplacementAdapter
 from orchestration.brokers.mt5_shadow import READ_ONLY_BRIDGE_TOOLS, MT5ShadowProvider
-from orchestration.config import load_config, refresh_instances
+from orchestration.config import load_config, refresh_lifecycle
 from orchestration.liquidity_instances import DEFINITIONS_BY_ID, DEFINITIONS_BY_INSTANCE_ID, LiquidityInstanceAdapter
 from orchestration.models import AccountSnapshot, StrategySignal, stable_id
 from orchestration.registry import PortfolioRegistry, StrategyRegistry
@@ -726,7 +726,7 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
     try:
         while not halt["x"] and not stop_path.exists():
             # Instance ONLINE/OFFLINE is re-read every cycle; the rest of the config is fixed at start.
-            config = refresh_instances(config)
+            config = refresh_lifecycle(config)
             try: poll_once(store, config, mf, orchestration_mode,
                            signal_authority_mode=signal_authority_mode,
                            canonical_publisher=canonical_publisher,

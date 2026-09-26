@@ -109,11 +109,12 @@ def load_instances_from_database(conn: Any) -> list[dict[str, Any]]:
                 for iid, sid, display_name, enabled, attrs in cur.fetchall()]
 
 
-def refresh_instances(config: dict[str, Any], *, connect_fn: Any = None) -> dict[str, Any]:
-    """Re-read strategy instance enablement (ONLINE/OFFLINE) for the next orchestration cycle, so a
-    lifecycle change takes effect without a restart. Without a database the config is unchanged.
-    A failed read keeps the previous instances; the full configuration already fails closed at
-    startup, and no lifecycle change can be written while the database is unreachable."""
+def refresh_lifecycle(config: dict[str, Any], *, connect_fn: Any = None) -> dict[str, Any]:
+    """Re-read lifecycle state for the next orchestration cycle - instance ONLINE/OFFLINE and parent
+    strategy ACTIVE/SUSPENDED (`enabled`) - so a change takes effect without a restart. Everything
+    else in the config stays as loaded at start. Without a database the config is unchanged. A
+    failed read keeps the previous state; the full configuration already fails closed at startup,
+    and no lifecycle change can be written while the database is unreachable."""
     if connect_fn is None:
         if not _database_configured():
             return config
@@ -122,7 +123,13 @@ def refresh_instances(config: dict[str, Any], *, connect_fn: Any = None) -> dict
         connect_fn = lambda: connect(PostgresConfig.from_env(), readonly=True)  # noqa: E731
     try:
         with connect_fn() as conn:
-            return {**config, "instances": load_instances_from_database(conn)}
+            instances = load_instances_from_database(conn)
+            with conn.cursor() as cur:
+                cur.execute("SELECT strategy_id, enabled FROM platform.strategy_definition")
+                enabled = {sid: bool(on) for sid, on in cur.fetchall()}
+        strategies = [{**s, "enabled": enabled.get(s["strategy_id"], s.get("enabled"))}
+                      for s in config.get("strategies", [])]
+        return {**config, "strategies": strategies, "instances": instances}
     except Exception as exc:  # noqa: BLE001
         print(f"STRATEGY_INSTANCE_REFRESH_UNAVAILABLE {type(exc).__name__}: {exc}")
         return config

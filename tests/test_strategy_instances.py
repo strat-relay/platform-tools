@@ -20,7 +20,7 @@ for path in (str(ROOT), str(ROOT / "tests")):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from orchestration.config import load_instances_from_database, refresh_instances  # noqa: E402
+from orchestration.config import load_instances_from_database, refresh_lifecycle  # noqa: E402
 from platform_api.control import PlatformControlApi  # noqa: E402
 from postgres.config import PostgresConfig  # noqa: E402
 from postgres.db import apply_migrations, connect  # noqa: E402
@@ -40,7 +40,7 @@ def _server_available() -> bool:
 
 
 class OrchestratorLifecycleTests(unittest.TestCase):
-    """No database: load_adapters and refresh_instances on plain config dicts."""
+    """No database: load_adapters and refresh_lifecycle on plain config dicts."""
 
     PARENT = {"strategy_id": LIQUIDITY, "enabled": True}
 
@@ -76,18 +76,42 @@ class OrchestratorLifecycleTests(unittest.TestCase):
                 return Cursor()
 
         class Cursor(Conn):
-            def execute(self, *_):
-                pass
+            sql = ""
+
+            def execute(self, sql, *_):
+                self.sql = sql
 
             def fetchall(self):
+                if "strategy_definition" in self.sql:
+                    return [(LIQUIDITY, False)]
                 return [("liquidity-xau33", LIQUIDITY, "XAU 33%", True, {"symbol": "XAUUSDm"})]
 
-        refreshed = refresh_instances(base, connect_fn=Conn)
-        self.assertEqual((refreshed["mcp_url"], refreshed["instances"][0]["enabled"]), ("x", True))
+        base["strategies"] = [dict(self.PARENT)]
+        refreshed = refresh_lifecycle(base, connect_fn=Conn)
+        self.assertEqual((refreshed["mcp_url"], refreshed["instances"][0]["enabled"],
+                          refreshed["strategies"][0]["enabled"]), ("x", True, False))
+        self.assertEqual(load_adapters(refreshed, "2026-09-26T00:00:00+00:00"), [])   # parent suspended
 
         def broken():
             raise RuntimeError("db down")
-        self.assertIs(refresh_instances(base, connect_fn=broken), base)
+        self.assertIs(refresh_lifecycle(base, connect_fn=broken), base)
+
+
+class ManifestSourceTests(unittest.TestCase):
+    def test_liquidity_schema_covers_exactly_the_fingerprinted_parameter_fields(self):
+        import inspect
+        from orchestration.liquidity_live import PARAMETER_KEYS, LiquidityParameterSet
+        source = inspect.getsource(LiquidityParameterSet.config_fingerprint.fget)
+        fingerprinted = {k for k in ("canonical_instrument", "entry_fraction", "max_retrace_candles", "target_r",
+                                     "max_hold_minutes", "broker_symbol") if f'"{k}"' in source}
+        self.assertEqual(set(PARAMETER_KEYS), fingerprinted)
+
+    def test_manifests_never_mark_parameters_editable(self):
+        from strategy_manifests import all_manifests
+        for manifest, sets in all_manifests():
+            self.assertTrue(all(p["editable"] is False for p in manifest["parameters"]))
+            self.assertEqual(manifest["edit_policy"]["config_reload"], "RESTART_REQUIRED")
+            self.assertTrue(all(s["config_fingerprint"] for s in sets))
 
 
 @unittest.skipUnless(_server_available(), "PostgreSQL is not available; set TRADING_POSTGRES_DSN")
@@ -110,6 +134,11 @@ class StrategyInstanceTests(unittest.TestCase):
         with self.db.connect() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM strategy.entry_signal_outcomes")
             cur.execute("DELETE FROM strategy.entry_signals")
+            cur.execute("DELETE FROM platform.strategy_instance_parameter_set")
+            cur.execute("DELETE FROM platform.strategy_version_manifest")
+            cur.execute("DELETE FROM strategy.instrument_membership WHERE strategy_id = %s", (LIQUIDITY,))
+            cur.execute("""UPDATE strategy.instrument_membership SET state = 'ACTIVE'
+                           WHERE strategy_instance_id = 'phase6'""")
             cur.execute("DELETE FROM platform.strategy_instance WHERE strategy_id = %s", (LIQUIDITY,))
             cur.execute("DELETE FROM platform.strategy_definition WHERE strategy_id = %s", (LIQUIDITY,))
             cur.execute("""INSERT INTO platform.strategy_definition
@@ -132,9 +161,15 @@ class StrategyInstanceTests(unittest.TestCase):
             self._signals(cur, LIQUIDITY, "liquidity-xau33", ["OPEN", "TIME_EXIT", None], "XAUUSD", hours=100)
             self._signals(cur, LIQUIDITY, "liquidity-btc25", ["TARGET_HIT"], "BTCUSD", hours=200)
             conn.commit()
+        self._publish()
+
+    def _publish(self, apply=True):
+        from scripts.publish_strategy_manifests import publish
+        from strategy_manifests import all_manifests
+        return publish(all_manifests(), apply=apply, connect_fn=self.db.connect, published_by="test")
 
     @staticmethod
-    def _signals(cur, strategy, instance, statuses, instrument, hours=0):
+    def _signals(cur, strategy, instance, statuses, instrument, hours=0, provenance=None):
         for n, status in enumerate(statuses):
             tag = uuid.uuid4().hex[:10]
             when = T0 + timedelta(hours=hours + n)
@@ -149,6 +184,9 @@ class StrategyInstanceTests(unittest.TestCase):
                 VALUES (%s,%s,%s,%s,%s,'V1',%s,%s,'LONG',%s,%s,1.1,1.09,1.105,0.5,'e','t','ENTRY_SIGNAL_CREATED',%s)""",
                         (f"SIG{tag}", f"C{tag}", f"E{tag}", f"{strategy}@V1", strategy, instance, instrument, when,
                          when + timedelta(minutes=5), f"h{tag}"))
+            if provenance:
+                cur.execute("UPDATE strategy.entry_signals SET source_provenance = %s::jsonb WHERE signal_id = %s",
+                            (json.dumps(provenance), f"SIG{tag}"))
             if status is None:
                 continue
             closed = status != "OPEN"
@@ -279,9 +317,117 @@ class StrategyInstanceTests(unittest.TestCase):
         config = {"strategies": [{"strategy_id": LIQUIDITY, "enabled": True}], "instances": instances}
         self.assertEqual(load_adapters(config, "2026-09-26T00:00:00+00:00"), [])
         self.repo.set_instance_lifecycle(LIQUIDITY, "liquidity-btc25", "ONLINE", expected_revision=1, updated_by="t")
-        config = refresh_instances(config, connect_fn=lambda: self.db.connect(readonly=True))
+        refreshed = refresh_lifecycle(config, connect_fn=lambda: self.db.connect(readonly=True))
+        self.assertEqual(load_adapters(refreshed, "2026-09-26T00:00:00+00:00"), [])   # parent still suspended
+        self.repo.set_strategy_lifecycle(LIQUIDITY, "ACTIVE", expected_revision=1, updated_by="t")
+        config = refresh_lifecycle(config, connect_fn=lambda: self.db.connect(readonly=True))
         self.assertEqual([a.definition.instance_id for a in load_adapters(config, "2026-09-26T00:00:00+00:00")],
                          ["liquidity-btc25"])
+
+    # --- configuration manifests ---------------------------------------------------
+
+    def test_publish_is_dry_run_by_default_idempotent_and_never_creates_instances(self):
+        with self.db.connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM platform.strategy_instance_parameter_set")
+            cur.execute("DELETE FROM platform.strategy_version_manifest")
+            conn.commit()
+        dry = self._publish(apply=False)
+        self.assertTrue(dry["dry_run"])
+        self.assertEqual(self._by_id()["liquidity-xau33"]["configuration"]["status"], "NOT_PUBLISHED")
+        applied = self._publish()
+        self.assertEqual(sorted(applied["parameter_sets_changed"]), ["liquidity-btc25", "liquidity-xau33", "phase6"])
+        self.assertEqual(sorted(applied["skipped_no_instance"]), ["liquidity-usdjpy25", "liquidity-xau-base"])
+        again = self._publish()
+        self.assertEqual((again["versions_changed"], again["parameter_sets_changed"]), ([], []))
+
+    def test_configuration_is_schema_driven_and_classified(self):
+        config = self._by_id()["liquidity-xau33"]["configuration"]
+        self.assertEqual(config["status"], "PUBLISHED")
+        self.assertEqual(config["parameter_set_id"], "liquidity-v1-xau-33")
+        params = {p["key"]: p for p in config["parameters"]}
+        self.assertEqual(list(params), ["canonical_instrument", "entry_fraction", "max_retrace_candles", "target_r",
+                                        "max_hold_minutes"])
+        self.assertEqual((params["max_retrace_candles"]["value"], params["max_retrace_candles"]["unit"],
+                          params["max_retrace_candles"]["type"]), (5, "M5 candles", "integer"))
+        self.assertTrue(all(p["classification"] == "INSTANCE_CONFIGURABLE" and p["editable"] is False
+                            for p in params.values()))
+        self.assertTrue(all(i["classification"] == "VERSION_OWNED_IMMUTABLE" for i in config["immutable"]))
+        self.assertEqual({o["classification"] for o in config["operational"]}, {"RUNTIME_OPERATIONAL"})
+        self.assertEqual((config["edit_policy"]["instance_parameters"], config["edit_policy"]["config_reload"]),
+                         ("NEW_PARAMETER_SET_REQUIRED", "RESTART_REQUIRED"))
+        context = self._by_id()["phase6"]["configuration"]
+        self.assertEqual((context["parameters"], context["config_fingerprint"][:8]), ([], "1f1da2a6"))
+
+    def test_runtime_fingerprint_sync_and_drift_are_explicit(self):
+        self.assertEqual(self._by_id()["liquidity-xau33"]["configuration"]["sync"], "NOT_OBSERVED")
+        published = self._by_id()["liquidity-xau33"]["configuration"]["config_fingerprint"]
+        with self.db.connect() as conn, conn.cursor() as cur:
+            self._signals(cur, LIQUIDITY, "liquidity-xau33", [None], "XAUUSD", hours=300,
+                          provenance={"config_fingerprint": published})
+            self._signals(cur, LIQUIDITY, "liquidity-btc25", [None], "BTCUSD", hours=300,
+                          provenance={"config_fingerprint": "an-older-parameter-set"})
+            conn.commit()
+        by_id = self._by_id()
+        self.assertEqual(by_id["liquidity-xau33"]["configuration"]["sync"], "IN_SYNC")
+        self.assertEqual(by_id["liquidity-btc25"]["configuration"]["sync"], "DRIFT")
+
+    def test_online_requires_a_published_parameter_set(self):
+        from platform_api.strategy_catalog import ParameterSetNotPublished
+        with self.db.connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM platform.strategy_instance_parameter_set WHERE instance_id = 'liquidity-xau33'")
+            conn.commit()
+        with self._unchanged("platform.strategy_instance"):
+            with self.assertRaises(ParameterSetNotPublished):
+                self.repo.set_instance_lifecycle(LIQUIDITY, "liquidity-xau33", "ONLINE", expected_revision=1,
+                                                 updated_by="t")
+
+    # --- strategy suspend / metadata ---------------------------------------------
+
+    def test_strategy_suspend_and_resume_touch_only_the_definition(self):
+        with self._unchanged("platform.strategy_instance", *self.EXECUTION_TABLES[:-1]):
+            resumed = self.repo.set_strategy_lifecycle(LIQUIDITY, "ACTIVE", expected_revision=1, updated_by="op")
+            self.assertEqual((resumed["enabled"], resumed["revision"]), (True, 2))
+            suspended = self.repo.set_strategy_lifecycle(LIQUIDITY, "SUSPENDED", expected_revision=2, updated_by="op")
+            self.assertEqual((suspended["enabled"], suspended["revision"]), (False, 3))
+        self.assertTrue(all(i["runtime"]["effective"] is False for i in suspended["instances"]))
+
+    def test_strategy_suspend_is_refused_where_not_enforced_and_on_stale_revision(self):
+        from platform_api.strategy_catalog import InstanceRevisionConflict, LifecycleNotEnforced
+        with self._unchanged("platform.strategy_definition"):
+            with self.assertRaises(LifecycleNotEnforced):
+                self.repo.set_strategy_lifecycle(CONTEXT, "SUSPENDED", expected_revision=1, updated_by="t")
+            with self.assertRaises(InstanceRevisionConflict):
+                self.repo.set_strategy_lifecycle(LIQUIDITY, "ACTIVE", expected_revision=9, updated_by="t")
+
+    def test_metadata_edit_changes_only_presentation(self):
+        with self._unchanged("platform.strategy_instance", *self.EXECUTION_TABLES[:-1]):
+            row = self.repo.set_strategy_metadata(CONTEXT, display_name="Context Retrace", description="d",
+                                                  expected_revision=1, updated_by="op")
+        self.assertEqual((row["display_name"], row["description"], row["enabled"], row["revision"]),
+                         ("Context Retrace", "d", True, 2))
+        with self.assertRaises(ValueError):
+            self.repo.set_strategy_metadata(CONTEXT, display_name=" ", description=None, expected_revision=2,
+                                            updated_by="op")
+        self.repo.set_strategy_metadata(CONTEXT, display_name="Context Structure Retrace", description=None,
+                                        expected_revision=2, updated_by="op")
+
+    # --- instrument membership guards ------------------------------------------------
+
+    def test_membership_outside_the_parameter_set_instrument_is_refused(self):
+        from platform_api.strategy_catalog import MembershipRefused
+        with self.assertRaises(MembershipRefused) as refused:
+            self.repo.check_membership_change(LIQUIDITY, "liquidity-xau33", "EURUSD", "ACTIVE")
+        self.assertEqual(refused.exception.code, "INSTRUMENT_NOT_IN_PARAMETER_SET")
+        self.assertIsNone(self.repo.check_membership_change(LIQUIDITY, "liquidity-xau33", "xauusd", "ACTIVE"))
+
+    def test_disabling_an_instrument_with_open_context_trades_is_refused(self):
+        from platform_api.strategy_catalog import MembershipRefused
+        with self.assertRaises(MembershipRefused) as refused:
+            self.repo.check_membership_change(CONTEXT, "phase6", "EURUSD", "DISABLED")
+        self.assertEqual(refused.exception.code, "OPEN_TRADES_ON_INSTRUMENT")
+        self.assertIsNone(self.repo.check_membership_change(CONTEXT, "phase6", "XAUUSD", "DISABLED"))
+        # Liquidity monitors open entries regardless of membership: disabling stays allowed.
+        self.assertIsNone(self.repo.check_membership_change(LIQUIDITY, "liquidity-xau33", "XAUUSD", "DISABLED"))
 
     # --- HTTP routes --------------------------------------------------------------
 
@@ -311,6 +457,19 @@ class StrategyInstanceTests(unittest.TestCase):
         self.assertEqual((status, body["error"]), (409, "LIFECYCLE_NOT_ENFORCED"))
         self.assertEqual(api.execute("POST", path + "/lifecycle", b"nope")[0], 400)
         self.assertEqual(api.execute("GET", path + "/lifecycle")[0], 405)
+        status, body = api.execute("POST", f"/api/v1/strategies/{CONTEXT}/lifecycle",
+                                   json.dumps({"state": "SUSPENDED", "expectedRevision": 1}).encode())
+        self.assertEqual((status, body["error"]), (409, "LIFECYCLE_NOT_ENFORCED"))
+        status, body = api.execute("POST", f"/api/v1/strategies/{LIQUIDITY}/metadata",
+                                   json.dumps({"displayName": "Liquidity V1", "expectedRevision": 1}).encode())
+        self.assertEqual((status, body["data"]["display_name"]), (200, "Liquidity V1"))
+
+    def test_membership_route_applies_the_guards(self):
+        api = self._api()
+        status, body = api.execute(
+            "POST", f"/api/v1/strategies/{CONTEXT}/instruments?strategy_instance_id=phase6",
+            json.dumps({"canonicalInstrument": "EURUSD", "state": "DISABLED"}).encode())
+        self.assertEqual((status, body["error"]), (409, "OPEN_TRADES_ON_INSTRUMENT"))
 
 
 if __name__ == "__main__":

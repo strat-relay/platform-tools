@@ -17,6 +17,7 @@ from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 from .instrument_membership import (DEFAULT_INSTANCE_BY_STRATEGY, InstrumentMembershipRepository,
                                      MembershipConflict, UnsupportedInstrument)
+from .strategy_catalog import MembershipRefused
 
 SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
@@ -514,6 +515,45 @@ class PlatformControlApi:
         self.trade_manager_mode_api = trade_manager_mode_api
 
     @staticmethod
+    def _strategy_write_route(path: str) -> tuple[str, str] | None:
+        """/api/v1/strategies/{strategyId}/(lifecycle|metadata) -> (strategyId, action)."""
+        prefix = "/api/v1/strategies/"
+        if not path.startswith(prefix):
+            return None
+        parts = [unquote(p) for p in path[len(prefix):].split("/")]
+        if len(parts) == 2 and parts[0] and parts[1] in ("lifecycle", "metadata"):
+            return parts[0], parts[1]
+        return None
+
+    def _save_strategy(self, strategy_id: str, action: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
+        from .strategy_catalog import InstanceNotFound, InstanceRevisionConflict, LifecycleNotEnforced
+        source = "canonical_postgres"
+        try:
+            payload = json.loads((body or b"{}").decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be a JSON object")
+            common = {"expected_revision": payload.get("expectedRevision"),
+                      "updated_by": str(payload.get("updatedBy") or "control-api")}
+            if action == "lifecycle":
+                row = self.strategy_catalog.set_strategy_lifecycle(strategy_id, payload.get("state"), **common)
+            else:
+                row = self.strategy_catalog.set_strategy_metadata(
+                    strategy_id, display_name=payload.get("displayName"), description=payload.get("description"),
+                    **common)
+            return 200, self._body(row, source=source)
+        except InstanceNotFound as exc:
+            return 404, self._body(None, source=source, error="RESOURCE_NOT_FOUND", message=str(exc))
+        except LifecycleNotEnforced as exc:
+            return 409, self._body(None, source=source, error="LIFECYCLE_NOT_ENFORCED", message=str(exc))
+        except InstanceRevisionConflict as exc:
+            return 409, self._body(None, source=source, error="REVISION_CONFLICT", message=str(exc))
+        except (ValueError, json.JSONDecodeError) as exc:
+            return 400, self._body(None, source=source, error="INVALID_REQUEST", message=str(exc))
+        except CanonicalSourceUnavailable as exc:
+            return 503, self._body(None, source=source, status="UNAVAILABLE", error="SOURCE_UNAVAILABLE",
+                                   message=str(exc))
+
+    @staticmethod
     def _instance_lifecycle_route(path: str) -> tuple[str, str] | None:
         """/api/v1/strategies/{strategyId}/instances/{instanceId}/lifecycle -> (strategyId, instanceId)."""
         prefix = "/api/v1/strategies/"
@@ -525,7 +565,8 @@ class PlatformControlApi:
         return None
 
     def _save_instance_lifecycle(self, strategy_id: str, instance_id: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
-        from .strategy_catalog import InstanceNotFound, InstanceRevisionConflict, LifecycleNotEnforced
+        from .strategy_catalog import (InstanceNotFound, InstanceRevisionConflict, LifecycleNotEnforced,
+                                       ParameterSetNotPublished)
         source = "canonical_postgres"
         try:
             payload = json.loads((body or b"{}").decode("utf-8"))
@@ -540,6 +581,8 @@ class PlatformControlApi:
             return 404, self._body(None, source=source, error="RESOURCE_NOT_FOUND", message=str(exc))
         except LifecycleNotEnforced as exc:
             return 409, self._body(None, source=source, error="LIFECYCLE_NOT_ENFORCED", message=str(exc))
+        except ParameterSetNotPublished as exc:
+            return 409, self._body(None, source=source, error="PARAMETER_SET_NOT_PUBLISHED", message=str(exc))
         except InstanceRevisionConflict as exc:
             return 409, self._body(None, source=source, error="REVISION_CONFLICT", message=str(exc))
         except (ValueError, json.JSONDecodeError) as exc:
@@ -626,6 +669,7 @@ class PlatformControlApi:
                         raise UnsupportedInstrument(f"{canonical} has no active provider mapping in the instrument catalog")
                     if state == "ACTIVE" and not catalog[canonical].provider_symbol:
                         raise UnsupportedInstrument(f"{canonical} has no provider mapping")
+                    self.strategy_catalog.check_membership_change(strategy_id, instance_id, canonical, state)
                     row = self.instrument_membership.save_membership(
                         strategy_id, instance_id, canonical, state,
                         payload.get("expectedRevision"), str(payload.get("updatedBy") or "control-api"))
@@ -633,6 +677,8 @@ class PlatformControlApi:
                 except UnsupportedInstrument as exc:
                     return 409, self._body(None, source="canonical_postgres", status="DEGRADED",
                                            error="UNSUPPORTED_INSTRUMENT", message=str(exc))
+                except MembershipRefused as exc:
+                    return 409, self._body(None, source="canonical_postgres", error=exc.code, message=str(exc))
                 except MembershipConflict as exc:
                     return 409, self._body(None, source="canonical_postgres", error="REVISION_CONFLICT", message=str(exc))
                 except (ValueError, json.JSONDecodeError) as exc:
@@ -641,6 +687,11 @@ class PlatformControlApi:
                     return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
                                            error="SOURCE_UNAVAILABLE", message=str(exc))
             return 405, self._body(None, source="platform", error="METHOD_NOT_ALLOWED")
+        strategy_write = self._strategy_write_route(path)
+        if strategy_write is not None:
+            if method != "POST":
+                return 405, self._body(None, source="platform", error="METHOD_NOT_ALLOWED")
+            return self._save_strategy(*strategy_write, body)
         lifecycle = self._instance_lifecycle_route(path)
         if lifecycle is not None:
             if method != "POST":

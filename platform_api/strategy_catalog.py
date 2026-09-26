@@ -64,7 +64,8 @@ SELECT i.instance_id, i.strategy_id, i.display_name, i.enabled, i.attributes, i.
        coalesce(o.tracked, 0) AS outcomes_tracked, coalesce(o.open_n, 0) AS open_n,
        coalesce(o.closed_n, 0) AS closed_n, o.realized_r_total,
        coalesce(mem.active, ARRAY[]::text[]) AS instruments, coalesce(mem.disabled_n, 0) AS instruments_disabled,
-       ev.at AS last_event_at, ev.type AS last_event_type, ev.message AS last_event_message
+       ev.at AS last_event_at, ev.type AS last_event_type, ev.message AS last_event_message,
+       obs.fingerprint AS observed_config_fingerprint, obs.at AS observed_config_at
 FROM platform.strategy_instance i
 JOIN platform.strategy_definition d ON d.strategy_id = i.strategy_id
 LEFT JOIN LATERAL (
@@ -96,6 +97,13 @@ LEFT JOIN LATERAL (
         WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id
           AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
     ORDER BY e.at DESC NULLS LAST LIMIT 1) ev ON TRUE
+LEFT JOIN LATERAL (
+    -- The configuration the runtime actually ran with, as stamped on its latest signal.
+    SELECT coalesce(s.source_provenance ->> 'config_fingerprint', s.source_provenance ->> 'source_config_hash')
+               AS fingerprint, s.signal_emitted_at AS at
+    FROM strategy.entry_signals s
+    WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id
+    ORDER BY s.signal_emitted_at DESC NULLS LAST LIMIT 1) obs ON TRUE
 {where}
 ORDER BY i.strategy_id, i.instance_id"""
 
@@ -125,7 +133,42 @@ def _parameters(attributes: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(attributes[k], (str, int, float, bool))]
 
 
-def _instance(row: dict[str, Any], execution: dict[str, Any] | None) -> dict[str, Any]:
+OPERATIONAL_FIELDS = (
+    {"key": "lifecycle_state", "label": "ONLINE / OFFLINE", "classification": "RUNTIME_OPERATIONAL",
+     "reload": "EVERY_CYCLE", "description": "Whether the instance may produce new setups/signals"},
+    {"key": "instrument_membership", "label": "Instruments", "classification": "RUNTIME_OPERATIONAL",
+     "reload": "EVERY_CYCLE", "description": "Canonical instruments the instance evaluates for new setups"},
+)
+
+
+def _configuration(row: dict[str, Any], published: dict[str, Any] | None) -> dict[str, Any]:
+    """Schema-driven configuration: the StrategyVersion manifest + this instance's ParameterSet, and
+    whether the runtime's latest signal ran with the published ParameterSet."""
+    observed = row.get("observed_config_fingerprint")
+    runtime = {"config_fingerprint": observed, "observed_at": row.get("observed_config_at"),
+               "source": "LATEST_SIGNAL_PROVENANCE"}
+    if published is None:
+        return {"status": "NOT_PUBLISHED", "parameters": [], "immutable": [], "operational": list(OPERATIONAL_FIELDS),
+                "edit_policy": None, "runtime": runtime, "sync": "UNKNOWN",
+                "detail": "No parameter manifest has been published for this instance "
+                          "(scripts/publish_strategy_manifests.py)"}
+    manifest = published["manifest"]
+    values = published["parameters"] or {}
+    parameters = [{**field, "value": values.get(field["key"])} for field in manifest.get("parameters", [])]
+    sync = ("NOT_OBSERVED" if observed is None
+            else "IN_SYNC" if observed == published["config_fingerprint"] else "DRIFT")
+    return {"status": "PUBLISHED", "strategy_version": published["strategy_version"],
+            "parameter_set_id": published["parameter_set_id"],
+            "config_fingerprint": published["config_fingerprint"], "published_at": published["published_at"],
+            "published_by": published["published_by"], "code_fingerprint": manifest.get("code_fingerprint"),
+            "manifest_fingerprint": published["manifest_fingerprint"],
+            "parameters": parameters, "immutable": manifest.get("immutable", []),
+            "operational": list(OPERATIONAL_FIELDS), "edit_policy": manifest.get("edit_policy"),
+            "runtime": runtime, "sync": sync}
+
+
+def _instance(row: dict[str, Any], execution: dict[str, Any] | None,
+              published: dict[str, Any] | None = None) -> dict[str, Any]:
     attributes = row["attributes"] if isinstance(row["attributes"], dict) else {}
     enforcement = LIFECYCLE_ENFORCEMENT.get(row["strategy_id"])
     strategy_ref = f"{row['strategy_id']}@{row['strategy_version']}"
@@ -147,6 +190,7 @@ def _instance(row: dict[str, Any], execution: dict[str, Any] | None) -> dict[str
                   "outcomes_untracked": int(row["signals"]) - int(row["outcomes_tracked"]),
                   "realized_r_total": _num(row["realized_r_total"]),
                   "last_event_at": row["last_event_at"], "last_event": last_event},
+        "configuration": _configuration(row, published),
         "lifecycle_control": {"enforced": enforcement is not None,
                               "detail": enforcement or LIFECYCLE_NOT_ENFORCED_REASON},
         # Runtime gating facts only; no runtime heartbeat is recorded per instance in PostgreSQL.
@@ -201,6 +245,22 @@ class LifecycleNotEnforced(RuntimeError):
     pass
 
 
+class ParameterSetNotPublished(RuntimeError):
+    pass
+
+
+class MembershipRefused(RuntimeError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+# Runtimes whose exit monitoring of already-open trades follows instrument membership: the Context
+# runner polls only ACTIVE members, so disabling an instrument would also stop exit evaluation of
+# its open positions. (The Liquidity live runtime monitors open entries regardless of membership.)
+MONITORING_FOLLOWS_MEMBERSHIP = {"CONTEXT_STRUCTURE_RETRACE_V1"}
+
+
 class StrategyCatalogRepository:
     def __init__(self, connect_fn: Callable[..., Any] = connect):
         self._connect = connect_fn
@@ -215,7 +275,7 @@ class StrategyCatalogRepository:
                     if cur.fetchone() is None:
                         raise CanonicalSourceUnavailable("canonical PostgreSQL schema 028 is required")
                     return work(cur)
-        except CanonicalSourceUnavailable:
+        except (CanonicalSourceUnavailable, MembershipRefused):
             raise
         except Exception as exc:
             raise CanonicalSourceUnavailable(f"canonical PostgreSQL strategy catalog unavailable: {exc}") from exc
@@ -265,10 +325,24 @@ class StrategyCatalogRepository:
         return {"status": "AVAILABLE", "authority_state": authority[0] if authority else "DISABLED",
                 "risk_policy_enabled": bool(policy[0]) if policy else False, "allowed_strategies": allowed}
 
+    def _published_parameter_sets(self, cur: Any) -> dict[str, dict[str, Any]]:
+        cur.execute("SELECT to_regclass('platform.strategy_instance_parameter_set') IS NOT NULL")
+        if not cur.fetchone()[0]:
+            return {}
+        rows = self._rows(cur, """SELECT ps.instance_id, ps.strategy_version, ps.parameter_set_id,
+                ps.config_fingerprint, ps.parameters, ps.published_at, ps.published_by,
+                vm.manifest, vm.manifest_fingerprint
+            FROM platform.strategy_instance_parameter_set ps
+            JOIN platform.strategy_version_manifest vm
+              ON vm.strategy_id = ps.strategy_id AND vm.strategy_version = ps.strategy_version""")
+        return {r["instance_id"]: r for r in rows}
+
     def _instances(self, cur: Any, where: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         self._require_instances(cur)
         execution = self._execution_facts(cur)
-        return [_instance(r, execution) for r in self._rows(cur, _INSTANCE_SQL.format(where=where), params)]
+        published = self._published_parameter_sets(cur)
+        return [_instance(r, execution, published.get(r["instance_id"]))
+                for r in self._rows(cur, _INSTANCE_SQL.format(where=where), params)]
 
     def strategy_instances(self, strategy_id: str) -> list[dict[str, Any]]:
         return self._run(lambda cur: self._instances(cur, "WHERE i.strategy_id = %s", (strategy_id,)))
@@ -349,12 +423,16 @@ class StrategyCatalogRepository:
                     if int(row[1]) != expected_revision:
                         raise InstanceRevisionConflict(
                             f"revision conflict: expected {expected_revision}, current {row[1]}")
+                    if state == "ONLINE" and instance_id not in self._published_parameter_sets(cur):
+                        raise ParameterSetNotPublished(
+                            f"{instance_id} has no published ParameterSet; a runtime could not evaluate it")
                     cur.execute("""UPDATE platform.strategy_instance
                                    SET enabled = %s, revision = revision + 1, updated_at = now(), updated_by = %s
                                    WHERE strategy_id = %s AND instance_id = %s""",
                                 (state == "ONLINE", updated_by.strip(), strategy_id, instance_id))
                 conn.commit()
-        except (InstanceNotFound, LifecycleNotEnforced, InstanceRevisionConflict, CanonicalSourceUnavailable):
+        except (InstanceNotFound, LifecycleNotEnforced, InstanceRevisionConflict, ParameterSetNotPublished,
+                CanonicalSourceUnavailable):
             raise
         except Exception as exc:
             raise CanonicalSourceUnavailable(f"canonical PostgreSQL strategy instance write unavailable: {exc}") from exc
@@ -491,3 +569,93 @@ class StrategyCatalogRepository:
             FROM trade_management.managed_trade WHERE strategy_id = %s""", (strategy_id,))
         return {"resolution": resolution, "bindings": bindings, "configured_policy": policy,
                 "managed_trades": trades[0] if trades else {"open": 0, "closed": 0, "total": 0}}
+
+    def _write_definition(self, strategy_id: str, expected_revision: Any, updated_by: str,
+                          change: Callable[[Any, tuple[Any, ...]], None],
+                          precheck: Callable[[], None] = lambda: None) -> dict[str, Any]:
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            raise ValueError("expectedRevision (integer) is required")
+        if not updated_by.strip():
+            raise ValueError("updatedBy is required")
+        try:
+            with self._connect(readonly=False) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""SELECT revision, enabled FROM platform.strategy_definition
+                                   WHERE strategy_id = %s FOR UPDATE""", (strategy_id,))
+                    row = cur.fetchone()
+                    if row is None:
+                        raise InstanceNotFound(f"{strategy_id} does not exist")
+                    precheck()
+                    if int(row[0]) != expected_revision:
+                        raise InstanceRevisionConflict(f"revision conflict: expected {expected_revision}, current {row[0]}")
+                    change(cur, row)
+                    cur.execute("""UPDATE platform.strategy_definition
+                                   SET revision = revision + 1, updated_at = now(), updated_by = %s
+                                   WHERE strategy_id = %s""", (updated_by.strip(), strategy_id))
+                conn.commit()
+        except (InstanceNotFound, LifecycleNotEnforced, InstanceRevisionConflict, ValueError, CanonicalSourceUnavailable):
+            raise
+        except Exception as exc:
+            raise CanonicalSourceUnavailable(f"canonical PostgreSQL strategy definition write unavailable: {exc}") from exc
+        return self.list_strategy(strategy_id)
+
+    def list_strategy(self, strategy_id: str) -> dict[str, Any]:
+        return next(s for s in self.list_strategies() if s["strategy_id"] == strategy_id)
+
+    def set_strategy_lifecycle(self, strategy_id: str, state: str, *, expected_revision: Any,
+                               updated_by: str) -> dict[str, Any]:
+        """Suspend/resume a parent strategy: platform.strategy_definition.enabled only. Suspended, no
+        child instance produces new setups/signals; instance ONLINE/OFFLINE rows, execution authority,
+        V2 risk policy, broker state, history and outcomes are untouched, and open trades keep being
+        monitored. Refused where the strategy's runtimes do not enforce it."""
+        state = str(state or "").upper()
+        if state not in ("ACTIVE", "SUSPENDED"):
+            raise ValueError("state must be ACTIVE or SUSPENDED")
+
+        def precheck() -> None:
+            if strategy_id not in LIFECYCLE_ENFORCEMENT:
+                raise LifecycleNotEnforced(LIFECYCLE_NOT_ENFORCED_REASON)
+
+        def change(cur: Any, _row: Any) -> None:
+            cur.execute("UPDATE platform.strategy_definition SET enabled = %s WHERE strategy_id = %s",
+                        (state == "ACTIVE", strategy_id))
+        return self._write_definition(strategy_id, expected_revision, updated_by, change, precheck)
+
+    def set_strategy_metadata(self, strategy_id: str, *, display_name: Any, description: Any,
+                              expected_revision: Any, updated_by: str) -> dict[str, Any]:
+        """Edit non-behavioural presentation fields only (name, description)."""
+        name = str(display_name or "").strip()
+        if not name or len(name) > 120:
+            raise ValueError("displayName is required (at most 120 characters)")
+        if description is not None and (not isinstance(description, str) or len(description) > 2000):
+            raise ValueError("description must be text (at most 2000 characters)")
+
+        def change(cur: Any, _row: Any) -> None:
+            cur.execute("UPDATE platform.strategy_definition SET display_name = %s, description = %s "
+                        "WHERE strategy_id = %s", (name, (description or "").strip() or None, strategy_id))
+        return self._write_definition(strategy_id, expected_revision, updated_by, change)
+
+    def check_membership_change(self, strategy_id: str, instance_id: str, canonical: str, state: str) -> None:
+        """Refuse membership changes a runtime would silently ignore or that would stop monitoring of
+        open trades. Raises MembershipRefused; returns None when the change is safe."""
+        canonical, state = canonical.strip().upper(), state.upper()
+
+        def read(cur: Any) -> None:
+            published = self._published_parameter_sets(cur).get(instance_id)
+            bound = ((published or {}).get("parameters") or {}).get("canonical_instrument")
+            if state == "ACTIVE" and bound and canonical != bound:
+                raise MembershipRefused("INSTRUMENT_NOT_IN_PARAMETER_SET",
+                                        f"{instance_id} runs a ParameterSet bound to {bound}; "
+                                        f"the runtime would ignore {canonical}")
+            if state != "ACTIVE" and strategy_id in MONITORING_FOLLOWS_MEMBERSHIP:
+                cur.execute("""SELECT count(*) FROM strategy.entry_signal_outcomes o
+                               JOIN strategy.entry_signals s USING (signal_id)
+                               WHERE s.strategy_id = %s AND s.strategy_instance_id = %s
+                                 AND upper(s.instrument) = %s AND o.status = 'OPEN'""",
+                            (strategy_id, instance_id, canonical))
+                open_n = int(cur.fetchone()[0])
+                if open_n:
+                    raise MembershipRefused("OPEN_TRADES_ON_INSTRUMENT",
+                                            f"{open_n} open {canonical} trade(s): this runtime stops monitoring "
+                                            "exits of disabled instruments, so it cannot be disabled until they close")
+        self._run(read)
