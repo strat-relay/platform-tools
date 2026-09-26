@@ -64,18 +64,18 @@ class FreshDatabase:
 
 @unittest.skipUnless(_server_available(), "PostgreSQL is not available; set TRADING_POSTGRES_DSN")
 class MigrationChainTests(unittest.TestCase):
-    def test_clean_database_migrates_through_027(self):
+    def test_clean_database_migrates_through_028(self):
         db = FreshDatabase()
         try:
             with db.connect() as conn:
                 applied = apply_migrations(conn)
             numbers = [name[:3] for name in applied]
-            self.assertEqual(numbers[-4:], ["024", "025", "026", "027"])
+            self.assertEqual(numbers[-5:], ["024", "025", "026", "027", "028"])
             self.assertEqual(len(numbers), len(set(numbers)))
         finally:
             db.drop()
 
-    def test_database_at_023_upgrades_through_027_and_mode_code_needs_024(self):
+    def test_database_at_023_upgrades_through_028_and_mode_code_needs_024(self):
         from trade_management.mode import TradeManagerModeUnavailable, current_mode
         db = FreshDatabase()
         try:
@@ -93,7 +93,7 @@ class MigrationChainTests(unittest.TestCase):
                                     or "trade_manager_mode" in str(raised.exception))
             with db.connect() as conn:
                 upgraded = apply_migrations(conn)
-                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026", "027"])
+                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026", "027", "028"])
                 self.assertEqual(current_mode(conn), "SHADOW")                     # 024 seed
                 with conn.cursor() as cur:
                     cur.execute("""SELECT canonical_instrument FROM strategy.instrument_membership
