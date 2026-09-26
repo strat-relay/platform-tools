@@ -24,6 +24,7 @@ from execution_v2.risk import RiskPolicy
 from execution_v2.runtime.bridge_client import HttpBridgeFenceClient
 from execution_v2.runtime.config import RuntimeConfig, RuntimeConfigError
 from execution_v2.runtime.consumer import ExecutionSignalConsumer, RealBridgeNotWired
+from execution_v2.runtime.service import probe_bridge_health
 from execution_v2.worker import ExecutionAuthorityDisabled, ExecutionWorker
 
 REQUIRED_ENV = {
@@ -130,6 +131,18 @@ class RuntimeConfigTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True):
             config = RuntimeConfig.from_env()
         self.assertIs(config.execution_authority_mode, ExecutionAuthorityMode.ENABLED)
+
+    def test_bridge_health_probe_uses_health_endpoint_and_truthful_ok_field(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'{"ok": true}'
+        with mock.patch("execution_v2.runtime.service.urllib.request.urlopen", return_value=response) as opener:
+            self.assertEqual(probe_bridge_health("http://bridge:22348/mcp"), "HEALTHY")
+        self.assertIn("/health", opener.call_args.args[0].full_url)
+
+    def test_bridge_health_probe_degrades_on_unavailable_bridge(self):
+        with mock.patch("execution_v2.runtime.service.urllib.request.urlopen", side_effect=OSError("offline")):
+            self.assertEqual(probe_bridge_health("http://bridge:22348/mcp"), "DEGRADED")
 
 
 def _worker(*, bridge: Any = None) -> ExecutionWorker:

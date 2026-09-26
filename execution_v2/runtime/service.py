@@ -33,6 +33,7 @@ from .consumer import ExecutionSignalConsumer
 from .health import HealthState, start_health_server
 
 log = logging.getLogger("execution_v2.runtime")
+STATUS_HEARTBEAT_SECONDS = 10.0
 
 
 class RuntimeContext:
@@ -62,6 +63,34 @@ def register_runtime_instance(conn: Any, *, instance_id: str, component: str = "
                           ON CONFLICT (instance_id) DO UPDATE SET status='RUNNING',
                             last_heartbeat_at=now(), metadata=EXCLUDED.metadata""",
                        (instance_id, component, json.dumps(metadata or {})))
+
+
+def probe_bridge_health(bridge_fence_url: str) -> str:
+    """Read the bridge health endpoint and return a truthful persisted status."""
+    try:
+        health_url = bridge_fence_url.rsplit("/mcp", 1)[0] + "/health"
+        request = urllib.request.Request(health_url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return "HEALTHY" if payload.get("ok") is True else "DEGRADED"
+    except (OSError, ValueError, json.JSONDecodeError):
+        return "DEGRADED"
+
+
+def refresh_runtime_status(ctx: RuntimeContext) -> None:
+    """Refresh the canonical liveness projection; this is not execution state."""
+    bridge_status = probe_bridge_health(ctx.config.bridge_fence_url)
+    metadata = dict(ctx.status_metadata)
+    metadata["execution_bridge"] = {"status": bridge_status}
+    metadata["broker_account"] = {
+        "status": "CONNECTED" if bridge_status == "HEALTHY" else "UNAVAILABLE",
+        "account": "*" * max(0, len(ctx.config.account_id) - 4) + ctx.config.account_id[-4:],
+        "currency": None,
+    }
+    metadata["execution_authority_mode"] = read_authority().get("state", "DISABLED")
+    ctx.status_metadata = metadata
+    register_runtime_instance(ctx.conn, instance_id=ctx.config.holder_instance_id,
+                              metadata=metadata)
 
 
 async def ensure_execution_stream(js: Any) -> None:
@@ -122,7 +151,17 @@ async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
     await subscribe_consumer(ctx.js, ctx.consumer, consumer_name=CONSUMER_NAME)
     ctx.health.mark_ready("entry_signal_consumer")
 
-    await stop.wait()
+    while not stop.is_set():
+        try:
+            await asyncio.to_thread(refresh_runtime_status, ctx)
+        except Exception:
+            # A failed heartbeat must not make a running consumer claim healthy
+            # metadata; the next successful heartbeat repairs the projection.
+            log.exception("execution_v2 runtime status heartbeat failed")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=STATUS_HEARTBEAT_SECONDS)
+        except asyncio.TimeoutError:
+            pass
 
 
 async def main_async() -> None:
@@ -164,15 +203,7 @@ async def main_async() -> None:
     consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode,
                                        authority_provider=authority_provider)
 
-    bridge_status = "UNKNOWN"
-    try:
-        health_url = config.bridge_fence_url.rsplit("/mcp", 1)[0] + "/health"
-        request = urllib.request.Request(health_url, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(request, timeout=3) as response:
-            health_payload = json.loads(response.read().decode("utf-8"))
-        bridge_status = "HEALTHY" if health_payload.get("ok") is True else "DEGRADED"
-    except (OSError, ValueError, json.JSONDecodeError):
-        bridge_status = "DEGRADED"
+    bridge_status = probe_bridge_health(config.bridge_fence_url)
 
     ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer,
                          status_metadata={
