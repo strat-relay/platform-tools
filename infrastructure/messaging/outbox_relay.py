@@ -30,15 +30,20 @@ class OutboxRelay:
         self.conn.commit()
         result = {"published": 0, "failed": 0}
         for row in rows:
-            envelope = EventEnvelope(row[0], row[1], row[2], row[3], row[4], row[7], row[6], row[8], row[9])
             try:
+                # Keep validation and transport failures inside the row-level failure boundary.
+                # One malformed/unsupported row must not terminate the relay and hide the
+                # outbox identity needed to diagnose it.  Failed rows remain unpublished and
+                # are retried after the lease is cleared; they are never silently dropped.
+                envelope = EventEnvelope(row[0], row[1], row[2], row[3], row[4], row[7], row[6], row[8], row[9])
                 await self.publisher.publish(envelope)
                 with self.conn.cursor() as cur:
                     cur.execute("UPDATE platform.outbox_events SET publish_status='PUBLISHED', published_at=now(), attempts=attempts+1, lease_owner=NULL, leased_until=NULL WHERE event_id=%s", (row[0],))
                 self.conn.commit(); result["published"] += 1
             except Exception as exc:
+                error = f"outbox_id={row[0]} subject={row[1]} event_type={row[1]} error={exc}"
                 with self.conn.cursor() as cur:
-                    cur.execute("UPDATE platform.outbox_events SET publish_status='FAILED', last_error=%s, attempts=attempts+1, lease_owner=NULL, leased_until=NULL WHERE event_id=%s", (str(exc), row[0]))
+                    cur.execute("UPDATE platform.outbox_events SET publish_status='FAILED', last_error=%s, attempts=attempts+1, lease_owner=NULL, leased_until=NULL WHERE event_id=%s", (error, row[0]))
                 self.conn.commit(); result["failed"] += 1
         return result
 

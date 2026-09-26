@@ -1,0 +1,100 @@
+# Mirrors the existing trade-management-runtime-network / trade-management-nats-ingress /
+# trade-management-postgres-ingress pattern exactly, for the new platform-realtime-api pod.
+# The namespace's default-deny-ingress policy means every pod needs an explicit ingress grant
+# from whoever it talks to; egress is open by default, so this ALSO explicitly restricts this
+# component's own egress to just what it needs (NATS, PostgreSQL, DNS), for defense in depth -
+# it deliberately has no ipBlock egress rule to 192.168.1.166:22347 (the MT5 bridge): this
+# service never talks to it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-realtime-api-network
+  namespace: trading
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: platform-realtime-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-api-router
+      ports:
+        - port: 22352
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-realtime-api-nats-ingress
+  namespace: trading
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: trading-nats
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-realtime-api
+      ports:
+        - port: 4222
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-realtime-api-postgres-ingress
+  namespace: trading
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: trading-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-realtime-api
+      ports:
+        - port: 5432
+          protocol: TCP

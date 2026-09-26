@@ -1,16 +1,19 @@
 # PostgreSQL / NATS foundation
 
-V1.2 establishes dedicated StratRelay infrastructure definitions only. The
-existing shared InfluenceLnk PostgreSQL and NATS resources are not used or
-modified. Production remains on its current file-backed authority until a
-later controlled migration.
+V1.2 established the persistence and messaging contracts. The dedicated
+canonical platform PostgreSQL and NATS JetStream services are provisioned by
+`deploy/canonical_platform/`; they are separate from the migration-only
+`p2-signal-shadow-*` resources. Provisioning the services does not change the
+live signal authority, which remains file-backed/SHADOW until a separately
+authorized T0 cutover.
 
 ## Canonical roles
 
 - PostgreSQL is the authoritative store for trading-platform state,
   immutable evaluations/traces, ownership generations, runtime instances,
   execution idempotency, and outbox/inbox records.
-- NATS JetStream is the at-least-once operational event transport.
+- NATS JetStream is the durable operational event backbone and at-least-once
+  transport; it is not merely a PostgreSQL implementation detail.
 - JSONL remains a transitional production transport during migration.
 - Parquet remains the preferred store for large research candle/tick/feature
   data; manifests/configuration remain JSON.
@@ -51,16 +54,65 @@ restart cannot reset a lease generation.
 ## JetStream foundation
 
 `infrastructure/messaging/` owns the event envelope and JetStream adapter.
-Subjects are explicit and versioned. The initial topology has two file-backed
+Subjects are explicit and versioned. The code contract defines two file-backed
 streams:
 
 - `TRADING_CORE`: strategy and signal subjects.
-- `EXECUTION`: execution, broker-state, and ownership subjects.
+- `EXECUTION`: execution, broker-state, and ownership subjects. This stream is
+  not provisioned by the current canonical infrastructure task; no V2
+  execution stream is being introduced or activated here.
 
-The adapter does not expose NATS client objects to domain code. NATS transport
-is at-least-once; transactional inbox plus idempotent transitions provide the
-effectively-once domain effect needed by later migration phases.
+The current infrastructure provisions only `TRADING_CORE`, with the exact
+strategy and signal subjects in `infrastructure/messaging/contracts.py`.
+
+For V1/P2 canonical EntrySignal creation, PostgreSQL is the authoritative
+domain transaction and its outbox publishes to JetStream:
+
+```text
+Orchestrator → PostgreSQL transaction + outbox → JetStream
+```
+
+For latency-sensitive broker execution workflows, the V2 direction is
+JetStream-first:
+
+```text
+JetStream → execution/risk consumer → authenticated broker-held fence
+validation → MT5 bridge → broker → ExecutionResult via JetStream
+→ PostgreSQL projection/audit
+```
+
+This V2 direction is architectural guidance only; it is not implemented by
+this infrastructure provisioning. JetStream durability and idempotency do not
+replace broker-held fencing. The broker remains authoritative for actual
+broker positions and orders, and P5 OD-06 remains a required blocker before
+broker-writing execution can be enabled. The adapter does not expose NATS
+client objects to domain code; transport remains at-least-once, with inbox and
+idempotent transitions supplying effectively-once domain effects.
 
 Local Compose adds a dedicated NATS 2.10 JetStream service with a persistent
-`/data` volume and loopback-only ports. No deployment is applied by this
-change.
+`/data` volume and loopback-only ports.
+
+## Canonical Kubernetes runtime status
+
+The canonical namespace deployment is described by
+`deploy/canonical_platform/runtime.yaml`:
+
+- `trading-postgres` is a ClusterIP-only PostgreSQL 16.4 StatefulSet using a
+  5Gi `local-path` PVC, explicit Secret-backed administrator/bootstrap and
+  non-superuser application roles, and database `trading_platform`.
+- `trading-nats` is a ClusterIP-only NATS 2.10 StatefulSet with JetStream file
+  storage on a 2Gi `local-path` PVC and Secret-backed client authentication.
+- `TRADING_CORE` is the only provisioned stream. Its subjects are the exact
+  strategy/signal subject set in `infrastructure/messaging/contracts.py`.
+  The broader `EXECUTION` code contract is not provisioned by this deployment.
+- Migrations 001–012 are applied to the initially empty canonical database.
+  There are no imported runtime rows. Migration 003 contributes two static
+  `audit.execution_safety_invariants` definition rows.
+- `signal-outbox-relay` is prepared at zero replicas with a runtime-image
+  placeholder. The DB_PRIMARY flags are stored in a separate prepared
+  ConfigMap, not attached to the live SHADOW orchestrator. No T0 cutoff has
+  been established.
+
+The local-path claims survive pod restarts but are tied to the single cluster
+node. They do not provide node-loss redundancy; off-node backup/restore remains
+necessary before relying on them as a production disaster-recovery boundary.

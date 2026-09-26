@@ -25,7 +25,13 @@ import tempfile
 from pathlib import Path
 
 PLATFORM = Path.cwd()
-BRIDGE_REPO = Path(os.environ.get("MT5_BRIDGE_REPO", "/Users/caleb/mt5-native-bridge"))
+# No default: a developer-machine-specific absolute path must never be embedded in a tracked file
+# (tests/test_platform_boundary.py::test_no_bridge_checkout_path_is_embedded enforces exactly
+# this). Whoever runs this script points it at their own bridge checkout explicitly.
+_bridge_repo_env = os.environ.get("MT5_BRIDGE_REPO")
+if not _bridge_repo_env:
+    raise SystemExit("MT5_BRIDGE_REPO must be set to a local mt5-native-bridge checkout path")
+BRIDGE_REPO = Path(_bridge_repo_env)
 BRIDGE_COMMIT = "5d4b018857794da8bcf1a9161876c1dc6fe31f73"
 OUT = PLATFORM / "docs" / "runtime_boundaries" / "data" / "evidence_check.json"
 

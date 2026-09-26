@@ -1,15 +1,23 @@
 # Domain events and boundary contracts
 
-Design only.  No stream, subject, consumer or schema described here has been created.
-NATS JetStream is **not enabled** today (verified in the Postgres/NATS audit: the live
-server runs core NATS with `-m 8222` only, `jetstream.disabled = true`, and is shared
-with another product — see `05_DATA_OWNERSHIP.md` §6).
+The domain catalogue below remains design-only. The separately provisioned
+canonical platform runtime defines only the current `TRADING_CORE` stream and
+its versioned strategy/signal subjects; it does not create the broader proposed
+catalogue in this document or enable execution authority. The shared external
+NATS deployment described in `05_DATA_OWNERSHIP.md` remains outside this
+platform infrastructure.
 
 ## 1. Principles
 
-1. **PostgreSQL is authoritative; NATS JetStream is the durable operational transport.**
-   An event is published from a **transactional outbox** written in the same DB
-   transaction as the state change, so state and event cannot diverge.
+1. **Durable domain state and event transport have distinct roles.** For V1/P2
+   canonical EntrySignal creation, PostgreSQL is authoritative and an event is
+   published from the **transactional outbox** written in the same DB
+   transaction as the state change. For the V2 latency-sensitive execution
+   path, JetStream may precede PostgreSQL projection/audit: JetStream →
+   execution/risk consumer → broker-held fence validation → MT5 bridge → broker
+   → ExecutionResult via JetStream → PostgreSQL. This V2 direction is not
+   implemented here; broker-held fencing remains mandatory, and the broker is
+   authoritative for actual broker positions/orders.
 2. **At-least-once delivery, idempotent consumers.**  Every consumer keeps an **inbox**
    (`event_id` processed table) and treats `event_id` as its idempotency key.  Event ids
    are deterministic where the fact is deterministic (existing `stable_id`), so

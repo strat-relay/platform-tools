@@ -29,10 +29,18 @@ SUBJECTS = frozenset({
     # event on TRADING_CORE. The dormant SIGNAL_DATA_PLANE_MODE=NATS_FIRST
     # path is the only producer; DB_FIRST (the default) never uses it.
     "realtime.signal.entry.accepted.v1",
+    # P4.2 management events are explicit versioned subjects.  They are not wildcarded:
+    # stream ownership must remain auditable and non-overlapping.
+    "trade.opened.v1",
+    "trade.observation.recorded.v1",
+    "trade.decision.made.v1",
 })
 
 STREAMS = {
-    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal.")))),
+    # Core carries strategy, signal, and explicit management lifecycle subjects.  Do not use
+    # a trade.> wildcard: TRADING_OBSERVATION owns the observation subject separately.
+    "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal."))
+                                                    or x in {"trade.opened.v1", "trade.decision.made.v1"})),
                      "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
     "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.")))),
                    "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
@@ -43,6 +51,11 @@ STREAMS = {
     # prototype default, not a production recommendation.
     "SIGNAL_REALTIME": {"subjects": ("realtime.signal.entry.accepted.v1",),
                         "storage": "file", "retention": "limits", "max_age": 7 * 24 * 60 * 60},
+    # The one P4-owned stream this vertical slice actually needs (A6 08, A7 10). Retention is
+    # an explicit SHIP-FIRST value, not a final decision - tracked in
+    # docs/engineering/OPTIMIZATION_REGISTER.md ("TRADING_OBSERVATION retention review").
+    "TRADING_OBSERVATION": {"subjects": ("trade.observation.recorded.v1",),
+                            "storage": "file", "retention": "limits", "max_age": 7 * 24 * 60 * 60},
 }
 
 

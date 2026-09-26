@@ -1,0 +1,25 @@
+# Minimum namespace quota headroom for the one P4 runtime pod in workload.yaml. Apply only
+# immediately before P4 activation; do not make unrelated capacity changes.
+#
+# Computed from the observed live state at authoring time (pods: 10/10, limits.cpu: 3600m/3600m,
+# limits.memory: 3904Mi/4Gi) plus this one pod's own configured limits (workload.yaml:
+# cpu 150m, memory 256Mi):
+#   pods:           10 -> 11              (+1, one new Deployment replica when scaled to 1)
+#   limits.cpu:     3600m -> 3750m         (+150m, exactly this pod's cpu limit)
+#   limits.memory:  4Gi -> 4160Mi          (3904Mi existing + 256Mi this pod's memory limit)
+# requests.cpu (existing ceiling "1") and requests.memory (existing ceiling 2Gi) are left
+# unchanged: this pod's own requests (cpu 50m, memory 64Mi) fit the existing request ceilings
+# with observed usage (875m CPU and 1568Mi memory), leaving headroom below
+# requests.cpu 1 and requests.memory 2Gi.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: trading-conservative
+  namespace: trading
+spec:
+  hard:
+    pods: "11"
+    limits.cpu: 3750m
+    limits.memory: 4160Mi
+    requests.cpu: "1"
+    requests.memory: 2Gi

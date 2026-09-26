@@ -1,0 +1,17 @@
+{
+  "_comment": "LEGACY_BOOTSTRAP_ONLY: PostgreSQL is the sole runtime authority after migration. This file is retained as reference/seed input and is not read by the runtime.",
+  "version": 1,
+  "enabled": true,
+  "max_volume": 0.01,
+  "allowed_symbols": ["XAUUSD", "BTCUSD", "USDJPY", "EURUSD"],
+  "allowed_accounts": ["188428665"],
+  "allowed_strategies": ["CONTEXT_STRUCTURE_RETRACE_V1@V1"],
+  "risk_per_trade": 0.02,
+  "max_signal_age_seconds": 60,
+  "max_daily_loss": 100,
+  "max_concurrent_positions": 1,
+  "max_concurrent_orders": 1,
+  "max_account_exposure": 50,
+  "duplicate_position_policy": "REJECT_SAME_ACCOUNT_SYMBOL_DIRECTION_STRATEGY",
+  "canary_max_new_executions": 1
+}

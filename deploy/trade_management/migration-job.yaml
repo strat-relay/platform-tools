@@ -1,0 +1,48 @@
+# One-off canonical migration runner. Run and remove this Job before scaling up the P4 runtime.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trade-management-schema-migrations
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trade-management-migrations
+    app.kubernetes.io/component: p4-schema-migration
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trade-management-migrations
+        app.kubernetes.io/component: p4-schema-migration
+        app.kubernetes.io/part-of: trading-platform
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: localhost:5001/trading-platform-runtime@sha256:6aea18f32e2bc2ca5447165f41ffac8dd2a9ab4153bdf2f9a0a6e02ce04e5f81
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, postgres.migrate]
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 150m
+              memory: 256Mi

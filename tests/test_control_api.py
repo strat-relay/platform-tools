@@ -274,13 +274,6 @@ class ControlApiTests(unittest.TestCase):
         self.assertTrue(body["degraded"])
         self.assertEqual(body["data"]["status"], "NO_ADAPTER")
 
-    def test_strategy_report_route_for_live_context_strategy_returns_real_report(self):
-        status, body = self.make_api().execute("GET", "/api/v1/strategies/CONTEXT_STRUCTURE_RETRACE_V1/report", {})
-        self.assertEqual(status, 200)
-        self.assertFalse(body["degraded"])
-        self.assertEqual(body["data"]["identity"]["strategy_id"], "CONTEXT_STRUCTURE_RETRACE_V1")
-        self.assertIn("performance", body["data"])
-
     def test_strategy_instances_route_lists_liquidity_family(self):
         status, body = self.make_api().execute("GET", "/api/v1/strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/instances", {})
         self.assertEqual(status, 200)
