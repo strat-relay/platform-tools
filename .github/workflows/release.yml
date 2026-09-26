@@ -215,12 +215,12 @@ jobs:
         if: env.GITOPS_REPO != '' && env.GITOPS_TOKEN != ''
         with:
           name: release-manifest
-          path: .
+          path: release-manifest-download
 
       - name: Open a GitOps update PR
         if: env.GITOPS_REPO != '' && env.GITOPS_TOKEN != ''
         run: |
           chmod +x scripts/open_gitops_update.sh
-          ./scripts/open_gitops_update.sh release-manifest.json "$GITOPS_REPO" "trading-platform"
+          ./scripts/open_gitops_update.sh release-manifest-download/release-manifest.json "$GITOPS_REPO" "trading-platform"
         env:
           GH_TOKEN: ${{ env.GITOPS_TOKEN }}

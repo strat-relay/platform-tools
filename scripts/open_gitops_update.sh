@@ -14,7 +14,12 @@ manifest=$1
 gitops_repo=$2
 app_name=$3
 
-commit=$(python3 -c "import json,sys; print(json.load(open('$manifest'))['commit'])")
+# Resolve before changing directory. Actions artifacts may be downloaded into
+# an explicit directory, and every subsequent read must use the same file.
+manifest_path=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$manifest")
+test -f "$manifest_path"
+
+commit=$(python3 -c "import json,sys; print(json.load(open('$manifest_path'))['commit'])")
 short_sha=$(echo "$commit" | cut -c1-12)
 branch="release/${app_name}/${short_sha}"
 target_path="apps/${app_name}/release.json"
@@ -27,13 +32,13 @@ cd "$workdir"
 
 git checkout -b "$branch"
 mkdir -p "apps/${app_name}"
-cp "$OLDPWD/$manifest" "$target_path"
+cp "$manifest_path" "$target_path"
 
 # Keep the runtime workloads on the exact digest published by platform-tools.  These workloads
 # are owned by the GitOps repository, while their immutable image provenance is owned by the
 # platform-tools release manifest.  The update remains a desired-state PR; this script never
 # contacts Kubernetes.
-runtime_ref=$(python3 -c "import json,sys; print(next(x['reference'] for x in json.load(open('$manifest'))['images'] if x['name'] == 'trading-platform-runtime'))")
+runtime_ref=$(python3 -c "import json,sys; print(next(x['reference'] for x in json.load(open('$manifest_path'))['images'] if x['name'] == 'trading-platform-runtime'))")
 if test -f apps/trading-platform/runtimes.yaml; then
   python3 - "$runtime_ref" apps/trading-platform/runtimes.yaml <<'PY'
 import pathlib
