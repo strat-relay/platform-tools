@@ -126,8 +126,15 @@ FROZEN_CONFIG = {
 # Decision-code hashing below lets later restarts detect changes to the
 # actual V1 lifecycle while permitting read-only report code to evolve.
 LEGACY_FROZEN_SOURCE_HASH = "f931fe449d1bee78fde768374ad7ce88ded3f19f9afdf349e9acb47602772a0f"
-DECISION_FUNCTION_NAMES = ("_geometry", "make_setup", "_fill", "_process_bar", "process_symbol")
-FROZEN_DECISION_CODE_HASH = "70dba71d28fe8a5c09f9033b80eeb4c27a733c6c342537e03c631f41e2a1cdda"
+DECISION_FUNCTION_NAMES = ("_geometry", "make_setup", "_fill", "_process_bar", "process_symbol",
+                           "_evaluate_open_position", "_unevaluated_open_positions")
+FROZEN_DECISION_CODE_HASH = "0a990dd5b3418bd065a702a3a50ffcebcf20dd26565fd432326b1f32ef3aeacf"
+# Earlier decision-code identities, kept so historical signals (which carry their fingerprint in
+# source_strategy_fingerprint) stay attributable. Trading rules/config are unchanged across them.
+PRIOR_DECISION_CODE_HASHES = {
+    "70dba71d28fe8a5c09f9033b80eeb4c27a733c6c342537e03c631f41e2a1cdda": "V1 decision code through 2026-09-26: OPEN positions stopped receiving exit "
+             "evaluation once their setup left FILLED (e.g. INVALIDATED_NO_REENTRY) or was compacted away",
+}
 
 
 def config_hash() -> str:
@@ -441,12 +448,48 @@ def _fill(state: dict[str, Any], setup: dict[str, Any], bar: dict[str, Any], ind
     opportunity_id = hashlib.sha256(f"{setup['setup_id']}|opportunity|{number}".encode()).hexdigest()[:20]
     position_id = hashlib.sha256(f"{opportunity_id}|economic".encode()).hexdigest()[:20]
     mechanisms = _m5_mechanisms(m5[:index + 1], direction, setup["symbol"])
-    opportunity = {"entry_opportunity_id": opportunity_id, "entry_attempt_id": hashlib.sha256(f"{opportunity_id}|attempt|1".encode()).hexdigest()[:20], "economic_position_id": position_id, "fill_timestamp": int(bar["time"]), "fill_timestamp_iso": iso(int(bar["time"])), "fill_candle_number": index - setup.get("m5_start_index", index), "entry_mechanisms": mechanisms, "theoretical_entry": level, "executable_paper_entry": executable, "spread_at_fill": spread, "stop": geom["stop"], "target": geom["effective_target"], "geometry": geom, "leg_a": {"allocation_R": 0.5, "status": "OPEN"}, "leg_b": {"allocation_R": 0.5, "status": "OPEN", "runner_hypotheses": ["+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT"]}, "status": "OPEN", "mfe_price": 0.0, "mae_price": 0.0, "entry_bar": bar, "reentry_type": "INITIAL" if number == 1 else "REENTRY_BEFORE_TARGET_COMPLETION"}
+    opportunity = {"entry_opportunity_id": opportunity_id, "entry_attempt_id": hashlib.sha256(f"{opportunity_id}|attempt|1".encode()).hexdigest()[:20], "economic_position_id": position_id, "symbol": setup["symbol"], "direction": direction, "setup_id": setup["setup_id"], "fill_timestamp": int(bar["time"]), "fill_timestamp_iso": iso(int(bar["time"])), "fill_candle_number": index - setup.get("m5_start_index", index), "entry_mechanisms": mechanisms, "theoretical_entry": level, "executable_paper_entry": executable, "spread_at_fill": spread, "stop": geom["stop"], "target": geom["effective_target"], "geometry": geom, "leg_a": {"allocation_R": 0.5, "status": "OPEN"}, "leg_b": {"allocation_R": 0.5, "status": "OPEN", "runner_hypotheses": ["+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT"]}, "status": "OPEN", "mfe_price": 0.0, "mae_price": 0.0, "entry_bar": bar, "reentry_type": "INITIAL" if number == 1 else "REENTRY_BEFORE_TARGET_COMPLETION"}
     setup["opportunities"].append(opportunity); setup["status"] = "FILLED"; setup["retrace_state"] = "FILLED"; state["positions"][position_id] = opportunity; state["counters"]["opportunities"] += 1; state["counters"]["positions"] += 1
     append_event({"type": "FILLED", "source": setup["provenance"]["source"], "symbol": setup["symbol"], "setup_id": setup["setup_id"], "market_event_id": setup["market_event_id"], "entry_opportunity_id": opportunity_id, "economic_position_id": position_id, "entry": executable, "stop": geom["stop"], "target": geom["effective_target"], "entry_mechanisms": mechanisms}, state)
 
 
+def _evaluate_open_position(state: dict[str, Any], symbol: str, setup: dict[str, Any] | None, position: dict[str, Any], direction: str, bar: dict[str, Any], source: str) -> None:
+    # V1 exit rule, unchanged: bar high/low against the frozen stop/target, stop takes
+    # precedence when both are touched in the same bar, realized R = -1 or target_R.
+    low, high = float(bar["low"]), float(bar["high"])
+    entry = float(position["executable_paper_entry"]); stop = float(position["stop"]); target = float(position["target"])
+    adverse = (entry - low) if direction == "LONG" else (high - entry); favorable = (high - entry) if direction == "LONG" else (entry - low)
+    position["mfe_price"] = max(float(position.get("mfe_price", 0)), favorable); position["mae_price"] = max(float(position.get("mae_price", 0)), adverse)
+    hit_stop = low <= stop if direction == "LONG" else high >= stop
+    hit_target = high >= target if direction == "LONG" else low <= target
+    if hit_stop or hit_target:
+        reason = "STOPPED" if hit_stop else "TARGET_HIT"
+        position["status"] = reason; position["exit_timestamp"] = int(bar["time"]); position["exit_reason"] = reason; position["realized_R"] = -1.0 if hit_stop else float(position["geometry"]["target_R"]); position["leg_a"]["status"] = reason; position.setdefault("leg_b", {})["breakeven_activated"] = bool(hit_target)
+        if hit_target and setup is not None: setup["target_completed"] = True
+        append_event({"type": reason, "source": source, "symbol": symbol, "setup_id": setup["setup_id"] if setup is not None else position.get("setup_id"), "economic_position_id": position["economic_position_id"], "realized_R": position["realized_R"], "mfe": position["mfe_price"], "mae": position["mae_price"]}, state)
+
+
+def _unevaluated_open_positions(state: dict[str, Any], symbol: str) -> list[tuple[dict[str, Any] | None, dict[str, Any]]]:
+    # Position lifecycle is independent of setup lifecycle. Setup status governs entry and
+    # re-entry only; an OPEN position still needs exit evaluation after its setup leaves
+    # FILLED (e.g. INVALIDATED_NO_REENTRY) or is no longer retained in compact state.
+    # Setup-held positions are the lifecycle authority (see project_state); a positions-map
+    # record is used only when no retained setup holds that position.
+    found: list[tuple[dict[str, Any] | None, dict[str, Any]]] = []
+    held: set[str] = set()
+    for setup in state["setups"].values():
+        for position in setup.get("opportunities", []):
+            held.add(str(position.get("economic_position_id")))
+            if setup["symbol"] == symbol and setup["status"] not in ("WAITING_FOR_RETRACE", "FILLED") and position.get("status") == "OPEN":
+                found.append((setup, position))
+    for position_id, position in state.get("positions", {}).items():
+        if str(position_id) not in held and position.get("symbol") == symbol and position.get("status") == "OPEN":
+            found.append((None, position))
+    return found
+
+
 def _process_bar(state: dict[str, Any], symbol: str, bar: dict[str, Any], index: int, m5: list[dict[str, Any]], contract: dict[str, Any], quote: dict[str, Any], source: str) -> None:
+    evaluated: set[str] = set()
     for setup in list(state["setups"].values()):
         if setup["symbol"] != symbol or setup["status"] not in ("WAITING_FOR_RETRACE", "FILLED"): continue
         if int(bar["time"]) <= int(setup["setup_timestamp"]): continue
@@ -488,22 +531,20 @@ def _process_bar(state: dict[str, Any], symbol: str, bar: dict[str, Any], index:
                         _fill(state, setup, bar, index, m5, contract, quote)
             for position in setup["opportunities"]:
                 if position["status"] != "OPEN": continue
-                entry = float(position["executable_paper_entry"]); stop = float(position["stop"]); target = float(position["target"])
-                adverse = (entry - low) if direction == "LONG" else (high - entry); favorable = (high - entry) if direction == "LONG" else (entry - low)
-                position["mfe_price"] = max(float(position.get("mfe_price", 0)), favorable); position["mae_price"] = max(float(position.get("mae_price", 0)), adverse)
-                hit_stop = low <= stop if direction == "LONG" else high >= stop
-                hit_target = high >= target if direction == "LONG" else low <= target
-                if hit_stop or hit_target:
-                    reason = "STOPPED" if hit_stop else "TARGET_HIT"
-                    position["status"] = reason; position["exit_timestamp"] = int(bar["time"]); position["exit_reason"] = reason; position["realized_R"] = -1.0 if hit_stop else float(position["geometry"]["target_R"]); position["leg_a"]["status"] = reason; position["leg_b"]["breakeven_activated"] = bool(hit_target)
-                    if hit_target: setup["target_completed"] = True
-                    append_event({"type": reason, "source": source, "symbol": symbol, "setup_id": setup["setup_id"], "economic_position_id": position["economic_position_id"], "realized_R": position["realized_R"], "mfe": position["mfe_price"], "mae": position["mae_price"]}, state)
+                evaluated.add(position["economic_position_id"])
+                _evaluate_open_position(state, symbol, setup, position, direction, bar, source)
         if setup["status"] in ("FILLED", "RETURN_AFTER_SETUP_TARGET_COMPLETED"):
             if (direction == "LONG" and low <= float(setup["event_bar"]["low"])) or (direction == "SHORT" and high >= float(setup["event_bar"]["high"])):
                 setup["thesis_invalidated"] = True
                 if not setup.get("target_completed"):
                     setup["status"] = "INVALIDATED_NO_REENTRY"
                     append_event({"type": "INVALIDATED_NO_REENTRY", "source": source, "symbol": symbol, "setup_id": setup["setup_id"]}, state)
+    for setup, position in _unevaluated_open_positions(state, symbol):
+        if position["economic_position_id"] in evaluated or int(bar["time"]) <= int(position["fill_timestamp"]): continue
+        direction = setup["direction"] if setup is not None else position.get("direction")
+        if direction not in ("LONG", "SHORT"): continue  # legacy setup-less record without frozen direction
+        evaluated.add(position["economic_position_id"])
+        _evaluate_open_position(state, symbol, setup, position, direction, bar, source)
 
 
 def process_symbol(state: dict[str, Any], symbol: str, contract: dict[str, Any], quote: dict[str, Any], bars: dict[str, list[dict[str, Any]]]) -> None:
@@ -1093,7 +1134,11 @@ def _project_entry_only_outcomes(state: dict[str, Any]) -> None:
         return
     try:
         from context_structure_retrace_outcome_projector import project_entry_only_outcomes
-        result = project_entry_only_outcomes(state)
+        # Project from the lifecycle authority (setup-held positions, as project_state defines
+        # it), not the in-memory positions map: after load_state() those are separate objects,
+        # and exits recorded on the setup-held position would otherwise stay invisible to the
+        # canonical outcome table until the next runner restart.
+        result = project_entry_only_outcomes(project_state(state))
         print(f"ENTRY_ONLY_OUTCOME_PROJECTION {json.dumps(result, sort_keys=True)}")
     except Exception as exc:
         # The next completed poll retries. The frozen runner remains live and
