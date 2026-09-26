@@ -55,7 +55,7 @@ class FakeCursor:
             for trade in sorted(self.conn.view("trade_management.managed_trade").values(),
                                 key=lambda r: r["managed_trade_id"]):
                 outcome = outcomes.get(trade["entry_signal_id"])
-                if (trade["state"] == "OPEN" and outcome and outcome["status"] in ("TARGET_HIT", "STOPPED")
+                if (trade["state"] == "OPEN" and outcome and outcome["status"] in ("TARGET_HIT", "STOPPED", "TIME_EXIT")
                         and (only is None or trade["managed_trade_id"] == only)):
                     rows.append((trade["managed_trade_id"], trade["entry_signal_id"], outcome["status"],
                                  outcome["exit_timestamp"], outcome["realized_r"], outcome["source"]))

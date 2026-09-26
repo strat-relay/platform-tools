@@ -22,7 +22,7 @@ from typing import Any
 
 from postgres.db import transaction
 
-TERMINAL_OUTCOMES = ("TARGET_HIT", "STOPPED")
+TERMINAL_OUTCOMES = ("TARGET_HIT", "STOPPED", "TIME_EXIT")
 REASON_STRATEGY_OUTCOME = "STRATEGY_OUTCOME"
 
 
@@ -49,7 +49,7 @@ def close_terminal_trades(conn: Any, *, now_utc: datetime,
     sql = """SELECT mt.managed_trade_id, mt.entry_signal_id, o.status, o.exit_timestamp, o.realized_r, o.source
              FROM trade_management.managed_trade mt
              JOIN strategy.entry_signal_outcomes o ON o.signal_id = mt.entry_signal_id
-             WHERE mt.state = 'OPEN' AND o.status IN ('TARGET_HIT', 'STOPPED')"""
+             WHERE mt.state = 'OPEN' AND o.status IN ('TARGET_HIT', 'STOPPED', 'TIME_EXIT')"""
     params: tuple[Any, ...] = ()
     if managed_trade_id is not None:
         sql += " AND mt.managed_trade_id = %s"
