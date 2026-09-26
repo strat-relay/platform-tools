@@ -102,7 +102,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mcp-url", required=True, help="read-only research bridge (e.g. http://host:22347/mcp)")
     parser.add_argument("--apply", action="store_true", help="write state + event ledger (runner must be stopped)")
+    parser.add_argument("--once-marker", type=Path, default=None,
+                        help="with --apply: skip if this file exists; create it after a successful run "
+                             "(lets it run as an init container without repeating on every restart)")
     args = parser.parse_args(argv)
+    if args.apply and args.once_marker is not None and args.once_marker.exists():
+        print(json.dumps({"skipped": True, "reason": f"already completed ({args.once_marker})"}))
+        return 0
     from contracts.mt5_bridge import Mt5ReadClient
     client = Mt5ReadClient(args.mcp_url, timeout_s=60)
     live = fwd.load_state()
@@ -116,6 +122,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.apply:
         fwd.save_state(state)
     summary = {k: len(v) for k, v in report.items()}
+    if args.apply and args.once_marker is not None:
+        args.once_marker.write_text(json.dumps({"summary": summary}, default=str) + "\n", encoding="utf-8")
     print(json.dumps({"dry_run": not args.apply, "summary": summary, "state_dir": str(fwd.STATE_DIR), **report},
                      indent=2, default=str))
     return 0

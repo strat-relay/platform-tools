@@ -102,5 +102,17 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual([(s, p["economic_position_id"]) for s, _, p in orphans(state)], [("EURUSDm", "POS1")])
 
 
+class OnceMarkerTests(unittest.TestCase):
+    def test_apply_with_existing_marker_is_skipped_without_touching_state(self):
+        import tempfile
+        from unittest.mock import patch
+        import scripts.reconcile_context_orphans as mod
+        with tempfile.TemporaryDirectory() as td:
+            marker = Path(td) / "done"
+            marker.write_text("{}")
+            with patch.object(mod.fwd, "load_state", side_effect=AssertionError("must not load state")):
+                self.assertEqual(mod.main(["--mcp-url", "http://unused", "--apply", "--once-marker", str(marker)]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
