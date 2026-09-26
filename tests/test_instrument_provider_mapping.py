@@ -66,7 +66,12 @@ class ApiWiringTests(unittest.TestCase):
 
         api = PlatformControlApi(repository=Repo(), environ={}, bridge_reader=object(), v2_risk_api=object(),
                                  trade_manager_mode_api=object(), strategy_config_path="/nonexistent/platform.json")
+        class Catalog:  # membership guards (tests/test_strategy_instances.py) need PostgreSQL
+            def check_membership_change(self, *args):
+                return None
+
         api.instrument_membership = Membership()
+        api.strategy_catalog = Catalog()
         return api
 
     def test_catalog_comes_from_the_repository_not_platform_json(self):
