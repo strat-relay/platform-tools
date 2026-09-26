@@ -8,6 +8,7 @@ from orchestration.liquidity_live import (
     PaperStateRejected,
 )
 from liquidity_market_data import LiveMarketSnapshot
+from liquidity_live_runtime import LiquidityLiveRuntime
 from liquidity_live_service import run_once
 
 
@@ -29,6 +30,28 @@ class IncrementalStrategy:
         return {"direction": "LONG", "displacement_index": 40, "stop_loss": 98.0}
 
 
+class RecordingCursor:
+    def __init__(self):
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, query, params):
+        self.calls.append((query, params))
+
+
+class RecordingConnection:
+    def __init__(self):
+        self.recording_cursor = RecordingCursor()
+
+    def cursor(self):
+        return self.recording_cursor
+
+
 def snapshot():
     bars = [
             {"time": 1000, "low": 99, "high": 100, "close": 99.5},
@@ -44,6 +67,18 @@ def snapshot():
 
 
 class LiquidityLiveRuntimeTests(unittest.TestCase):
+    def test_heartbeat_serializes_runtime_metadata_for_jsonb(self):
+        conn = RecordingConnection()
+        runtime = LiquidityLiveRuntime(conn=conn, snapshot_reader=lambda *_args: None,
+                                       publisher=object())
+
+        runtime.heartbeat()
+
+        query, params = conn.recording_cursor.calls[0]
+        self.assertIn("metadata", query)
+        self.assertIn("%s", query)
+        self.assertEqual(params[2], '{"broker_writes": 0, "source": "LIVE_MARKET"}')
+
     def test_workload_is_disabled_by_default(self):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "disabled"):
