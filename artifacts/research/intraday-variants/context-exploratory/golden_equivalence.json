@@ -1,11 +1,11 @@
 {
   "benchmark": {
-    "new_peak_rss_self_process_kb": 54276096,
-    "new_runtime_seconds": 1.6430065350141376,
-    "old_peak_rss_self_process_kb": 54276096,
-    "old_runtime_seconds": 3.9683158860134427,
-    "rss_note": "same-process ru_maxrss is an upper bound, not an isolated old/new peak",
-    "speedup": 2.4152769946099433,
+    "new_peak_rss_self_process_bytes": 51945472,
+    "new_runtime_seconds": 3.1445083020080347,
+    "old_peak_rss_self_process_bytes": 51945472,
+    "old_runtime_seconds": 7.2534600639774,
+    "rss_note": "macOS ru_maxrss is bytes; same-process ru_maxrss is an upper bound, not an isolated old/new peak",
+    "speedup": 2.3067072392034875,
     "window_bars": 240
   },
   "broker_writes": 0,
