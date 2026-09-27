@@ -55,15 +55,14 @@ research-hypothesis, or operational.
 
 The generic backtest core now has one deterministic UTC multi-timeframe
 aggregator, a restorable completed-candle state, registered adapter keys, and
-semantic-fixture adapters. Historical and live fixture inputs use the same
-evaluator and pass parity, identity, no-lookahead, completion, and restart
-tests.
+raw-OHLC adapters that call the parent candle-derived predicates. Historical
+and live inputs use the same evaluator contract.
 
-The parent runners still do not expose complete raw-OHLC evaluators implementing
-the same `HistoricalMarketFeed` / `LiveMarketFeed` contract. The fixture
-adapter therefore consumes explicit parent-stage evidence and deliberately does
-not infer stages from OHLC. This is a precise remaining adapter gap, not a
-reason to duplicate or invent parent strategy logic. Discovery backtesting is
-not yet ready until those raw-OHLC parent adapters are reviewed.
+The remaining readiness gaps are data/verification gaps: Liquidity's unchanged
+parent predicate requires spread/contract metadata, while the available pure
+OHLC inventory does not carry it; and frozen equivalent parent fixtures are
+still required for full parity. The earlier explicit-stage adapter remains
+available only as a semantic unit-test seam; normal registry invocation now
+uses the raw-OHLC adapters.
 
 This is intentionally not a parameter search and not a production activation.

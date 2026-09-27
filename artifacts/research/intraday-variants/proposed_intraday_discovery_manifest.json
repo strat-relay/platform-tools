@@ -1,0 +1,32 @@
+{
+  "schema": "research.intraday_discovery_manifest.v1",
+  "status": "PROPOSED_NOT_EXECUTED",
+  "context_strategy_version": "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1@V1",
+  "liquidity_strategy_version": "LIQUIDITY_DISPLACEMENT_INTRADAY_V1@V1",
+  "parameter_sets": [
+    "context-intraday-v1-research-001",
+    "liquidity-intraday-v1-research-001"
+  ],
+  "eligible_instruments": {
+    "context": [],
+    "liquidity": []
+  },
+  "timeframe_hierarchies": {
+    "context": ["H4", "H1", "M15"],
+    "liquidity": ["H1", "M15", "M5"]
+  },
+  "required_base_data": {
+    "context": "M5 or finer trusted source",
+    "liquidity": "M5 trusted source with spread/contract metadata"
+  },
+  "exit_hypotheses": {
+    "context": "STRUCTURE_CAPPED_EXTENSION; no fixed R selected",
+    "liquidity": "opposing structural liquidity/swing; parent 1.25R excluded"
+  },
+  "maximum_hold_hypothesis": "1440 minutes with UTC-day-boundary exit",
+  "cost_model_reference": "TO_BE_DECLARED_BEFORE_DISCOVERY",
+  "executed": false,
+  "discovery_accessed": false,
+  "validation_accessed": false,
+  "broker_writes": 0
+}

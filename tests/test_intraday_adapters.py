@@ -10,12 +10,16 @@ from strategy_backtest.feeds import feed_from_events  # noqa: E402
 from strategy_backtest.intraday_adapters import (  # noqa: E402
     CONTEXT_STAGES,
     LIQUIDITY_STAGES,
-    ContextIntradayEvaluator,
+    ContextIntradayEvaluator as StageContextIntradayEvaluator,
+    LiquidityIntradayEvaluator as StageLiquidityIntradayEvaluator,
     CausalMultiTimeframeState,
-    LiquidityIntradayEvaluator,
     aggregate_completed_events,
 )
 from strategy_backtest.models import MarketEvent  # noqa: E402
+from strategy_backtest.raw_ohlc_adapters import (  # noqa: E402
+    ContextRawOhlcEvaluator,
+    LiquidityRawOhlcEvaluator,
+)
 from strategy_backtest.registry import StrategyEvaluatorRegistry, register_builtin_evaluators  # noqa: E402
 from strategy_backtest.parity import assert_live_replay_parity  # noqa: E402
 
@@ -47,14 +51,14 @@ def test_completed_candle_boundary_does_not_expose_partial_target_bar():
 
 def test_context_and_liquidity_stage_fixtures_preserve_parent_thesis():
     context, liquidity = variants()
-    ctx = ContextIntradayEvaluator()
+    ctx = StageContextIntradayEvaluator()
     ctx.initialize(context.strategy, context.parameter_set)
     outputs = []
     for i, stage in enumerate(CONTEXT_STAGES):
         values = {"direction": "LONG", "entry_price": 100.0, "stop_price": 99.0, "target_price": 102.0} if stage == "ENTRY" else {}
         outputs.extend(ctx.consume_market_event(event(i * 300, stage, **values)))
     assert len([x for x in outputs if getattr(x, "signal_id", None)]) == 1
-    liq = LiquidityIntradayEvaluator()
+    liq = StageLiquidityIntradayEvaluator()
     liq.initialize(liquidity.strategy, liquidity.parameter_set)
     outputs = []
     for i, stage in enumerate(LIQUIDITY_STAGES):
@@ -65,7 +69,7 @@ def test_context_and_liquidity_stage_fixtures_preserve_parent_thesis():
 
 def test_missing_required_stage_is_negative_fixture():
     context, _ = variants()
-    evaluator = ContextIntradayEvaluator()
+    evaluator = StageContextIntradayEvaluator()
     evaluator.initialize(context.strategy, context.parameter_set)
     outputs = []
     for i, stage in enumerate(("HTF_STRUCTURE", "RETRACEMENT", "ENTRY")):
@@ -83,9 +87,20 @@ def test_historical_live_parity_and_restart_state_identity():
     historical = feed_from_events(stages, "intraday-semantic-fixture", partition="DISCOVERY")
     live = historical.with_source("live-completed-bar")
     registry = register_builtin_evaluators(StrategyEvaluatorRegistry())
+    # Registry invocation uses raw OHLC adapters; stage labels are ignored and
+    # therefore cannot become an external runtime dependency.
     assert_live_replay_parity(context.strategy, context.parameter_set, historical, live, registry)
-    left = ContextIntradayEvaluator(); left.initialize(context.strategy, context.parameter_set)
+    left = StageContextIntradayEvaluator(); left.initialize(context.strategy, context.parameter_set)
     for item in stages[:2]: left.consume_market_event(item)
     snapshot = left.snapshot_state()
-    right = ContextIntradayEvaluator(); right.initialize(context.strategy, context.parameter_set); right.restore_state(snapshot)
+    right = StageContextIntradayEvaluator(); right.initialize(context.strategy, context.parameter_set); right.restore_state(snapshot)
     assert left.snapshot_state() == right.snapshot_state()
+
+
+def test_registry_resolves_raw_ohlc_adapters_without_external_labels():
+    context, liquidity = variants()
+    registry = register_builtin_evaluators(StrategyEvaluatorRegistry())
+    context_eval = registry.resolve(context.strategy)
+    liquidity_eval = registry.resolve(liquidity.strategy)
+    assert isinstance(context_eval, ContextRawOhlcEvaluator)
+    assert isinstance(liquidity_eval, LiquidityRawOhlcEvaluator)

@@ -1,0 +1,51 @@
+{
+  "schema": "research.intraday_historical_inventory.v1",
+  "generated_from": "f0ba7e2",
+  "provider_mixing": false,
+  "instruments": [
+    {
+      "canonical_instrument": "XAUUSD",
+      "provider": "MT5",
+      "base_timeframe": "H1",
+      "start": "2024-03-14T04:00:00+00:00",
+      "end": "2026-03-25T21:00:00+00:00",
+      "bar_count": 11999,
+      "dataset_fingerprint": "41277bcc71c7af4c407cdb0c98e9b8670e5f83a4ad4344ec3aa9808f14217bd3",
+      "dataset_artifact": "artifacts/research/kojo-wedge-v1/datasets/kojo_xauusd_h1_discovery.jsonl.gz",
+      "m5_coverage": false,
+      "m15_coverage": false,
+      "h1_coverage": true,
+      "h4_coverage": false,
+      "missing_intervals": "lower timeframes are absent; H1 irregular/weekend gaps are recorded in the source manifest",
+      "suitable_context_intraday": false,
+      "suitable_liquidity_intraday": false
+    },
+    {
+      "canonical_instrument": "XAUUSD",
+      "provider": "OANDA",
+      "base_timeframe": "H1",
+      "start": "2025-12-03T00:00:00Z",
+      "end": "2025-12-12T21:00:00Z",
+      "bar_count": 183,
+      "dataset_fingerprint": "fbb5ec907c8f6bd979e49012eea0510ba06dcc50fa00916f8776500d91de8af9",
+      "dataset_artifact": "artifacts/research/kojo-structure-fib/source-fixture-recovery/canonical_bars.v1.json",
+      "m5_coverage": false,
+      "m15_coverage": false,
+      "h1_coverage": true,
+      "h4_coverage": false,
+      "missing_intervals": "lower timeframes are absent; fixture is source-fidelity research only",
+      "suitable_context_intraday": false,
+      "suitable_liquidity_intraday": false
+    },
+    {"canonical_instrument": "BTCUSD", "provider": null, "base_timeframe": null, "start": null, "end": null, "bar_count": 0, "dataset_fingerprint": null, "dataset_artifact": null, "m5_coverage": false, "m15_coverage": false, "h1_coverage": false, "h4_coverage": false, "missing_intervals": "no local historical dataset found", "suitable_context_intraday": false, "suitable_liquidity_intraday": false},
+    {"canonical_instrument": "USDJPY", "provider": null, "base_timeframe": null, "start": null, "end": null, "bar_count": 0, "dataset_fingerprint": null, "dataset_artifact": null, "m5_coverage": false, "m15_coverage": false, "h1_coverage": false, "h4_coverage": false, "missing_intervals": "no local historical dataset found", "suitable_context_intraday": false, "suitable_liquidity_intraday": false},
+    {"canonical_instrument": "EURUSD", "provider": null, "base_timeframe": null, "start": null, "end": null, "bar_count": 0, "dataset_fingerprint": null, "dataset_artifact": null, "m5_coverage": false, "m15_coverage": false, "h1_coverage": false, "h4_coverage": false, "missing_intervals": "no local historical dataset found", "suitable_context_intraday": false, "suitable_liquidity_intraday": false},
+    {"canonical_instrument": "GBPUSD", "provider": null, "base_timeframe": null, "start": null, "end": null, "bar_count": 0, "dataset_fingerprint": null, "dataset_artifact": null, "m5_coverage": false, "m15_coverage": false, "h1_coverage": false, "h4_coverage": false, "missing_intervals": "no local historical dataset found", "suitable_context_intraday": false, "suitable_liquidity_intraday": false},
+    {"canonical_instrument": "ETHUSD", "provider": null, "base_timeframe": null, "start": null, "end": null, "bar_count": 0, "dataset_fingerprint": null, "dataset_artifact": null, "m5_coverage": false, "m15_coverage": false, "h1_coverage": false, "h4_coverage": false, "missing_intervals": "no local historical dataset found", "suitable_context_intraday": false, "suitable_liquidity_intraday": false},
+    {"canonical_instrument": "ETHBTC", "provider": null, "base_timeframe": null, "start": null, "end": null, "bar_count": 0, "dataset_fingerprint": null, "dataset_artifact": null, "m5_coverage": false, "m15_coverage": false, "h1_coverage": false, "h4_coverage": false, "missing_intervals": "no local historical dataset found", "suitable_context_intraday": false, "suitable_liquidity_intraday": false}
+  ],
+  "context_required_base_data": "M5 or finer trusted source, to aggregate causal M15/H1/H4 candles",
+  "liquidity_required_base_data": "M5 trusted source plus spread/contract metadata required by the unchanged parent predicate",
+  "discovery_eligible_context": [],
+  "discovery_eligible_liquidity": []
+}

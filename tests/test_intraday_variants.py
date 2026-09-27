@@ -52,8 +52,8 @@ def test_catalog_declares_adapter_gap_without_registering_live_runtime():
     payload = catalog_payload()
     assert payload["status"] == "RESEARCH_ONLY_DRAFT"
     assert payload["same_evaluator_backtest_live"] is True
-    assert payload["adapter_status"] == "GENERIC_SEMANTIC_FIXTURE_ADAPTER_INTEGRATED"
-    assert all(item["evaluator_adapter_status"] == "ADAPTER_REQUIRED" for item in payload["variants"])
+    assert payload["adapter_status"] == "RAW_OHLC_ADAPTER_INTEGRATED"
+    assert all(item["evaluator_adapter_status"] == "RAW_OHLC_ADAPTER_INTEGRATED" for item in payload["variants"])
     assert payload["parent_strategies_changed"] is False
     assert payload["existing_instances_changed"] is False
     assert payload["new_instances_online"] is False

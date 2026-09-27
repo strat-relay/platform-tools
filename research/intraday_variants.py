@@ -81,6 +81,7 @@ INTRADAY_SCHEMA = ParameterSchema(
         "confirmation_timeframe": {"required": True, "type": "string"},
         "entry_timeframe": {"required": True, "type": "string"},
         "max_hold_minutes": {"required": True, "type": "integer", "minimum": 1},
+        "retracement_window_bars": {"required": True, "type": "integer", "minimum": 1},
         "session_boundary": {"required": True, "type": "string", "enum": ["UTC_DAY"]},
         "stop_semantics": {"required": True, "type": "string"},
         "target_semantics": {"required": True, "type": "string"},
@@ -138,6 +139,7 @@ def _variant(strategy_id: str, instance_id: str, parameter_set_id: str, schema: 
         "parameter_provenance": {
             "timeframes": "TIMEFRAME_DERIVED",
             "max_hold_minutes": "RESEARCH_HYPOTHESIS",
+            "retracement_window_bars": "PARENT_PRESERVED",
             "session_boundary": "RESEARCH_HYPOTHESIS",
             "stop_semantics": "PARENT_PRESERVED",
             "target_semantics": "RESEARCH_HYPOTHESIS",
@@ -149,7 +151,7 @@ def _variant(strategy_id: str, instance_id: str, parameter_set_id: str, schema: 
     version.validate_parameter_set(parameters)
     instance = ResearchInstance(instance_id, strategy_id, "OFFLINE", False, False, instruments, parameter_set_id)
     return IntradayVariant(version, parameters, instance, values["parent_strategy_id"], "TIME_HORIZON_VARIANT", evaluator_key,
-                           "ADAPTER_REQUIRED", "GENERIC_HISTORICAL_FEED_AND_LIVE_MARKET_FEED_PENDING_PARENT_ADAPTER")
+                           "RAW_OHLC_ADAPTER_INTEGRATED", "GENERIC_HISTORICAL_FEED_AND_LIVE_MARKET_FEED")
 
 
 def variants() -> tuple[IntradayVariant, IntradayVariant]:
@@ -160,6 +162,7 @@ def variants() -> tuple[IntradayVariant, IntradayVariant]:
                 "parent_strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
                 "context_timeframe": "H4", "setup_timeframe": "H1", "confirmation_timeframe": "M15", "entry_timeframe": "M15",
                 "max_hold_minutes": 1440, "session_boundary": "UTC_DAY",
+                "retracement_window_bars": 12,
                 "stop_semantics": "ORIGINATING_SETUP_EXTREME with minimal causal volatility/spread safety buffer",
                 "target_semantics": "RESEARCH_HYPOTHESIS: STRUCTURE_CAPPED_EXTENSION on intraday setup structure; no fixed R selected",
                 "thesis_steps": ["higher-timeframe context", "structural retracement", "lower-timeframe confirmation", "entry"],
@@ -173,6 +176,7 @@ def variants() -> tuple[IntradayVariant, IntradayVariant]:
                 "parent_strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
                 "context_timeframe": "H1", "setup_timeframe": "M15", "confirmation_timeframe": "M15", "entry_timeframe": "M5",
                 "max_hold_minutes": 1440, "session_boundary": "UTC_DAY",
+                "retracement_window_bars": 3,
                 "stop_semantics": "PARENT_PRESERVED: sweep extreme plus causal ATR/spread/broker safety buffer",
                 "target_semantics": "RESEARCH_HYPOTHESIS: opposing structural liquidity/swing target; parent fixed 1.25R is not copied",
                 "thesis_steps": ["liquidity sweep", "reclaim", "displacement", "MSS", "retracement entry"],
@@ -193,8 +197,8 @@ def catalog_payload() -> dict[str, Any]:
         "new_instances_online": False,
         "new_instances_execution_eligible": False,
         "same_evaluator_backtest_live": True,
-        "adapter_status": "GENERIC_SEMANTIC_FIXTURE_ADAPTER_INTEGRATED",
-        "adapter_gap": "Both parent implementations still require raw-OHLC adapters to the generic HistoricalMarketFeed/LiveMarketFeed contract before discovery backtests; the integrated adapter consumes explicit parent-stage evidence only.",
+        "adapter_status": "RAW_OHLC_ADAPTER_INTEGRATED",
+        "adapter_gap": "Liquidity requires the parent contract's spread/contract metadata for its unchanged predicate; the available pure OHLC datasets do not carry that metadata. Context raw-OHLC parity still requires frozen equivalent parent fixtures.",
         "production_changed": False,
         "broker_writes": 0,
     }
