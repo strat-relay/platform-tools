@@ -65,10 +65,13 @@ class PostgresLiquiditySetupStore:
 def open_liquidity_entries(conn: Any) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute("""SELECT s.signal_id, s.strategy_instance_id, s.instrument,
-                              s.broker_symbol_hint, s.direction, s.entry_price,
+                              p.provider_symbol, s.direction, s.entry_price,
                               s.stop_price, s.target_price, s.decision_time
                        FROM strategy.entry_signals s
                        JOIN strategy.entry_signal_outcomes o ON o.signal_id = s.signal_id
+                       JOIN platform.instrument_provider_mapping p
+                         ON p.provider = 'MT5' AND p.canonical_instrument = s.instrument
+                        AND p.state = 'ACTIVE'
                        WHERE s.strategy_id = 'LIQUIDITY_DISPLACEMENT_SCALP_V1'
                          AND o.status = 'OPEN'""")
         return [{"signal_id": sid, "instance_id": iid, "canonical_instrument": instrument,
