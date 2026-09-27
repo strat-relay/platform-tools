@@ -248,7 +248,7 @@ class StrategyInstanceTests(unittest.TestCase):
         self.assertEqual({iid: i["lifecycle_state"] for iid, i in by_id.items() if iid.startswith("liquidity")},
                          {"liquidity-xau33": "OFFLINE", "liquidity-btc25": "OFFLINE"})
         self.assertEqual(by_id["phase6"]["lifecycle_state"], "ONLINE")
-        self.assertEqual(by_id["phase6"]["instruments"]["active"], ["BTCUSD", "EURUSD", "USDJPY", "XAUUSD"])
+        self.assertEqual(by_id["phase6"]["instruments"]["active"], ["BTCUSD", "ETHBTC", "EURUSD", "USDJPY", "XAUUSD"])
         self.assertEqual(by_id["liquidity-xau33"]["instruments"]["active_count"], 0)   # no membership rows
         self.assertEqual([p["key"] for p in by_id["liquidity-xau33"]["parameters"]],
                          ["symbol", "target_r", "entry_fraction", "max_hold_minutes"])
