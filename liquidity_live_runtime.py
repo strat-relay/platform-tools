@@ -55,11 +55,11 @@ class PostgresLiquiditySetupStore:
             cur.execute("""INSERT INTO strategy.liquidity_setup_state
                     (setup_id, strategy_id, strategy_version, instance_id,
                      canonical_instrument, state, payload)
-                    VALUES (%s,'LIQUIDITY_DISPLACEMENT_SCALP_V1','V1',%s,%s,%s,%s)
+                    VALUES (%s,'LIQUIDITY_DISPLACEMENT_SCALP_V1','V1',%s,%s,%s,%s::jsonb)
                     ON CONFLICT (setup_id) DO UPDATE SET state=EXCLUDED.state,
                     payload=EXCLUDED.payload, updated_at=now()""",
                         (state["setup_id"], state["instance_id"], state["canonical_instrument"],
-                         state["state"], state))
+                         state["state"], json.dumps(state)))
 
 
 def open_liquidity_entries(conn: Any) -> list[dict[str, Any]]:
