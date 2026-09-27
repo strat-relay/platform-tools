@@ -39,6 +39,10 @@ class RuntimeConfig:
     risk_policy_path: str
     health_port: int
     holder_instance_id: str
+    # BRIDGE (default, unchanged production behaviour): synchronous read-bridge risk context.
+    # REDIS: cached RiskSnapshot + atomic reservation (execution_v2/risk_state); requires RISK_REDIS_URL.
+    risk_context_source: str = "BRIDGE"
+    risk_redis_url: str | None = None
 
     @classmethod
     def from_env(cls) -> "RuntimeConfig":
@@ -105,10 +109,18 @@ class RuntimeConfig:
         if not holder_instance_id or not holder_instance_id.strip():
             raise RuntimeConfigError("POD_NAME (or HOSTNAME) is required - ownership fencing needs a stable holder identity")
 
+        risk_context_source = os.getenv("RISK_CONTEXT_SOURCE", "BRIDGE").strip().upper() or "BRIDGE"
+        if risk_context_source not in ("BRIDGE", "REDIS"):
+            raise RuntimeConfigError("RISK_CONTEXT_SOURCE must be BRIDGE or REDIS")
+        risk_redis_url = (os.getenv("RISK_REDIS_URL") or "").strip() or None
+        if risk_context_source == "REDIS" and risk_redis_url is None:
+            raise RuntimeConfigError("RISK_CONTEXT_SOURCE=REDIS requires RISK_REDIS_URL")
+
         return cls(postgres=pg, nats_url=nats_url.strip(),
                    nats_user=os.getenv("V2_NATS_USER") or os.getenv("P2_NATS_USER"),
                    nats_password=os.getenv("V2_NATS_PASSWORD") or os.getenv("P2_NATS_PASSWORD"),
                    execution_authority_mode=mode, account_id=account_id.strip(), bridge_mode=bridge_mode,
                    bridge_fence_url=bridge_fence_url, read_bridge_url=read_bridge_url,
                    fence_signing_key=key_bytes, fence_key_id=key_id, risk_policy_path=risk_policy_path,
-                   health_port=health_port, holder_instance_id=holder_instance_id.strip())
+                   health_port=health_port, holder_instance_id=holder_instance_id.strip(),
+                   risk_context_source=risk_context_source, risk_redis_url=risk_redis_url)

@@ -1,0 +1,2 @@
+# Hot risk state client for execution_v2/risk_state (RISK_CONTEXT_SOURCE=REDIS and the collector).
+redis>=5,<6

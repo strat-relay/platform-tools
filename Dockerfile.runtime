@@ -5,9 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements-postgres.txt requirements-messaging.txt ./
+COPY requirements-postgres.txt requirements-messaging.txt requirements-risk-state.txt ./
 RUN pip install --no-cache-dir --disable-pip-version-check \
     -r requirements-postgres.txt \
-    -r requirements-messaging.txt
+    -r requirements-messaging.txt \
+    -r requirements-risk-state.txt
 
 COPY . /app
