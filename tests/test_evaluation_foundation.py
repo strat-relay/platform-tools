@@ -137,7 +137,11 @@ class EvaluationFoundationTests(unittest.TestCase):
             # Re-pinned (was 34ec0e9c...) when runtime artifact paths became configurable via
             # CONTEXT_RUNNER_STATE_DIR (run from the release image, state on the volume). Module-level
             # paths only; the decision fingerprint is unchanged.
-            "context_structure_retrace_forward.py": "05664e3355eef188fe3dc6d74b288a7203771d29cb8b9aedd9d1300f9dad9bc9",
+            # Re-pinned (was 05664e33...) when read_symbol gained the MARKET_DATA_SOURCE=REDIS branch
+            # (market_data_cache/). Data source only, default BRIDGE unchanged; decision fingerprint
+            # unchanged (asserted in tests/test_market_data_cache.py) and cached reads are proven
+            # identical to fresh bridge snapshots there.
+            "context_structure_retrace_forward.py": "7aad5c215eb75b893b56498f7e6062c09e15682d4cd072c4e34b426838de0d0e",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
