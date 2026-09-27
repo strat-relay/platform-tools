@@ -1,0 +1,100 @@
+{
+  "broker_writes": 0,
+  "cost_model": {
+    "limitation": "generic engine scalar cost cannot consume per-bar spread; adapter geometry uses source spread",
+    "model_id": "research-zero-engine-cost"
+  },
+  "engine_fingerprint": "09c135e6b23fcc8b98ca647e7d8e989c6eb0b13c534efd9db4d39fff4974c67e",
+  "engine_version": "strategy-backtest-core-v1",
+  "evidence_class": "EXPLORATORY_RAW_PIPELINE_PARENT_PARITY_UNPROVEN",
+  "exit_hypothesis": "STRUCTURE_CAPPED_EXTENSION",
+  "max_hold_minutes": 1440,
+  "parameter_set": {
+    "parameter_set_id": "context-intraday-v1-research-001",
+    "provenance": {
+      "derivation_type": "TIME_HORIZON_VARIANT",
+      "derived_from_strategy": "CONTEXT_STRUCTURE_RETRACE_V1",
+      "parameter_provenance": {
+        "execution_eligible": "OPERATIONAL",
+        "instrument_membership_source": "OPERATIONAL",
+        "max_hold_minutes": "RESEARCH_HYPOTHESIS",
+        "retracement_window_bars": "PARENT_PRESERVED",
+        "session_boundary": "RESEARCH_HYPOTHESIS",
+        "stop_semantics": "PARENT_PRESERVED",
+        "target_semantics": "RESEARCH_HYPOTHESIS",
+        "thesis_steps": "PARENT_PRESERVED",
+        "timeframes": "TIMEFRAME_DERIVED"
+      }
+    },
+    "schema_id": "intraday-time-horizon-variant-v1",
+    "strategy_version_id": "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1@V1",
+    "values": {
+      "confirmation_timeframe": "M15",
+      "context_timeframe": "H4",
+      "entry_timeframe": "M15",
+      "execution_eligible": false,
+      "instrument_membership_source": "StrategyInstance-scoped canonical membership; initial set copied from parent availability, not hardcoded in evaluator",
+      "max_hold_minutes": 1440,
+      "parent_strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+      "retracement_window_bars": 12,
+      "session_boundary": "UTC_DAY",
+      "setup_timeframe": "H1",
+      "stop_semantics": "ORIGINATING_SETUP_EXTREME with minimal causal volatility/spread safety buffer",
+      "target_semantics": "RESEARCH_HYPOTHESIS: STRUCTURE_CAPPED_EXTENSION on intraday setup structure; no fixed R selected",
+      "thesis_steps": [
+        "higher-timeframe context",
+        "structural retracement",
+        "lower-timeframe confirmation",
+        "entry"
+      ]
+    }
+  },
+  "parameter_set_fingerprint": "4137e249298bf526ba3be15f1c1c6695aac54229bde5fd5cc0c432d04159c081",
+  "production_changed": false,
+  "schema": "research.context_intraday_exploratory_protocol.v1",
+  "source_records": [
+    {
+      "dataset_fingerprint": "d2f33b6eeb6bcc715646abf2886db7875296fedf261709f6bafcb4139a9759ad",
+      "discovery_range": [
+        "2025-09-19T00:00:00Z",
+        "2026-01-01T00:00:00Z"
+      ],
+      "full_bar_count": 74472,
+      "full_range": [
+        "2025-09-19T00:00:00Z",
+        "2026-09-18T20:55:00Z"
+      ],
+      "instrument": "EURUSD",
+      "provider": "MT5 / Exness-MT5Real9",
+      "reserved_validation_range": [
+        "2026-01-01T00:00:00Z",
+        "2026-09-18T20:55:00Z"
+      ],
+      "unexplained_gap_count": 25
+    },
+    {
+      "dataset_fingerprint": "d14d35c5196c744d7684684c5da6eee9362db59204c59d1c903a880f55aa5f40",
+      "discovery_range": [
+        "2025-09-19T00:00:00Z",
+        "2026-01-01T00:00:00Z"
+      ],
+      "full_bar_count": 74408,
+      "full_range": [
+        "2025-09-19T00:00:00Z",
+        "2026-09-18T20:55:00Z"
+      ],
+      "instrument": "GBPUSD",
+      "provider": "MT5 / Exness-MT5Real9",
+      "reserved_validation_range": [
+        "2026-01-01T00:00:00Z",
+        "2026-09-18T20:55:00Z"
+      ],
+      "unexplained_gap_count": 75
+    }
+  ],
+  "split_timestamp": "2026-01-01T00:00:00Z",
+  "status": "FROZEN_BEFORE_PERFORMANCE",
+  "strategy_version": "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1@V1",
+  "utc_boundary_behavior": "UTC_DAY_BOUNDARY_HYPOTHESIS",
+  "validation_outcomes_accessed": false
+}
