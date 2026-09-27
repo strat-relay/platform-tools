@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ class BacktestResult:
     signals: tuple[EntrySignal, ...]
     outcomes: tuple[EntrySignalOutcome, ...]
     metrics: dict[str, Any]
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
     @property
     def result_fingerprint(self) -> str:
@@ -60,8 +61,9 @@ class BacktestEngine:
         metrics = calculate_metrics(signals, execution.outcomes)
         evaluator_identity = getattr(evaluator, "VERSION", f"{type(evaluator).__module__}.{type(evaluator).__qualname__}")
         run = BacktestRun(run_id, strategy_version.strategy_version_id, fingerprint({"evaluator": evaluator_identity}), parameter_set.fingerprint, tuple(sorted({event.canonical_instrument for event in feed.events})), tuple(sorted({event.timeframe for event in feed.events})), feed.dataset_fingerprint, feed.requested_start or (feed.events[0].open_timestamp if feed.events else 0), feed.requested_end or (feed.events[-1].close_timestamp if feed.events else 0), feed.partition, cost_model.fingerprint, self.engine_version, "COMPLETED")
-        result = BacktestResult(run, tuple(setups), tuple(signals), tuple(execution.outcomes), metrics)
-        return BacktestResult(run.transition("COMPLETED", result_fingerprint=result.result_fingerprint), result.setups, result.signals, result.outcomes, result.metrics)
+        diagnostics = evaluator.diagnostics() if hasattr(evaluator, "diagnostics") else {}
+        result = BacktestResult(run, tuple(setups), tuple(signals), tuple(execution.outcomes), metrics, diagnostics)
+        return BacktestResult(run.transition("COMPLETED", result_fingerprint=result.result_fingerprint), result.setups, result.signals, result.outcomes, result.metrics, result.diagnostics)
 
 
 class BacktestArtifactStore:
@@ -73,6 +75,6 @@ class BacktestArtifactStore:
     def write(self, result: BacktestResult) -> Path:
         path = self.root / result.run.run_id
         path.mkdir(parents=True, exist_ok=True)
-        payload = {"run": asdict(result.run), "setups": [asdict(x) for x in result.setups], "signals": [asdict(x) for x in result.signals], "outcomes": [asdict(x) for x in result.outcomes], "metrics": result.metrics, "same_bar_policy": SAME_BAR_POLICY}
+        payload = {"run": asdict(result.run), "setups": [asdict(x) for x in result.setups], "signals": [asdict(x) for x in result.signals], "outcomes": [asdict(x) for x in result.outcomes], "metrics": result.metrics, "diagnostics": result.diagnostics, "same_bar_policy": SAME_BAR_POLICY}
         (path / "result.json").write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         return path / "result.json"
