@@ -1,7 +1,63 @@
 {
   "schema": "research.intraday_historical_inventory.v1",
-  "generated_from": "f0ba7e2",
+  "generated_from": "2e469d0",
   "provider_mixing": false,
+  "searched_roots": [
+    "/Users/caleb/mt5-native-bridge/artifacts/research",
+    "/Users/caleb/mt5-native-bridge/research",
+    "/Users/caleb/mt5-native-bridge"
+  ],
+  "recovered_existing_data": {
+    "context_native_m5": {
+      "path": "/Users/caleb/mt5-native-bridge/artifacts/research/multitimeframe_structure_sniper/paged_native_full/{instrument}/M5.jsonl",
+      "origin": "persisted native MT5 paged export",
+      "provider": "MT5 / Exness-MT5Real9",
+      "canonical_instruments": ["EURUSD", "GBPUSD", "USDJPY"],
+      "provider_symbols": ["EURUSD", "GBPUSD", "USDJPY"],
+      "raw_or_derived": "RAW",
+      "spread_available": true,
+      "contract_metadata_available": "point/digits only; tick value/min lot/stops level absent",
+      "used_by_prior_study": true,
+      "prior_study_reference": "research/multitimeframe_structure_sniper/stage_a_research.py",
+      "provenance_class": "RESEARCH_USABLE_WITH_DOCUMENTED_LIMITATION",
+      "coverage": {
+        "EURUSD": {"start": "2025-09-19T00:00:00Z", "end": "2026-09-18T20:55:00Z", "bar_count": 74472, "fingerprint": "d2f33b6eeb6bcc715646abf2886db7875296fedf261709f6bafcb4139a9759ad", "duplicate_count": 0, "invalid_ohlc_count": 0, "unexplained_gap_count": 25},
+        "GBPUSD": {"start": "2025-09-19T00:00:00Z", "end": "2026-09-18T20:55:00Z", "bar_count": 74408, "fingerprint": "d14d35c5196c744d7684684c5da6eee9362db59204c59d1c903a880f55aa5f40", "duplicate_count": 0, "invalid_ohlc_count": 0, "unexplained_gap_count": 75},
+        "USDJPY": {"start": "2025-09-21T21:05:00Z", "end": "2026-09-18T20:55:00Z", "bar_count": 74169, "fingerprint": "cc006bf0095412ec3549a6f28244f801b6f774cbb3f15dc5701a4b40d4a26088", "duplicate_count": 0, "invalid_ohlc_count": 0, "unexplained_gap_count": 59}
+      },
+      "derived_timeframes": {"M15": true, "H1": true, "H4": true},
+      "quality_note": "Monotonic, unique, internally valid; weekend/market closures are classified separately and unexplained gaps are not synthesized."
+    },
+    "liquidity_native_m5": {
+      "path": "/Users/caleb/mt5-native-bridge/artifacts/research/multitimeframe_liquidity_sniper/expanded_historical_dataset.json",
+      "origin": "persisted native MT5 expanded export",
+      "provider": "MT5 / Exness-MT5Real9",
+      "canonical_instruments": ["EURUSD", "GBPUSD", "USDJPY"],
+      "provider_symbols": ["EURUSDm", "GBPUSDm", "USDJPYm"],
+      "raw_or_derived": "RAW",
+      "spread_available": true,
+      "contract_metadata_available": true,
+      "used_by_prior_study": true,
+      "prior_study_reference": "research/multitimeframe_liquidity_sniper/manifest.json and historical_cost_manifest.json",
+      "provenance_class": "RESEARCH_USABLE_WITH_DOCUMENTED_LIMITATION",
+      "coverage": {
+        "EURUSD": {"start": "2026-09-16T08:35:00Z", "end": "2026-09-18T00:00:00Z", "bar_count": 474, "fingerprint": "c76d93cb56a367e126edd9185277460a56897a9654cbe6d486df87357a8e3cf3", "duplicate_count": 0, "invalid_ohlc_count": 0, "unexplained_gap_count": 0, "limitation": "fixture-sized window"},
+        "GBPUSD": {"start": "2026-09-16T08:35:00Z", "end": "2026-09-18T00:00:00Z", "bar_count": 474, "fingerprint": "35c970d3e1b2af68dc8ae1a2cd15adeb16de90cec7245e14a909fd9b07c414b8", "duplicate_count": 0, "invalid_ohlc_count": 0, "unexplained_gap_count": 0, "limitation": "fixture-sized window"},
+        "USDJPY": {"start": "2025-11-26T21:55:00Z", "end": "2026-09-17T14:40:00Z", "bar_count": 60000, "fingerprint": "9c5a15942b2d680469e62e68b5b94dc1d4d0cf1a4240d50981f61d8abc665f2b", "duplicate_count": 0, "invalid_ohlc_count": 0, "missing_bar_count": 24874, "unexplained_gap_count": 54}
+      },
+      "derived_timeframes": {"M15": true, "H1": true, "H4": true},
+      "quality_note": "Per-bar spread and contract metadata exist; USDJPY has 54 unexplained gap intervals and no interpolation is permitted."
+    }
+  },
+  "requested_instrument_status": {
+    "XAUUSD": {"status": "INELIGIBLE", "reason": "only H1 fixtures; no M5 base source"},
+    "BTCUSD": {"status": "UNKNOWN", "reason": "no existing raw M5 dataset located"},
+    "USDJPY": {"status": "INELIGIBLE", "reason": "existing M5 sources have unexplained gaps or insufficient contract/quality proof"},
+    "EURUSD": {"status": "ELIGIBLE", "reason": "Context-qualified bounded windows exist; gap exclusions and contract limitation remain"},
+    "GBPUSD": {"status": "ELIGIBLE", "reason": "Context-qualified bounded windows exist; gap exclusions and contract limitation remain"},
+    "ETHUSD": {"status": "UNKNOWN", "reason": "no existing raw M5 dataset located"},
+    "ETHBTC": {"status": "UNKNOWN", "reason": "no existing raw M5 dataset located"}
+  },
   "instruments": [
     {
       "canonical_instrument": "XAUUSD",
@@ -46,6 +102,7 @@
   ],
   "context_required_base_data": "M5 or finer trusted source, to aggregate causal M15/H1/H4 candles",
   "liquidity_required_base_data": "M5 trusted source plus spread/contract metadata required by the unchanged parent predicate",
-  "discovery_eligible_context": [],
-  "discovery_eligible_liquidity": []
+  "discovery_eligible_context": ["EURUSD", "GBPUSD"],
+  "discovery_eligible_liquidity": [],
+  "discovery_eligible_note": "Data-contract qualification only; no discovery run was performed. EURUSD/GBPUSD require an approved gap-exclusion window and contract metadata completion before manifest execution."
 }

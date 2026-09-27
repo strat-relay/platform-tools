@@ -1,0 +1,37 @@
+{
+  "schema": "research.intraday_parent_behavior_fixture_inventory.v1",
+  "generated_from": "2e469d0",
+  "created": false,
+  "reason": "Existing parent outputs were found, but no recoverable raw OHLC window plus independently replayable expected lifecycle was available for both parents.",
+  "context": {
+    "parent": "CONTEXT_STRUCTURE_RETRACE_V1",
+    "evidence_found": [
+      "/Users/caleb/mt5-native-bridge/research/context_structure_retrace_phase3/context_structure_retrace_phase3_ledger.jsonl.gz",
+      "/Users/caleb/mt5-native-bridge/research/context_structure_retrace_phase3/context_structure_retrace_phase3_candidates.csv",
+      "/Users/caleb/mt5-native-bridge/research/context_structure_retrace_phase5/context_structure_retrace_phase5c_positions.csv",
+      "/Users/caleb/mt5-native-bridge/context_structure_retrace_forward_manifest.json"
+    ],
+    "raw_window_available": false,
+    "expected_parent_lifecycle_replayable": false,
+    "status": "BLOCKED_UNKNOWN_PROVENANCE_RAW_WINDOW"
+  },
+  "liquidity": {
+    "parent": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+    "evidence_found": [
+      "/Users/caleb/mt5-native-bridge/liquidity_displacement_forward.jsonl",
+      "/Users/caleb/mt5-native-bridge/liquidity_displacement_forward_manifest.json",
+      "/Users/caleb/mt5-native-bridge/artifacts/research/multitimeframe_liquidity_sniper/expanded_historical_dataset.json"
+    ],
+    "raw_window_available": true,
+    "expected_parent_lifecycle_replayable": "PARTIAL",
+    "status": "BLOCKED_PARAMETER_AND_TARGET_SCOPE_DIFFERENCE",
+    "parent_requires_displacement_before_mss": true,
+    "new_scan_matches_parent_causal_order": true,
+    "note": "The raw export has spread and contract metadata, but the intraday variant intentionally changes max hold and target hypothesis; only sweep/displacement/entry/stop semantics are directly comparable without a separate approved parent fixture contract."
+  },
+  "required_fixture_cases": ["positive_long", "positive_short", "negative_no_setup", "invalidation", "expiry", "reentry_or_consumption"],
+  "parent_result_must_be_generated_before_adapter_comparison": true,
+  "discovery_accessed": false,
+  "validation_accessed": false,
+  "broker_writes": 0
+}

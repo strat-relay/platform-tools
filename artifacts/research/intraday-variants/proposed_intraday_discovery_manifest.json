@@ -1,6 +1,7 @@
 {
   "schema": "research.intraday_discovery_manifest.v1",
   "status": "PROPOSED_NOT_EXECUTED",
+  "evidence_recovered_from": "2e469d0",
   "context_strategy_version": "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1@V1",
   "liquidity_strategy_version": "LIQUIDITY_DISPLACEMENT_INTRADAY_V1@V1",
   "parameter_sets": [
@@ -8,7 +9,10 @@
     "liquidity-intraday-v1-research-001"
   ],
   "eligible_instruments": {
-    "context": [],
+    "context": [
+      {"canonical_instrument": "EURUSD", "provider": "MT5 / Exness-MT5Real9", "provider_symbol": "EURUSD", "dataset_fingerprint": "d2f33b6eeb6bcc715646abf2886db7875296fedf261709f6bafcb4139a9759ad", "base_timeframe": "M5", "date_range": ["2025-09-19T00:00:00Z", "2026-09-18T20:55:00Z"], "status": "QUALIFIED_WINDOW_WITH_GAP_LIMITATION"},
+      {"canonical_instrument": "GBPUSD", "provider": "MT5 / Exness-MT5Real9", "provider_symbol": "GBPUSD", "dataset_fingerprint": "d14d35c5196c744d7684684c5da6eee9362db59204c59d1c903a880f55aa5f40", "base_timeframe": "M5", "date_range": ["2025-09-19T00:00:00Z", "2026-09-18T20:55:00Z"], "status": "QUALIFIED_WINDOW_WITH_GAP_LIMITATION"}
+    ],
     "liquidity": []
   },
   "timeframe_hierarchies": {
@@ -16,15 +20,16 @@
     "liquidity": ["H1", "M15", "M5"]
   },
   "required_base_data": {
-    "context": "M5 or finer trusted source",
-    "liquidity": "M5 trusted source with spread/contract metadata"
+    "context": "M5 or finer trusted source; exclude unexplained gaps without synthesis",
+    "liquidity": "M5 trusted source with per-bar spread/contract metadata and no unresolved unexplained gaps"
   },
   "exit_hypotheses": {
     "context": "STRUCTURE_CAPPED_EXTENSION; no fixed R selected",
     "liquidity": "opposing structural liquidity/swing; parent 1.25R excluded"
   },
   "maximum_hold_hypothesis": "1440 minutes with UTC-day-boundary exit",
-  "cost_model_reference": "TO_BE_DECLARED_BEFORE_DISCOVERY",
+  "cost_model_reference": "Context: NATIVE_M5_BAR_SPREAD with contract metadata completion required; Liquidity: /Users/caleb/mt5-native-bridge/artifacts/research/multitimeframe_liquidity_sniper/historical_cost_manifest.json",
+  "contract_metadata_reference": "Context point/digits from structure-sniper historical_cost_manifest.json; tick value/min lot/stops level still required",
   "executed": false,
   "discovery_accessed": false,
   "validation_accessed": false,
