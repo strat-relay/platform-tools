@@ -1,3 +1,4 @@
+import json
 import unittest
 from dataclasses import replace
 from unittest.mock import patch
@@ -78,6 +79,22 @@ class LiquidityLiveRuntimeTests(unittest.TestCase):
         self.assertIn("metadata", query)
         self.assertIn("%s", query)
         self.assertEqual(params[2], '{"broker_writes": 0, "source": "LIVE_MARKET"}')
+
+    def test_setup_state_serializes_payload_for_jsonb(self):
+        conn = RecordingConnection()
+        runtime = LiquidityLiveRuntime(conn=conn, snapshot_reader=lambda *_args: None,
+                                       publisher=object())
+        state = {
+            "setup_id": "setup-1", "instance_id": "liquidity-btc25",
+            "canonical_instrument": "BTCUSD", "state": "PENDING_RETRACE",
+            "lifecycle": ["SWEEP", "RECLAIM"], "entry": 100.0,
+        }
+
+        runtime.setup_store.save(state)
+
+        query, params = conn.recording_cursor.calls[0]
+        self.assertIn("%s::jsonb", query)
+        self.assertEqual(json.loads(params[4]), state)
 
     def test_workload_is_disabled_by_default(self):
         with patch.dict("os.environ", {}, clear=True):
