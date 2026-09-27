@@ -32,6 +32,7 @@ from strategy_backtest.registry import StrategyEvaluatorRegistry  # noqa: E402
 import strategy_backtest.raw_ohlc_adapters as raw_adapters  # noqa: E402
 from context_structure_retrace.data import CausalReplay  # noqa: E402
 from research.context_replay_optimized import OptimizedContextRawOhlcEvaluator  # noqa: E402
+from research.context_feature_tape import build_causal_feature_tape  # noqa: E402
 
 
 DATA_ROOT = ROOT.parent / "artifacts/research/multitimeframe_structure_sniper/paged_native_full"
@@ -164,13 +165,16 @@ def _run_instrument(strategy: Any, parameter_set: Any, instrument: str) -> Any:
     original_replay = raw_adapters._replay
     raw_adapters._replay = _fast_replay_factory(events)
     try:
+        tape = build_causal_feature_tape(events, instrument, raw_adapters._replay, OptimizedContextRawOhlcEvaluator.timeframes)
+        OptimizedContextRawOhlcEvaluator.FEATURE_TAPE = tape
         registry = StrategyEvaluatorRegistry()
         registry.register(strategy.evaluator_key, OptimizedContextRawOhlcEvaluator)
         feed = HistoricalMarketFeed(events, f"context-qualified-native-m5-{instrument}", partition="DISCOVERY")
         # The generic cost model cannot apply a per-bar spread.  Spread is still
         # present in the adapter quote/geometry; the engine cost is explicitly
         # zero and is reported as a limitation, not hidden as broker truth.
-        return BacktestEngine(registry).run(strategy, parameter_set, feed, CostModel("research-zero-engine-cost"))
+        result = BacktestEngine(registry).run(strategy, parameter_set, feed, CostModel("research-zero-engine-cost"))
+        return result, {"record_count": len(tape), "memory_bytes": tape.memory_bytes(), "version": tape.VERSION}
     finally:
         raw_adapters._replay = original_replay
 
@@ -187,7 +191,9 @@ def main() -> None:
     # processes shortens wall time without sharing mutable evaluator state.
     with ProcessPoolExecutor(max_workers=len(INSTRUMENTS)) as pool:
         completed = pool.map(_run_instrument_worker, ((context.strategy, context.parameter_set, instrument) for instrument in INSTRUMENTS))
-        results = dict(zip(INSTRUMENTS, completed))
+        completed_results = dict(zip(INSTRUMENTS, completed))
+    results = {instrument: value[0] for instrument, value in completed_results.items()}
+    tape_profiles = {instrument: value[1] for instrument, value in completed_results.items()}
     all_signals = tuple(signal for result in results.values() for signal in result.signals)
     all_outcomes = tuple(outcome for result in results.values() for outcome in result.outcomes)
     all_setups = tuple(event for result in results.values() for event in result.setups)
@@ -221,6 +227,7 @@ def main() -> None:
         "utc_boundary_behavior": "UTC_DAY_BOUNDARY_HYPOTHESIS",
         "split_timestamp": SPLIT_ISO,
         "source_records": source_records,
+        "feature_tape": tape_profiles,
         "validation_outcomes_accessed": False,
         "production_changed": False,
         "broker_writes": 0,
@@ -242,6 +249,7 @@ def main() -> None:
             for instrument, result in results.items()
         },
         "combined": {"funnel": _funnel(combined), "performance": _performance(combined), "monthly": _monthly(combined)},
+        "feature_tape": tape_profiles,
         "validation_outcomes_accessed": False,
         "parent_parity_status": "UNPROVEN",
         "production_changed": False,

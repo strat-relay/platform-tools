@@ -1,14 +1,23 @@
 {
   "benchmark": {
-    "new_peak_rss_self_process_bytes": 51945472,
-    "new_runtime_seconds": 3.1445083020080347,
-    "old_peak_rss_self_process_bytes": 51945472,
-    "old_runtime_seconds": 7.2534600639774,
+    "feature_precompute_seconds": 2.46285026599071,
+    "new_peak_rss_self_process_bytes": 104054784,
+    "new_runtime_seconds": 0.919685164000839,
+    "old_peak_rss_self_process_bytes": 97828864,
+    "old_runtime_seconds": 3.0206992789753713,
+    "replay_after_precompute_seconds": 0.919685164000839,
     "rss_note": "macOS ru_maxrss is bytes; same-process ru_maxrss is an upper bound, not an isolated old/new peak",
-    "speedup": 2.3067072392034875,
+    "speedup": 3.284492777761734,
     "window_bars": 240
   },
   "broker_writes": 0,
+  "feature_tape": {
+    "memory_bytes": 944343,
+    "record_count": 30,
+    "version": "context-causal-feature-tape-v1"
+  },
+  "feature_tape_golden_equivalence_pass": true,
+  "feature_tape_prefix_invariance_pass": true,
   "golden_equivalence_pass": true,
   "optimized_output_counts": {
     "outcomes": 21,

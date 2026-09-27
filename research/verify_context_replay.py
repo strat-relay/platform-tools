@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from research.context_replay_optimized import OptimizedContextRawOhlcEvaluator
+from research.context_feature_tape import build_causal_feature_tape
 from research.intraday_variants import variants
 from strategy_backtest.engine import BacktestEngine
 from strategy_backtest.feeds import HistoricalMarketFeed
@@ -37,9 +38,11 @@ def load_events(limit: int = 240) -> tuple[MarketEvent, ...]:
     return tuple(rows)
 
 
-def run(cls: Any, events: tuple[MarketEvent, ...]) -> dict[str, Any]:
+def run(cls: Any, events: tuple[MarketEvent, ...], tape: Any = None) -> dict[str, Any]:
     context, _ = variants()
     registry = StrategyEvaluatorRegistry()
+    if cls is OptimizedContextRawOhlcEvaluator:
+        OptimizedContextRawOhlcEvaluator.FEATURE_TAPE = tape
     registry.register(context.strategy.evaluator_key, cls)
     result = BacktestEngine(registry).run(
         context.strategy, context.parameter_set,
@@ -60,15 +63,19 @@ def main() -> None:
         "missing_bar": tuple(event for index, event in enumerate(load_events(240)) if index != 37),
     }
     golden = {}
+    context, _ = variants()
     for name, events in windows.items():
         old = run(ContextRawOhlcEvaluator, events)
-        new = run(OptimizedContextRawOhlcEvaluator, events)
+        tape_start = time.perf_counter()
+        from research.run_context_intraday_exploratory import _fast_replay_factory
+        tape = build_causal_feature_tape(events, "EURUSD", _fast_replay_factory(events), OptimizedContextRawOhlcEvaluator.timeframes)
+        tape_build = time.perf_counter() - tape_start
+        new = run(OptimizedContextRawOhlcEvaluator, events, tape)
         golden[name] = {"bars": len(events), "exact_equal": old == new}
         if old != new:
             raise SystemExit(f"golden equivalence failed: {name}")
 
     events = load_events(240)
-    context, _ = variants()
     registry = StrategyEvaluatorRegistry()
     registry.register(context.strategy.evaluator_key, OptimizedContextRawOhlcEvaluator)
     feed = HistoricalMarketFeed(events, "optimized-invariant-window", partition="DISCOVERY")
@@ -84,10 +91,22 @@ def main() -> None:
 
     old_start = time.perf_counter(); old = run(ContextRawOhlcEvaluator, events); old_runtime = time.perf_counter() - old_start
     old_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    new_start = time.perf_counter(); new = run(OptimizedContextRawOhlcEvaluator, events); new_runtime = time.perf_counter() - new_start
+    tape_start = time.perf_counter()
+    from research.run_context_intraday_exploratory import _fast_replay_factory
+    tape = build_causal_feature_tape(events, "EURUSD", _fast_replay_factory(events), OptimizedContextRawOhlcEvaluator.timeframes)
+    tape_build = time.perf_counter() - tape_start
+    prefix_pass = True
+    for cutoff in (80, 160, 240):
+        prefix_events = events[:cutoff]
+        prefix_tape = build_causal_feature_tape(prefix_events, "EURUSD", _fast_replay_factory(prefix_events), OptimizedContextRawOhlcEvaluator.timeframes)
+        expected = tape.prefix(prefix_events[-1].close_timestamp)
+        prefix_pass = prefix_pass and [r.snapshot for r in prefix_tape.records] == [r.snapshot for r in expected.records]
+    new_start = time.perf_counter(); new = run(OptimizedContextRawOhlcEvaluator, events, tape); new_runtime = time.perf_counter() - new_start
     new_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     report = {
         "golden_equivalence_pass": True,
+        "feature_tape_golden_equivalence_pass": True,
+        "feature_tape_prefix_invariance_pass": prefix_pass,
         "windows": golden,
         "raw_no_lookahead_pass": True,
         "raw_prefix_invariance_pass": True,
@@ -98,11 +117,14 @@ def main() -> None:
             "window_bars": len(events),
             "old_runtime_seconds": old_runtime,
             "new_runtime_seconds": new_runtime,
+            "feature_precompute_seconds": tape_build,
+            "replay_after_precompute_seconds": new_runtime,
             "speedup": old_runtime / new_runtime if new_runtime else None,
             "old_peak_rss_self_process_bytes": old_rss,
             "new_peak_rss_self_process_bytes": new_rss,
             "rss_note": "macOS ru_maxrss is bytes; same-process ru_maxrss is an upper bound, not an isolated old/new peak",
         },
+        "feature_tape": {"version": tape.VERSION, "record_count": len(tape), "memory_bytes": tape.memory_bytes()},
         "optimized_output_counts": {"setups": len(new["setups"]), "signals": len(new["signals"]), "outcomes": len(new["outcomes"])},
         "validation_outcomes_accessed": False,
         "production_changed": False,
@@ -110,6 +132,43 @@ def main() -> None:
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "golden_equivalence.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    benchmark = report["benchmark"]
+    profile = {
+        "schema": "research.context_feature_tape_profile.v1",
+        "window_bars": len(events),
+        "m15_evaluations": report["feature_tape"]["record_count"],
+        "feature_snapshot_calls": report["feature_tape"]["record_count"],
+        "reference_runtime_seconds": benchmark["old_runtime_seconds"],
+        "feature_precompute_seconds": benchmark["feature_precompute_seconds"],
+        "replay_after_precompute_seconds": benchmark["replay_after_precompute_seconds"],
+        "feature_tape_runtime_seconds": benchmark["feature_precompute_seconds"] + benchmark["replay_after_precompute_seconds"],
+        "additional_speedup_replay_only": benchmark["speedup"],
+        "net_speedup_including_precompute": benchmark["old_runtime_seconds"] / (benchmark["feature_precompute_seconds"] + benchmark["replay_after_precompute_seconds"]),
+        "feature_tape_record_count": report["feature_tape"]["record_count"],
+        "feature_tape_memory_bytes": report["feature_tape"]["memory_bytes"],
+        "m5_bars_per_second_after_precompute": len(events) / benchmark["replay_after_precompute_seconds"],
+        "m15_decisions_per_second_after_precompute": report["feature_tape"]["record_count"] / benchmark["replay_after_precompute_seconds"],
+        "validation_outcomes_accessed": False,
+        "broker_writes": 0,
+    }
+    (OUT / "feature_tape_profile.json").write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (OUT / "feature_tape_prefix_invariance.json").write_text(json.dumps({"schema": "research.context_feature_tape_prefix_invariance.v1", "pass": prefix_pass, "cutoffs": [80, 160, 240], "validation_outcomes_accessed": False, "broker_writes": 0}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (OUT / "feature_tape_execution_status.json").write_text(json.dumps({
+        "schema": "research.context_feature_tape_execution_status.v1",
+        "status": "BOUNDED_VALIDATION_COMPLETE_FULL_DISCOVERY_NOT_RUN",
+        "feature_tape_golden_equivalence_pass": True,
+        "feature_tape_prefix_invariance_pass": prefix_pass,
+        "raw_invariants": {"no_lookahead": True, "prefix_invariance": True, "deterministic_rerun": True, "historical_live_parity": True, "restart_parity": restart_equal},
+        "full_discovery_operationally_feasible": False,
+        "reason": "Measured feature-tape construction remains the dominant cost; full discovery was not launched.",
+        "context_discovery_completed": False,
+        "context_parent_parity_status": "UNPROVEN",
+        "context_discovery_evidence_class": "EXPLORATORY_RAW_PIPELINE_PARENT_PARITY_UNPROVEN",
+        "validation_outcomes_accessed": False,
+        "parameter_optimization": False,
+        "production_changed": False,
+        "broker_writes": 0,
+    }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
 
 

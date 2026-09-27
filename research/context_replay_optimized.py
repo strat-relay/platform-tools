@@ -15,12 +15,14 @@ from context_structure_retrace_forward import _geometry, _spread, make_setup
 from strategy_backtest.models import EntrySignal, SetupLifecycleEvent
 import strategy_backtest.raw_ohlc_adapters as raw_adapters
 from strategy_backtest.raw_ohlc_adapters import ContextRawOhlcEvaluator, _quote_contract
+from research.context_feature_tape import CausalFeatureTape
 
 
 class OptimizedContextRawOhlcEvaluator(ContextRawOhlcEvaluator):
     """Same evaluator semantics with the no-pattern fast path."""
 
     VERSION = "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1_RAW_OHLC_ADAPTER_RESEARCH_OPTIMIZED"
+    FEATURE_TAPE: CausalFeatureTape | None = None
 
     def _new_setups(self, event: Any) -> list[SetupLifecycleEvent]:
         replay = raw_adapters._replay(self.state, event.close_timestamp)
@@ -31,8 +33,10 @@ class OptimizedContextRawOhlcEvaluator(ContextRawOhlcEvaluator):
                     if pattern["event_id"] not in self.pattern_ids]
         if not patterns:
             return []
-        snapshot = feature_snapshot(replay, event.canonical_instrument, event.close_timestamp,
-                                     timeframes=self.timeframes)
+        snapshot = self.FEATURE_TAPE.get(event.close_timestamp) if self.FEATURE_TAPE else None
+        if snapshot is None:
+            snapshot = feature_snapshot(replay, event.canonical_instrument, event.close_timestamp,
+                                        timeframes=self.timeframes)
         quote, contract = _quote_contract(event)
         outputs = []
         for pattern in patterns:
