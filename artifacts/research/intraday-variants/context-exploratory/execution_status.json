@@ -8,7 +8,7 @@
   "reason": "A semantics-preserving no-pattern fast path passed exact golden equivalence and bounded causal invariants, but the full two-instrument discovery still remained operationally too expensive and was stopped before a completed result artifact was produced.",
   "optimization": "Detect identical completed M15 patterns before constructing feature_snapshot; precompute completed higher-timeframe replay buckets causally for the research runner.",
   "golden_equivalence_pass": true,
-  "bounded_speedup": 2.4152769946099433,
+  "bounded_speedup": 2.3067072392034875,
   "discovery_metrics_available": false,
   "validation_outcomes_accessed": false,
   "parent_parity_status": "UNPROVEN",
