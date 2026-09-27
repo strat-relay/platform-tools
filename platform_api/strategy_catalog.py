@@ -26,7 +26,8 @@ SELECT d.strategy_id, d.strategy_version, d.display_name, d.description, d.adapt
        coalesce(sig.signals, 0) AS signals_published, sig.last_signal_at AS last_event_at,
        sig.first_signal_at, coalesce(sig.signals_24h, 0) AS signals_24h,
        coalesce(o.open_n, 0) AS open_observations, coalesce(o.target_hit, 0) AS target_hits,
-       coalesce(o.stopped, 0) AS stops, coalesce(o.tracked, 0) AS outcomes_tracked,
+       coalesce(o.stopped, 0) AS stops, coalesce(o.invalidated, 0) AS invalidated,
+       coalesce(o.tracked, 0) AS outcomes_tracked,
        o.realized_r_total, o.realized_r_avg, sig.avg_target_r,
        coalesce(mem.symbols, ARRAY[]::text[]) AS symbols,
        coalesce(sig.signal_instruments, ARRAY[]::text[]) AS signal_instruments
@@ -42,6 +43,7 @@ LEFT JOIN LATERAL (
            count(*) FILTER (WHERE o.status = 'OPEN') AS open_n,
            count(*) FILTER (WHERE o.status = 'TARGET_HIT') AS target_hit,
            count(*) FILTER (WHERE o.status = 'STOPPED') AS stopped,
+           count(*) FILTER (WHERE o.status = 'INVALIDATED') AS invalidated,
            sum(o.realized_r) FILTER (WHERE o.status <> 'OPEN') AS realized_r_total,
            avg(o.realized_r) FILTER (WHERE o.status <> 'OPEN') AS realized_r_avg
     FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
@@ -62,7 +64,7 @@ SELECT i.instance_id, i.strategy_id, i.display_name, i.enabled, i.attributes, i.
        i.created_at, i.updated_at, i.updated_by, d.enabled AS parent_enabled, d.strategy_version,
        coalesce(sig.signals, 0) AS signals, coalesce(sig.signals_24h, 0) AS signals_24h,
        coalesce(o.tracked, 0) AS outcomes_tracked, coalesce(o.open_n, 0) AS open_n,
-       coalesce(o.closed_n, 0) AS closed_n, o.realized_r_total,
+       coalesce(o.closed_n, 0) AS closed_n, coalesce(o.invalidated_n, 0) AS invalidated_n, o.realized_r_total,
        coalesce(mem.active, ARRAY[]::text[]) AS instruments, coalesce(mem.disabled_n, 0) AS instruments_disabled,
        ev.at AS last_event_at, ev.type AS last_event_type, ev.message AS last_event_message,
        obs.fingerprint AS observed_config_fingerprint, obs.at AS observed_config_at
@@ -75,7 +77,8 @@ LEFT JOIN LATERAL (
     WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id) sig ON TRUE
 LEFT JOIN LATERAL (
     SELECT count(*) AS tracked, count(*) FILTER (WHERE o.status = 'OPEN') AS open_n,
-           count(*) FILTER (WHERE o.status <> 'OPEN') AS closed_n,
+           count(*) FILTER (WHERE o.status <> 'OPEN' AND o.realized_r IS NOT NULL) AS closed_n,
+           count(*) FILTER (WHERE o.status = 'INVALIDATED') AS invalidated_n,
            sum(o.realized_r) FILTER (WHERE o.status <> 'OPEN') AS realized_r_total
     FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
     WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id) o ON TRUE
@@ -186,7 +189,8 @@ def _instance(row: dict[str, Any], execution: dict[str, Any] | None,
                         "disabled_count": int(row["instruments_disabled"]), "source": "INSTRUMENT_MEMBERSHIP"},
         "stats": {"scope": "STRATEGY_INSTANCE", "signals": int(row["signals"]),
                   "signals_24h": int(row["signals_24h"]), "open": int(row["open_n"]),
-                  "closed": int(row["closed_n"]), "outcomes_tracked": int(row["outcomes_tracked"]),
+                  "closed": int(row["closed_n"]), "invalidated": int(row["invalidated_n"]),
+                  "outcomes_tracked": int(row["outcomes_tracked"]),
                   "outcomes_untracked": int(row["signals"]) - int(row["outcomes_tracked"]),
                   "realized_r_total": _num(row["realized_r_total"]),
                   "last_event_at": row["last_event_at"], "last_event": last_event},
@@ -224,7 +228,7 @@ def _summary(row: dict[str, Any]) -> dict[str, Any]:
             "tracked": int(row["outcomes_tracked"]),
             "untracked": int(row["signals_published"]) - int(row["outcomes_tracked"]),
             "open": int(row["open_observations"]), "target_hits": int(row["target_hits"]),
-            "stops": int(row["stops"]), "closed": closed,
+            "stops": int(row["stops"]), "closed": closed, "invalidated": int(row["invalidated"]),
             "win_rate": (int(row["target_hits"]) / closed) if closed else None,
             "realized_r_total": _num(row["realized_r_total"]), "expectancy_r": _num(row["realized_r_avg"]),
             "average_target_r": _num(row["avg_target_r"]),
@@ -410,7 +414,7 @@ class StrategyCatalogRepository:
                     FROM strategy.entry_signals s WHERE s.strategy_id = %s AND s.strategy_instance_id = %s
                     UNION ALL
                     SELECT o.signal_id || ':' || o.status, o.exit_timestamp, o.status,
-                           s.instrument || ' ' || o.status || ' ' || round(o.realized_r::numeric, 2) || 'R', s.instrument
+                           s.instrument || ' ' || o.status || coalesce(' ' || round(o.realized_r::numeric, 2) || 'R', ''), s.instrument
                     FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
                     WHERE s.strategy_id = %s AND s.strategy_instance_id = %s
                       AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
@@ -489,6 +493,7 @@ class StrategyCatalogRepository:
                 sum(o.realized_r) AS realized_r, count(*) AS closed
             FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
             WHERE s.strategy_id = %s AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL
+              AND o.realized_r IS NOT NULL
             GROUP BY 1 ORDER BY 1""", (strategy_id,))
         cumulative, series = 0.0, []
         for r in series_rows:
@@ -520,7 +525,7 @@ class StrategyCatalogRepository:
                 FROM strategy.entry_signals s WHERE s.strategy_id = %s
                 UNION ALL
                 SELECT o.signal_id || ':' || o.status, o.exit_timestamp, o.status,
-                       s.instrument || ' ' || o.status || ' ' || round(o.realized_r::numeric, 2) || 'R', s.instrument
+                       s.instrument || ' ' || o.status || coalesce(' ' || round(o.realized_r::numeric, 2) || 'R', ''), s.instrument
                 FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
                 WHERE s.strategy_id = %s AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
             ORDER BY timestamp DESC NULLS LAST LIMIT %s""", (strategy_id, strategy_id, RECENT_LIMIT))
@@ -543,6 +548,8 @@ class StrategyCatalogRepository:
                 {"key": "OPEN", "label": "Open", "count": out["open"]},
                 {"key": "TARGET_HIT", "label": "Target hit", "count": out["target_hits"]},
                 {"key": "STOPPED", "label": "Stopped", "count": out["stops"]},
+                {"key": "INVALIDATED", "label": "Invalidated", "count": out["invalidated"],
+                 "description": "Stale signals an operator invalidated; no realized R, excluded from win rate"},
                 {"key": "UNTRACKED", "label": "No canonical outcome", "count": out["untracked"],
                  "description": "Signals without a strategy outcome record (e.g. before outcome tracking began)"},
             ],
