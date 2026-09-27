@@ -40,9 +40,10 @@ cp "$manifest_path" "$target_path"
 # a desired-state PR; this script never contacts Kubernetes.
 #
 # A release can contain images that are not adopted by a particular GitOps
-# checkout yet, so absent manifest paths are intentionally skipped. This lets
-# the handoff work during topology migrations without silently leaving an
-# existing workload on an old digest.
+# checkout yet, so absent image consumers are intentionally skipped. Scan all
+# YAML workloads under the application instead of maintaining a hand-written
+# list: this keeps newly added runners, such as Liquidity, on the exact release
+# digest automatically.
 changed_paths=$(python3 - "$manifest_path" <<'PY'
 import json
 import pathlib
@@ -52,46 +53,27 @@ import sys
 manifest_path = pathlib.Path(sys.argv[1])
 manifest = json.loads(manifest_path.read_text())
 references = {image["name"]: image["reference"] for image in manifest["images"]}
-paths_by_image = {
-    "trading-platform-control-api": ["apps/trading-platform/platform-api.yaml"],
-    "trading-platform-api-router": ["apps/trading-platform/platform-api-router.yaml"],
-    "trading-platform-runtime": [
-        "apps/trading-platform/runtimes.yaml",
-        "apps/trading-platform/execution-v2-workload.yaml",
-        # Keep auxiliary runtime consumers on the same immutable release digest.
-        # These are hand-authored manifests rather than generated Deployments,
-        # so they must be included explicitly in release promotion.
-        "apps/trading-platform/mt5-native-bridge-main-runtime.yaml",
-        "apps/trading-platform/trading-platform-schema-migrations.yaml",
-    ],
-    "trading-platform-realtime-api": ["apps/trading-platform/platform-realtime-api.yaml"],
-}
 
 image_pattern = re.compile(r"^(?P<indent>\s*)image:\s+ghcr\.io/strat-relay/(?P<name>[a-z0-9-]+)@sha256:[0-9a-f]+\s*$")
 changed = []
-for image_name, paths in paths_by_image.items():
-    reference = references.get(image_name)
-    if reference is None:
-        continue
-    for path_string in paths:
-        path = pathlib.Path(path_string)
-        if not path.is_file():
-            continue
-        original = path.read_text()
-        lines = original.splitlines(keepends=True)
-        updated = []
-        touched = False
-        for line in lines:
-            match = image_pattern.match(line.rstrip("\n"))
-            if match and match.group("name") == image_name:
-                newline = "\n" if line.endswith("\n") else ""
-                line = f"{match.group('indent')}image: {reference}{newline}"
-                touched = True
-            updated.append(line)
-        result = "".join(updated)
-        if touched and result != original:
-            path.write_text(result)
-            changed.append(path_string)
+app_root = pathlib.Path("apps") / app_name
+for path in sorted(app_root.rglob("*.yaml")):
+    original = path.read_text()
+    lines = original.splitlines(keepends=True)
+    updated = []
+    touched = False
+    for line in lines:
+        match = image_pattern.match(line.rstrip("\n"))
+        reference = references.get(match.group("name")) if match else None
+        if match and reference:
+            newline = "\n" if line.endswith("\n") else ""
+            line = f"{match.group('indent')}image: {reference}{newline}"
+            touched = True
+        updated.append(line)
+    result = "".join(updated)
+    if touched and result != original:
+        path.write_text(result)
+        changed.append(str(path))
 
 for path in changed:
     print(path)
