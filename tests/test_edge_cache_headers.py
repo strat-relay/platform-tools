@@ -57,6 +57,20 @@ class EdgeCacheHeaderTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_cache_bypass_parameter_is_accepted_and_ignored_by_signals(self):
+        from platform_api.signals import PlatformSignalApi
+
+        class Repo:
+            def list_signals(self, query):
+                self.query = query
+                return [], {"limit": 25, "offset": 0, "total": 0}
+        repo = Repo()
+        api = PlatformSignalApi.__new__(PlatformSignalApi)
+        api.repository = repo
+        status, _ = api.execute("GET", "/api/v1/signals?limit=25&_fresh=1790500000000")
+        self.assertEqual(status, 200)
+        self.assertEqual(repo.query, {"limit": "25"})
+
     def test_router_cors_allow_headers_are_constant(self):
         conf = (ROOT / "deploy/platform_api_router/nginx.conf").read_text()
         origin_map = re.search(r"map \$http_origin \$cors_allow_origin \{(.*?)\}", conf, re.S).group(1)

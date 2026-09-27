@@ -401,7 +401,9 @@ class PlatformSignalApi:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
         query_values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=32)
-        query = {key: values[-1] for key, values in query_values.items()}
+        # `_fresh` only varies the edge cache key (the Console bypasses cached copies right after
+        # a write); it never affects the result.
+        query = {key: values[-1] for key, values in query_values.items() if key != EDGE_CACHE_BYPASS_PARAM}
         if path == "/healthz":
             return 200, {"status": "ok", "service": "platform-signals-api"}
         if path == "/readyz":
@@ -470,6 +472,7 @@ def _json_bytes(value: Any) -> bytes:
 # errors - stays no-store.
 EDGE_CACHEABLE_PREFIXES = ("/api/v1/strategies", "/api/v1/signals")
 EDGE_CACHE_CONTROL = "public, max-age=5, stale-while-revalidate=10, stale-if-error=300"
+EDGE_CACHE_BYPASS_PARAM = "_fresh"
 
 
 def edge_cache_control(method: str, target: str, status: int) -> str:
