@@ -110,3 +110,23 @@ RESERVED --submit--> SUBMITTED --confirm--> CONFIRMED --(snapshot newer than con
 4. Confirm the `account_exposure` definition and the `max_account_exposure` value against it.
 5. Set `RISK_CONTEXT_SOURCE=REDIS` and `RISK_REDIS_URL` on the execution runtime. This does not
    change execution authority. Rollback: set it back to `BRIDGE`.
+
+## Market-data cache (`market_data_cache/`)
+
+The read bridge runs one command per EA poll, so its capacity is a command budget. One collector
+(`python -m market_data_cache.service`) owns market-data reads. It is built in three steps:
+
+1. **Completed bars.** One `mt5_symbol_snapshot` per symbol per M5 close: a full window on cold
+   start or after a detected gap or revision, otherwise an 8-row window merged under exact-overlap
+   rules. Completed bars never change, so they are never re-read. The Context runner
+   (`MARKET_DATA_SOURCE=REDIS`) then reads the same `(contract, quote, bars)` from Redis. Tests
+   prove this identical to a fresh full snapshot across hours, outages and revisions, at about
+   1/20 of the bridge commands.
+2. **Metadata.** Stored from each snapshot; extra symbols (the V2 allowed list) are refreshed by
+   `mt5_symbol_info` every 300 s.
+3. **Quotes.** Hot symbols (open managed trades + `MARKET_QUOTE_SYMBOLS`) are refreshed every 2 s,
+   capped per pass. The Trade Manager (`TM_MARKET_DATA_SOURCE=REDIS`) reads quotes from the cache
+   (15 s max age, fail closed); its bar reads pass through unchanged.
+
+All switches default to `BRIDGE`. Readers never fall back to the bridge: missing or stale data
+raises exactly like a failed bridge read.
