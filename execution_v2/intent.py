@@ -121,7 +121,8 @@ def _compute_volume(record: dict[str, Any], risk_policy: RiskPolicy) -> float:
 def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_policy: RiskPolicy,
                             now_utc: datetime, claimed_entry_signal_hash: str | None = None,
                             risk_context_provider: Any | None = None,
-                            blocked_reason: str | None = None) -> IntentResult:
+                            blocked_reason: str | None = None,
+                            risk_gate: Any | None = None) -> IntentResult:
     with transaction(conn):
         record = _load_entry_signal(conn, signal_id)
         if record is None:
@@ -143,7 +144,21 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
         risk_fraction = None
         risk_context = None
         risk_decision = None
-        if not blocked_reason and eligibility.eligible and risk_policy.risk_per_trade > 0:
+        diagnostics: dict[str, Any] = {}
+        reserved_here = False
+        if not blocked_reason and eligibility.eligible and risk_policy.risk_per_trade > 0 and risk_gate is not None:
+            # RISK_CONTEXT_SOURCE=REDIS: cached snapshot + atomic reservation, no broker reads.
+            gate_result = risk_gate.evaluate_and_reserve(record, policy=risk_policy, account_id=account_id,
+                                                         intent_id=intent_id, now_utc=now_utc)
+            risk_context, risk_decision = gate_result.context, gate_result.decision
+            diagnostics, reserved_here = gate_result.diagnostics, gate_result.reserved
+            if not risk_decision.permitted:
+                eligibility = EligibilityResult(False, risk_decision.reason)
+                status = "BLOCKED"
+            else:
+                volume = float(risk_decision.volume)
+                risk_fraction = risk_policy.risk_per_trade
+        elif not blocked_reason and eligibility.eligible and risk_policy.risk_per_trade > 0:
             if risk_context_provider is None:
                 eligibility = EligibilityResult(False, "RISK_STATE_UNAVAILABLE")
                 status = "BLOCKED"
@@ -192,10 +207,15 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
             inserted = cur.fetchone()
 
         if inserted is None:
+            if reserved_here:
+                # This evaluation reserved capacity for an intent that already existed; the
+                # original evaluation owns that intent's lifecycle, so give the capacity back.
+                risk_gate.store.release_before_submit(intent_id, "DUPLICATE_EVALUATION")
             return IntentResult(status="DUPLICATE", execution_intent_id=intent_id,
                                 eligible=eligibility.eligible, reason=eligibility.reason)
 
-        if risk_context is not None:
+        if risk_context is not None or diagnostics:
+            risk_context = risk_context or {}
             evidence = {
                 "execution_intent_id": intent_id,
                 "policy_version": risk_policy.version,
@@ -242,7 +262,7 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                                 evidence["estimated_loss_usd"], evidence["daily_loss_used"], evidence["concurrent_positions_used"],
                                 evidence["concurrent_orders_used"], evidence["signal_age_seconds"], evidence["max_signal_age_seconds"],
                                 evidence["canary_consumed"], evidence["canary_max"], evidence["decision_reason"],
-                                json.dumps({})))
+                                json.dumps(diagnostics, sort_keys=True, default=str)))
                     cur.execute("RELEASE SAVEPOINT execution_risk_evidence")
             except Exception:
                 try:

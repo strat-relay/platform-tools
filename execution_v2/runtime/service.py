@@ -196,13 +196,26 @@ async def main_async() -> None:
         broker_symbol = resolve_broker_symbol(record["instrument"], account_id=config.account_id,
                                               mode=config.bridge_mode, catalog_lookup=symbol_lookup)
         return bridge.read_risk_context(broker_symbol=broker_symbol)
+    risk_gate = None
+    if config.risk_context_source == "REDIS":
+        # Cached risk state: no read-bridge calls on the execution path (execution_v2/risk_state).
+        import redis
+        from ..risk_state.gate import CachedRiskGate, FreshnessPolicy
+        from ..risk_state.snapshot import account_ref
+        from ..risk_state.store import RedisRiskStateStore
+        store = RedisRiskStateStore(redis.Redis.from_url(config.risk_redis_url, socket_timeout=2.0),
+                                    account_ref(config.account_id))
+        risk_gate = CachedRiskGate(store, freshness=FreshnessPolicy.from_env(),
+                                   broker_symbol_for=lambda canonical: resolve_broker_symbol(
+                                       canonical, account_id=config.account_id, mode=config.bridge_mode,
+                                       catalog_lookup=symbol_lookup))
     worker = ExecutionWorker(conn, fence_authority=fence_authority, bridge=bridge,
                              holder_instance_id=config.holder_instance_id, account_id=config.account_id,
                              mode=config.bridge_mode, risk_policy=risk_policy,
-                             risk_context_provider=risk_context_provider,
+                             risk_context_provider=None if risk_gate is not None else risk_context_provider,
                              risk_policy_provider=risk_policy_provider,
                              authority_provider=authority_provider,
-                             broker_symbol_lookup=symbol_lookup)
+                             broker_symbol_lookup=symbol_lookup, risk_gate=risk_gate)
     consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode,
                                        authority_provider=authority_provider)
 
@@ -211,6 +224,7 @@ async def main_async() -> None:
     ctx = RuntimeContext(conn=conn, js=js, config=config, health=health, consumer=consumer,
                          status_metadata={
                              "execution_authority_mode": authority_provider(),
+                             "risk_context_source": config.risk_context_source,
                              "account_id": config.account_id,
                              "canary_environment": config.bridge_mode,
                              "canary_account_id": config.account_id,

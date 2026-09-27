@@ -32,6 +32,8 @@ jobs:
             requirements-postgres.txt
             requirements-messaging.txt
             requirements-realtime.txt
+            requirements-risk-state.txt
+            requirements-test.txt
 
       - name: Install dependencies (union of every image's requirements)
         # --no-cache-dir is for the Dockerfiles (final image size) - it never belongs here: it
@@ -42,7 +44,9 @@ jobs:
           pip install --disable-pip-version-check \
             -r requirements-postgres.txt \
             -r requirements-messaging.txt \
-            -r requirements-realtime.txt
+            -r requirements-realtime.txt \
+            -r requirements-risk-state.txt \
+            -r requirements-test.txt
 
       - name: Run tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
