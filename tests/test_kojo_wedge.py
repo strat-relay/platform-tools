@@ -143,6 +143,51 @@ def test_wick_breakout_does_not_emit_signal() -> None:
     assert not [item for item in result if isinstance(item, EntrySignal)]
 
 
+def test_successful_entry_consumes_candidate_and_blocks_later_breakouts() -> None:
+    events = list(wedge_events())
+    # Keep the original wedge recognizable and cross its boundary repeatedly
+    # after the one valid next-bar entry.
+    events.extend((
+        bar(10, 124, 126, 120, 124),
+        bar(11, 124, 126, 120, 124),
+        bar(12, 124, 126, 120, 124),
+    ))
+    evaluator, result = outputs(tuple(events[:10]))
+    signals = [item for item in result if isinstance(item, EntrySignal)]
+
+    assert len(signals) == 1
+    assert len({item.provenance["candidate_id"] for item in signals}) == 1
+    assert evaluator.candidate is None
+    assert signals[0].provenance["candidate_id"] in evaluator.consumed_candidate_ids
+
+    snapshot = evaluator.snapshot_state()
+    restored = KojoWedgeEvaluator()
+    restored.initialize(strategy(), params())
+    restored.restore_state(snapshot)
+    resumed = []
+    for event in events[10:]:
+        resumed.extend(restored.consume_market_event(event))
+    assert not [item for item in resumed if isinstance(item, EntrySignal)]
+
+
+def test_new_wedge_can_signal_after_prior_candidate_consumed() -> None:
+    # Continue the same evaluator with a later, genuinely new wedge. The
+    # consumed identity is not a global one-entry limit.
+    events = list(wedge_events())
+    for index in range(10, 20):
+        events.append(bar(index, 100, 101, 99, 100))
+    for index, event in enumerate(rising_wedge_events(), 20):
+        events.append(bar(index, event.open, event.high, event.low, event.close))
+
+    evaluator, result = outputs(tuple(events))
+    signals = [item for item in result if isinstance(item, EntrySignal)]
+    candidate_ids = [item.provenance["candidate_id"] for item in signals]
+
+    assert len(signals) == 2
+    assert len(set(candidate_ids)) == 2
+    assert all(candidate_id in evaluator.consumed_candidate_ids for candidate_id in candidate_ids)
+
+
 def test_diagnostic_artifact_is_persisted_for_signal() -> None:
     _, result = outputs(wedge_events())
     signal = next(item for item in result if isinstance(item, EntrySignal))
@@ -209,6 +254,12 @@ class KojoWedgeTests(unittest.TestCase):
 
     def test_wick_breakout_does_not_emit_signal(self) -> None:
         test_wick_breakout_does_not_emit_signal()
+
+    def test_successful_entry_consumes_candidate_and_blocks_later_breakouts(self) -> None:
+        test_successful_entry_consumes_candidate_and_blocks_later_breakouts()
+
+    def test_new_wedge_can_signal_after_prior_candidate_consumed(self) -> None:
+        test_new_wedge_can_signal_after_prior_candidate_consumed()
 
     def test_diagnostic_artifact_is_persisted_for_signal(self) -> None:
         test_diagnostic_artifact_is_persisted_for_signal()
