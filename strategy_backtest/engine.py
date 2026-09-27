@@ -42,7 +42,6 @@ class BacktestEngine:
         signals: list[EntrySignal] = []
         last_event = None
         for event in feed:
-            execution.consume(event)
             for output in evaluator.consume_market_event(event):
                 if isinstance(output, SetupLifecycleEvent):
                     setups.append(output)
@@ -51,6 +50,11 @@ class BacktestEngine:
                     execution.submit(output)
                 else:
                     raise TypeError(f"unsupported evaluator output: {type(output).__name__}")
+            # Submit decisions before consuming the current bar. The execution
+            # model still enforces causality using decision_timestamp: a signal
+            # decided on this bar's close cannot fill until the next open, while
+            # an evaluator that waited for that next open can fill it here.
+            execution.consume(event)
             last_event = event
         execution.finalize(last_event)
         metrics = calculate_metrics(signals, execution.outcomes)
