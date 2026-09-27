@@ -18,6 +18,29 @@ class ExecutionSymbolMappingTests(unittest.TestCase):
             with self.assertRaises(SymbolMappingError):
                 resolve_broker_symbol("XAUUSD", account_id="ACC1", mode="real")
 
+    def test_account_map_wins_and_the_catalog_fills_the_gaps(self):
+        mapping = {"real:ACC1": {"XAUUSD": "XAUUSD.pro"}}
+        catalog = {"XAUUSD": "XAUUSDm", "ETHUSD": "ETHUSDm"}.get
+        with mock.patch.dict(os.environ, {"V2_BROKER_SYMBOL_MAP_JSON": json.dumps(mapping)}, clear=False):
+            self.assertEqual(resolve_broker_symbol("XAUUSD", account_id="ACC1", mode="real", catalog_lookup=catalog),
+                             "XAUUSD.pro")
+            self.assertEqual(resolve_broker_symbol("ETHUSD", account_id="ACC1", mode="real", catalog_lookup=catalog),
+                             "ETHUSDm")
+            with self.assertRaises(SymbolMappingError):
+                resolve_broker_symbol("ADAUSD", account_id="ACC1", mode="real", catalog_lookup=catalog)
+
+    def test_the_catalog_never_replaces_a_missing_account_binding(self):
+        with mock.patch.dict(os.environ, {"V2_BROKER_SYMBOL_MAP_JSON": json.dumps({"real:OTHER": {"X": "Y"}})}, clear=False):
+            with self.assertRaises(SymbolMappingError):
+                resolve_broker_symbol("ETHUSD", account_id="ACC1", mode="real", catalog_lookup=lambda _: "ETHUSDm")
+
+    def test_catalog_lookup_fails_closed_on_a_read_error(self):
+        from execution_v2.symbols import catalog_symbol_lookup
+
+        def broken(readonly=False):
+            raise RuntimeError("db down")
+        self.assertIsNone(catalog_symbol_lookup(broken)("ETHUSD"))
+
     def test_canonical_wire_fingerprint_is_stable_for_numeric_spelling(self):
         base = {"schema_version": 1, "action": 1, "magic": 0, "symbol": "XAUUSDm",
                 "volume": 0.01, "price": 4320.0, "sl": 4300.0, "tp": 4400.0,

@@ -132,6 +132,13 @@ class V2RiskExecutionApi:
                      "status": "ACTIVE", "degraded": False, "read_only": False,
                      "data": window, "unavailable": []}
 
+    def _provider_symbol(self, canonical: str) -> str | None:
+        with self._connect(readonly=True) as conn, conn.cursor() as cur:
+            cur.execute("""SELECT provider_symbol FROM platform.instrument_provider_mapping
+                           WHERE provider = 'MT5' AND canonical_instrument = %s AND state = 'ACTIVE'""", (canonical,))
+            row = cur.fetchone()
+        return row[0] if row else None
+
     def save(self, body_bytes: bytes | None) -> tuple[int, dict[str, Any]]:
         # 400 responses here deliberately never set "degraded": true - that field means "a
         # backend source is unavailable", not "the request you sent was invalid". Matches the
@@ -173,6 +180,21 @@ class V2RiskExecutionApi:
         }
         merged.update(_wire_to_raw(submitted))
         merged["allowed_accounts"] = list(current.allowed_accounts)  # never operator-editable here
+        if isinstance(merged.get("allowed_symbols"), list):
+            merged["allowed_symbols"] = [s.strip().upper() if isinstance(s, str) else s for s in merged["allowed_symbols"]]
+            added = sorted({s for s in merged["allowed_symbols"] if isinstance(s, str)}
+                           - set(current.allowed_symbols or ()))
+            try:
+                untradable = [s for s in added if self._provider_symbol(s) is None]
+            except Exception as exc:  # noqa: BLE001
+                return 503, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
+                             "degraded": True, "error": "INSTRUMENT_CATALOG_UNAVAILABLE", "message": str(exc),
+                             "unavailable": []}
+            if untradable:
+                return 400, {"api_version": "v1", "source": "execution_v2_risk_policy", "status": "UNAVAILABLE",
+                             "error": "SYMBOL_NOT_TRADABLE",
+                             "message": f"no active MT5 provider mapping for {', '.join(untradable)}; "
+                                        "live execution could not resolve a broker symbol"}
 
         expected_revision = submitted.get("revision")
         if expected_revision is None:

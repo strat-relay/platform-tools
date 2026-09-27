@@ -26,7 +26,7 @@ from ..risk import RiskPolicy
 from ..risk_policy_store import read_effective_policy
 from ..authority_store import read_authority
 from ..worker import ExecutionWorker
-from ..symbols import resolve_broker_symbol
+from ..symbols import catalog_symbol_lookup, resolve_broker_symbol
 from .bridge_client import HttpBridgeFenceClient
 from .config import CONSUMER_NAME, STREAM, SUBJECT, RuntimeConfig
 from .consumer import ExecutionSignalConsumer
@@ -190,16 +190,19 @@ async def main_async() -> None:
     def risk_policy_provider() -> RiskPolicy:
         policy, _source = read_effective_policy(policy_connect)
         return policy
+    # Symbols outside the account map resolve through the canonical provider mapping (027).
+    symbol_lookup = catalog_symbol_lookup(policy_connect)
     def risk_context_provider(record: dict[str, Any]) -> dict[str, Any]:
         broker_symbol = resolve_broker_symbol(record["instrument"], account_id=config.account_id,
-                                              mode=config.bridge_mode)
+                                              mode=config.bridge_mode, catalog_lookup=symbol_lookup)
         return bridge.read_risk_context(broker_symbol=broker_symbol)
     worker = ExecutionWorker(conn, fence_authority=fence_authority, bridge=bridge,
                              holder_instance_id=config.holder_instance_id, account_id=config.account_id,
                              mode=config.bridge_mode, risk_policy=risk_policy,
                              risk_context_provider=risk_context_provider,
                              risk_policy_provider=risk_policy_provider,
-                             authority_provider=authority_provider)
+                             authority_provider=authority_provider,
+                             broker_symbol_lookup=symbol_lookup)
     consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode,
                                        authority_provider=authority_provider)
 

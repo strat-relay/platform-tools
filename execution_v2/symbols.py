@@ -2,13 +2,18 @@
 
 The execution database stores canonical instruments.  The final MT5 request must use the
 broker/account symbol selected by configuration; no suffix convention is inferred here.
+
+Resolution order: the account's explicit V2_BROKER_SYMBOL_MAP_JSON entry, then (when a catalog
+lookup is supplied) the canonical ACTIVE MT5 provider mapping in platform.instrument_provider_mapping
+(migration 027, probed from the broker). The account map still has to exist - it binds the
+execution account - and any symbol it names always wins over the catalog.
 """
 from __future__ import annotations
 
 import json
 import hashlib
 import os
-from typing import Any
+from typing import Any, Callable
 
 
 class SymbolMappingError(RuntimeError):
@@ -35,15 +40,36 @@ def _mapping_for(*, account_id: str, mode: str) -> dict[str, str]:
     return dict(selected)
 
 
-def resolve_broker_symbol(canonical_symbol: str, *, account_id: str, mode: str) -> str:
+CatalogLookup = Callable[[str], "str | None"]
+
+
+def resolve_broker_symbol(canonical_symbol: str, *, account_id: str, mode: str,
+                          catalog_lookup: CatalogLookup | None = None) -> str:
     mapping = _mapping_for(account_id=account_id, mode=mode)
-    try:
+    if canonical_symbol in mapping:
         return mapping[canonical_symbol]
-    except KeyError as exc:
-        raise SymbolMappingError(
-            f"no broker symbol mapping for canonical instrument {canonical_symbol!r} "
-            f"on {mode}:{account_id}"
-        ) from exc
+    provider_symbol = catalog_lookup(canonical_symbol) if catalog_lookup is not None else None
+    if isinstance(provider_symbol, str) and provider_symbol:
+        return provider_symbol
+    raise SymbolMappingError(
+        f"no broker symbol mapping for canonical instrument {canonical_symbol!r} "
+        f"on {mode}:{account_id}")
+
+
+def catalog_symbol_lookup(connect_fn: Callable[..., Any]) -> CatalogLookup:
+    """Read the ACTIVE MT5 provider symbol for a canonical instrument (read-only, per call).
+    A read failure resolves to None, which blocks the execution as an unmapped symbol."""
+    def lookup(canonical_symbol: str) -> str | None:
+        try:
+            with connect_fn(readonly=True) as conn, conn.cursor() as cur:
+                cur.execute("""SELECT provider_symbol FROM platform.instrument_provider_mapping
+                               WHERE provider = 'MT5' AND canonical_instrument = %s AND state = 'ACTIVE'""",
+                            (canonical_symbol,))
+                row = cur.fetchone()
+            return row[0] if row else None
+        except Exception:  # noqa: BLE001 - fail closed: unmapped
+            return None
+    return lookup
 
 
 def correlation_comment(attempt_id: str) -> str:

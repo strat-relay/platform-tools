@@ -75,7 +75,8 @@ class ExecutionWorker:
                  holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
                  risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
                  risk_policy_provider: Callable[[], RiskPolicy] | None = None,
-                 authority_provider: Callable[[], str] | None = None) -> None:
+                 authority_provider: Callable[[], str] | None = None,
+                 broker_symbol_lookup: Callable[[str], str | None] | None = None) -> None:
         if mode not in ("demo", "real"):
             raise ValueError("mode must be 'demo' or 'real'")
         self.conn = conn
@@ -88,6 +89,7 @@ class ExecutionWorker:
         self.risk_policy_provider = risk_policy_provider
         self.authority_provider = authority_provider
         self.risk_context_provider = risk_context_provider
+        self.broker_symbol_lookup = broker_symbol_lookup
         self.resource = f"execution:{mode}:{account_id}"
 
     def _read_generation(self) -> int:
@@ -247,7 +249,8 @@ class ExecutionWorker:
         # Resolve the canonical instrument before claiming an execution attempt.  A missing
         # account-specific broker mapping is a deterministic configuration block, never a
         # partially claimed attempt or a guessed suffix.
-        broker_symbol = resolve_broker_symbol(intent["instrument"], account_id=self.account_id, mode=self.mode)
+        broker_symbol = resolve_broker_symbol(intent["instrument"], account_id=self.account_id, mode=self.mode,
+                                              catalog_lookup=self.broker_symbol_lookup)
         order_args = {
             "schema_version": 1, "action": 1, "magic": 0, "symbol": broker_symbol,
             "volume": float(intent["approved_volume"]),
