@@ -31,6 +31,7 @@ from strategy_backtest.models import CostModel, MarketEvent, fingerprint  # noqa
 from strategy_backtest.registry import StrategyEvaluatorRegistry  # noqa: E402
 import strategy_backtest.raw_ohlc_adapters as raw_adapters  # noqa: E402
 from context_structure_retrace.data import CausalReplay  # noqa: E402
+from research.context_replay_optimized import OptimizedContextRawOhlcEvaluator  # noqa: E402
 
 
 DATA_ROOT = ROOT.parent / "artifacts/research/multitimeframe_structure_sniper/paged_native_full"
@@ -164,7 +165,7 @@ def _run_instrument(strategy: Any, parameter_set: Any, instrument: str) -> Any:
     raw_adapters._replay = _fast_replay_factory(events)
     try:
         registry = StrategyEvaluatorRegistry()
-        registry.register(strategy.evaluator_key, raw_adapters.ContextRawOhlcEvaluator)
+        registry.register(strategy.evaluator_key, OptimizedContextRawOhlcEvaluator)
         feed = HistoricalMarketFeed(events, f"context-qualified-native-m5-{instrument}", partition="DISCOVERY")
         # The generic cost model cannot apply a per-bar spread.  Spread is still
         # present in the adapter quote/geometry; the engine cost is explicitly

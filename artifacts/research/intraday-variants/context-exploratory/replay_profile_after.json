@@ -1,0 +1,13 @@
+{
+  "schema": "research.context_replay_profile.v1",
+  "implementation": "research OptimizedContextRawOhlcEvaluator no-pattern fast path plus causal replay cache",
+  "window": "EURUSD first 240 discovery-only M5 bars",
+  "bars_processed": 240,
+  "runtime_seconds": 1.6430065350141376,
+  "peak_rss_kb": 54276096,
+  "candidate_evaluations_per_second": 12.172,
+  "speedup": 2.4152769946099433,
+  "memory_note": "same-process ru_maxrss is an upper bound, not an isolated old/new peak",
+  "full_run_status": "RESOURCE_BOUND_BEFORE_RESULT",
+  "validation_outcomes_accessed": false
+}

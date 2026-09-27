@@ -1,0 +1,39 @@
+{
+  "benchmark": {
+    "new_peak_rss_self_process_kb": 54276096,
+    "new_runtime_seconds": 1.6430065350141376,
+    "old_peak_rss_self_process_kb": 54276096,
+    "old_runtime_seconds": 3.9683158860134427,
+    "rss_note": "same-process ru_maxrss is an upper bound, not an isolated old/new peak",
+    "speedup": 2.4152769946099433,
+    "window_bars": 240
+  },
+  "broker_writes": 0,
+  "golden_equivalence_pass": true,
+  "optimized_output_counts": {
+    "outcomes": 21,
+    "setups": 58,
+    "signals": 21
+  },
+  "production_changed": false,
+  "raw_deterministic_rerun_pass": true,
+  "raw_historical_live_parity_pass": true,
+  "raw_no_lookahead_pass": true,
+  "raw_prefix_invariance_pass": true,
+  "raw_restart_parity_pass": true,
+  "validation_outcomes_accessed": false,
+  "windows": {
+    "later_activity": {
+      "bars": 240,
+      "exact_equal": true
+    },
+    "missing_bar": {
+      "bars": 239,
+      "exact_equal": true
+    },
+    "normal_activity": {
+      "bars": 240,
+      "exact_equal": true
+    }
+  }
+}

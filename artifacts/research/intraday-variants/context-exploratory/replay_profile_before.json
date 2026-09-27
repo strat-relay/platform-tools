@@ -1,0 +1,18 @@
+{
+  "schema": "research.context_replay_profile.v1",
+  "implementation": "committed ContextRawOhlcEvaluator before research fast-path",
+  "window": "EURUSD first 240 discovery-only M5 bars",
+  "bars_processed": 240,
+  "runtime_seconds": 3.9683158860134427,
+  "peak_rss_kb": 54276096,
+  "candidate_evaluations_per_second": 5.289,
+  "primary_bottleneck": "feature_snapshot",
+  "primary_bottleneck_measurement": "1.6534447660087608 seconds for one 700-bar replay snapshot",
+  "secondary_bottlenecks": [
+    "repeated causal replay construction",
+    "structure/channel scans inside feature_snapshot",
+    "completed M15 pattern evaluation at every M15 boundary"
+  ],
+  "full_run_status": "RESOURCE_BOUND_BEFORE_RESULT",
+  "validation_outcomes_accessed": false
+}
