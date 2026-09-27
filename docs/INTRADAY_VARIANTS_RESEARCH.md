@@ -53,12 +53,17 @@ research-hypothesis, or operational.
 
 ## Adapter boundary
 
-The generic backtest core is available, but neither parent currently exposes a
-complete evaluator implementing the same `HistoricalMarketFeed` /
-`LiveMarketFeed` contract. The catalog therefore records
-`ADAPTER_REQUIRED`; it does not duplicate parent logic or claim backtest/live
-parity. The next implementation step is a reviewed parent adapter, followed by
-no-lookahead, prefix-invariance, deterministic rerun, identity, completion,
-and restart/state-reconstruction tests.
+The generic backtest core now has one deterministic UTC multi-timeframe
+aggregator, a restorable completed-candle state, registered adapter keys, and
+semantic-fixture adapters. Historical and live fixture inputs use the same
+evaluator and pass parity, identity, no-lookahead, completion, and restart
+tests.
+
+The parent runners still do not expose complete raw-OHLC evaluators implementing
+the same `HistoricalMarketFeed` / `LiveMarketFeed` contract. The fixture
+adapter therefore consumes explicit parent-stage evidence and deliberately does
+not infer stages from OHLC. This is a precise remaining adapter gap, not a
+reason to duplicate or invent parent strategy logic. Discovery backtesting is
+not yet ready until those raw-OHLC parent adapters are reviewed.
 
 This is intentionally not a parameter search and not a production activation.

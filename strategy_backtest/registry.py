@@ -35,6 +35,8 @@ def register_builtin_evaluators(registry: StrategyEvaluatorRegistry) -> Strategy
     """Register research evaluators without creating any production strategy state."""
     from .kojo_wedge import EVALUATOR_KEY, KojoWedgeEvaluator
     registry.register(EVALUATOR_KEY, KojoWedgeEvaluator)
+    from .intraday_adapters import register_intraday_evaluators
+    register_intraday_evaluators(registry)
     return registry
 
 

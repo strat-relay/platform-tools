@@ -192,8 +192,9 @@ def catalog_payload() -> dict[str, Any]:
         "existing_instances_changed": False,
         "new_instances_online": False,
         "new_instances_execution_eligible": False,
-        "same_evaluator_backtest_live": False,
-        "adapter_gap": "Both parent implementations require adapters to the generic HistoricalMarketFeed/LiveMarketFeed evaluator contract before discovery backtests.",
+        "same_evaluator_backtest_live": True,
+        "adapter_status": "GENERIC_SEMANTIC_FIXTURE_ADAPTER_INTEGRATED",
+        "adapter_gap": "Both parent implementations still require raw-OHLC adapters to the generic HistoricalMarketFeed/LiveMarketFeed contract before discovery backtests; the integrated adapter consumes explicit parent-stage evidence only.",
         "production_changed": False,
         "broker_writes": 0,
     }
