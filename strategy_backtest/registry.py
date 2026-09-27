@@ -31,6 +31,13 @@ class StrategyEvaluatorRegistry:
             raise KeyError(f"no evaluator registered for {strategy_version.evaluator_key}") from exc
 
 
+def register_builtin_evaluators(registry: StrategyEvaluatorRegistry) -> StrategyEvaluatorRegistry:
+    """Register research evaluators without creating any production strategy state."""
+    from .kojo_wedge import EVALUATOR_KEY, KojoWedgeEvaluator
+    registry.register(EVALUATOR_KEY, KojoWedgeEvaluator)
+    return registry
+
+
 class ParameterSetCatalog:
     """Additive research catalog; authoritative use freezes an id to one fingerprint."""
 
