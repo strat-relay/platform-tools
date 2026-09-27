@@ -1,0 +1,20 @@
+{
+  "purpose": "KOJO_STRUCTURE_FIB_SOURCE_FIXTURE_RECOVERY",
+  "provider": "OANDA",
+  "symbol": "XAUUSD",
+  "timeframe": "H1",
+  "requested_start": "2025-12-03T00:00:00Z",
+  "requested_end": "2025-12-12T23:59:59Z",
+  "actual_start": "2025-12-03T00:00:00Z",
+  "actual_end": "2025-12-12T21:00:00Z",
+  "bar_count": 183,
+  "acquired_via": "TradingView Desktop MCP",
+  "timezone": "UTC",
+  "raw_fixture": "raw_provider_response.json",
+  "raw_fixture_sha256": "123ecfb7cbcc2c331c2474a2cc750a535add9ebc355b277317fdd4bb1181340c",
+  "canonical_fixture": "canonical_bars.v1.json",
+  "canonical_fixture_sha256": "fbb5ec907c8f6bd979e49012eea0510ba06dcc50fa00916f8776500d91de8af9",
+  "legacy_expected_sha256": "2139eae368a262db90e79a14e9d9fe8253d696a1cf2691c4b2be03f0099c2a21",
+  "legacy_normalization_contract_found": false,
+  "data_recovery_class": "B"
+}
