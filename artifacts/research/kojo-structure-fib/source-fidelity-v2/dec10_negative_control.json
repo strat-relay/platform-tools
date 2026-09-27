@@ -1,0 +1,17 @@
+{
+  "classification": "RESEARCH_HYPOTHESIS",
+  "bar": "2025-12-10T13:00:00Z",
+  "ohlc": {
+    "timestamp": "2025-12-10T13:00:00Z",
+    "open": "4196.565",
+    "high": "4205.230",
+    "low": "4193.220",
+    "close": "4200.745"
+  },
+  "structure_third_touch": "UNRESOLVED",
+  "fib_confluence": "UNRESOLVED",
+  "bullish_engulfing": "UNRESOLVED",
+  "would_look_valid_under_current_known_source": "UNRESOLVED",
+  "earliest_divergence": "The source materials do not define enough mechanics to distinguish Dec 10 from Dec 11 without inventing a filter.",
+  "source_supports_divergence_filter": false
+}

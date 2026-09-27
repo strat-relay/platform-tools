@@ -1,0 +1,74 @@
+{
+  "classification": "STANDARD_MECHANICAL_DEFINITION",
+  "candidates": [
+    {
+      "timestamp": "2025-12-11T05:00:00Z",
+      "previous_timestamp": "2025-12-11T04:00:00Z",
+      "previous_body": [
+        "4216.820",
+        "4213.525"
+      ],
+      "current_body": [
+        "4213.405",
+        "4207.350"
+      ],
+      "strict_body_engulf": false,
+      "feed_tolerant_body_0_005_engulf": false,
+      "full_range_engulf": false,
+      "classification": "STANDARD_MECHANICAL_DEFINITION",
+      "note": "Definitions are diagnostic conventions, not source-confirmed semantics."
+    },
+    {
+      "timestamp": "2025-12-11T06:00:00Z",
+      "previous_timestamp": "2025-12-11T05:00:00Z",
+      "previous_body": [
+        "4213.405",
+        "4207.350"
+      ],
+      "current_body": [
+        "4207.355",
+        "4214.725"
+      ],
+      "strict_body_engulf": false,
+      "feed_tolerant_body_0_005_engulf": true,
+      "full_range_engulf": false,
+      "classification": "STANDARD_MECHANICAL_DEFINITION",
+      "note": "Definitions are diagnostic conventions, not source-confirmed semantics."
+    },
+    {
+      "timestamp": "2025-12-11T11:00:00Z",
+      "previous_timestamp": "2025-12-11T10:00:00Z",
+      "previous_body": [
+        "4218.510",
+        "4217.035"
+      ],
+      "current_body": [
+        "4217.060",
+        "4211.190"
+      ],
+      "strict_body_engulf": false,
+      "feed_tolerant_body_0_005_engulf": false,
+      "full_range_engulf": false,
+      "classification": "STANDARD_MECHANICAL_DEFINITION",
+      "note": "Definitions are diagnostic conventions, not source-confirmed semantics."
+    },
+    {
+      "timestamp": "2025-12-11T12:00:00Z",
+      "previous_timestamp": "2025-12-11T11:00:00Z",
+      "previous_body": [
+        "4217.060",
+        "4211.190"
+      ],
+      "current_body": [
+        "4211.195",
+        "4220.565"
+      ],
+      "strict_body_engulf": false,
+      "feed_tolerant_body_0_005_engulf": true,
+      "full_range_engulf": true,
+      "classification": "STANDARD_MECHANICAL_DEFINITION",
+      "note": "Definitions are diagnostic conventions, not source-confirmed semantics."
+    }
+  ],
+  "definition_unique_from_source": false
+}
