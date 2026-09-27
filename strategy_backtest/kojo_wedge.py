@@ -234,6 +234,13 @@ class KojoWedgeEvaluator:
                 provenance = {"candidate_id": candidate["candidate_id"], "pivots": candidate["pivots"], "upper": candidate["upper"], "lower": candidate["lower"], "wedge_start_index": candidate["wedge_start_index"], "wedge_end_index": candidate["wedge_end_index"], "start_width": candidate["start_width"], "end_width": candidate["end_width"], "convergence": candidate["convergence"], "breakout_candle": _event_evidence(self.events[candidate["breakout_index"]]), "entry_candle": _event_evidence(self.events[index]), "stop_anchor": stop_anchor.payload(), "target_anchor": target_anchor.payload(), "strategy_version": self.strategy_version.strategy_version_id, "parameter_set_fingerprint": self.parameters.fingerprint, "available_through": self.events[index]["close_timestamp"], "timeframe": TIMEFRAME}
                 candidate["state"] = "ENTERED"
                 outputs.append(self._lifecycle(candidate, "ENTERED", index, entry=entry, stop=stop, target=target))
+                # A successful next-bar entry consumes the economic wedge
+                # opportunity.  Keep the identity in restorable state and
+                # clear the active candidate so later boundary crossings
+                # cannot chase the same wedge.
+                candidate["state"] = "CONSUMED"
+                self.consumed_candidate_ids.add(candidate["candidate_id"])
+                self.candidate = None
                 outputs.append(EntrySignal(signal_id, self.strategy_version.strategy_version_id, INSTRUMENT, candidate["direction"], entry, stop, target, int(self.events[candidate["breakout_index"]]["close_timestamp"]), provenance=provenance))
                 return tuple(outputs)
             if index > candidate["breakout_index"] + 1:

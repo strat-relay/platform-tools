@@ -14,6 +14,7 @@ from liquidity_live_runtime import build_runtime
 from liquidity_market_data import build_liquidity_market_data
 from postgres.config import PostgresConfig
 from postgres.db import connect
+from observability.strategy_audit import audit, configure_strategy_audit_logging
 
 
 def _required(name: str) -> str:
@@ -40,6 +41,8 @@ def run_once() -> dict[str, Any]:
 
 
 def main() -> None:
+    configure_strategy_audit_logging()
+    audit("runner_started", runner="liquidity-live", broker_writes=0)
     interval = max(1.0, float(os.environ.get("LIQUIDITY_LIVE_POLL_SECONDS", "5")))
     while True:
         run_once()
