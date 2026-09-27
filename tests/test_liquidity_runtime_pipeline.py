@@ -9,9 +9,12 @@ from liquidity_market_data import LiveMarketSnapshot
 class Cursor:
     def __init__(self, rows):
         self.rows = rows
+        self.sqls = []
     def __enter__(self): return self
     def __exit__(self, *args): return False
-    def execute(self, sql, params=None): self.sql = sql
+    def execute(self, sql, params=None):
+        self.sql = sql
+        self.sqls.append(sql)
     def fetchall(self):
         return [] if "entry_signal_outcomes" in self.sql else self.rows
 
@@ -48,6 +51,9 @@ class LiquidityRuntimePipelineTests(unittest.TestCase):
         self.assertEqual(result["published"], [publisher.signals[0].signal_id])
         self.assertEqual(publisher.signals[0].symbol, "XAUUSD.pro")
         self.assertEqual(conn.commits, 1)
+        self.assertTrue(any("entry_signal_outcomes" in sql and
+                            "instrument_provider_mapping" in sql
+                            for sql in conn.cursor_obj.sqls))
 
 
 if __name__ == "__main__":
