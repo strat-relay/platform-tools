@@ -24,12 +24,20 @@ def _required(name: str) -> str:
     return value
 
 
-def run_once() -> dict[str, Any]:
+def check_configuration() -> None:
+    """Configuration errors stop the process (fail closed); they are checked before the loop."""
     if os.environ.get("LIQUIDITY_LIVE_RUNTIME_ENABLED", "false").lower() != "true":
         raise RuntimeError("Liquidity live runtime is disabled")
     mcp_url = _required("LIQUIDITY_LIVE_MCP_URL")
     if ":22348" in mcp_url:
         raise RuntimeError("Liquidity live runtime accepts read-only bridge 22347, never 22348")
+    _required("SIGNAL_CUTOFF_ID")
+    _required("SIGNAL_CUTOFF_UTC")
+
+
+def run_once() -> dict[str, Any]:
+    check_configuration()
+    mcp_url = _required("LIQUIDITY_LIVE_MCP_URL")
     cutoff_id = _required("SIGNAL_CUTOFF_ID")
     cutoff_utc = _required("SIGNAL_CUTOFF_UTC")
     market_data = build_liquidity_market_data(mcp_url)
@@ -44,9 +52,19 @@ def main() -> None:
     configure_strategy_audit_logging()
     audit("runner_started", runner="liquidity-live", broker_writes=0)
     interval = max(1.0, float(os.environ.get("LIQUIDITY_LIVE_POLL_SECONDS", "5")))
+    check_configuration()
+    failures = 0
     while True:
-        run_once()
-        time.sleep(interval)
+        # One failed cycle (a bridge/cache timeout, a transient database error) must not kill the
+        # process: nothing is published from a failed tick, and the next tick starts clean.
+        try:
+            run_once()
+            failures = 0
+        except Exception as exc:  # noqa: BLE001
+            failures += 1
+            audit("tick_failed", runner="liquidity-live", error=f"{type(exc).__name__}: {exc}"[:300],
+                  consecutive_failures=failures)
+        time.sleep(interval * min(2 ** max(failures - 1, 0), 12))
 
 
 if __name__ == "__main__":
