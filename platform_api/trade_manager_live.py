@@ -146,9 +146,19 @@ class TradeManagerLiveProjection:
             "orders": "mt5_orders",
         }
         futures = {}
+        read = getattr(self.bridge_reader, "read", None)
+        observed: dict[str, float] = {}
+
+        def fetch(key: str, tool: str) -> Any:
+            if read is None:
+                return self.bridge_reader.call(tool)
+            data, at, _source = read(tool)
+            observed[key] = at
+            return data
+
         executor = ThreadPoolExecutor(max_workers=len(calls), thread_name_prefix="tm-live-read")
         try:
-            futures = {key: executor.submit(self.bridge_reader.call, tool)
+            futures = {key: executor.submit(fetch, key, tool)
                        for key, tool in calls.items()}
             timeout = max(float(getattr(self.bridge_reader, "timeout", 5.0)), 0.1)
             done, _ = wait(futures.values(), timeout=timeout)
@@ -173,6 +183,9 @@ class TradeManagerLiveProjection:
                 raise RuntimeError("broker account identity unavailable")
             if not isinstance(positions, list) or not isinstance(orders, list):
                 raise RuntimeError("malformed broker position/order read")
+            if len(observed) == len(calls):
+                # A cached view is as old as its oldest component read.
+                observed_at = datetime.fromtimestamp(min(observed.values()), timezone.utc)
         except Exception as exc:  # noqa: BLE001 - any failed read means broker truth is unknown
             return {"status": "UNAVAILABLE", "observed_at": _iso(observed_at), "reason": str(exc),
                     "account_id": None, "environment": None, "positions": None, "pending_orders": None}

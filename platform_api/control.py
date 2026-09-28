@@ -546,6 +546,18 @@ class PlatformControlApi:
             setting = getattr(self.repository, "runtime_setting_reader", None)
             bridge_reader = ReadOnlyBridgeReader(self.environ.get("MT5_BRIDGE_MCP_URL")
                                                  or (setting("mcp_url") if setting else None), timeout=timeout)
+            redis_url = self.environ.get("BROKER_VIEW_REDIS_URL", "").strip()
+            if redis_url:
+                # Broker state is served from the populator's Redis view (broker_view.service);
+                # the bridge is read only when that view is missing or stale.
+                import redis
+                from broker_view.reader import RedisFirstBridgeReader
+                from broker_view.store import BrokerViewStore
+                store = BrokerViewStore(redis.Redis.from_url(redis_url, socket_timeout=0.5,
+                                                             socket_connect_timeout=0.5))
+                bridge_reader = RedisFirstBridgeReader(
+                    store, bridge_reader, allowed_tools={name for name, _ in READ_ONLY_BROKER_TOOLS.values()},
+                    max_age_seconds=float(self.environ.get("BROKER_VIEW_MAX_AGE_SECONDS", "45")))
         self.bridge_reader = bridge_reader
         if v2_risk_api is None:
             from .v2_risk import V2RiskExecutionApi
@@ -927,8 +939,13 @@ class PlatformControlApi:
                     return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
                                            error="SOURCE_UNAVAILABLE", message="Read-only MT5 bridge resource is unavailable")
                 try:
-                    data = self.bridge_reader.call(tool, arguments)
-                    return 200, self._body(data, source="mt5_bridge_read_only")
+                    read = getattr(self.bridge_reader, "read", None)
+                    if read is None:
+                        return 200, self._body(self.bridge_reader.call(tool, arguments), source="mt5_bridge_read_only")
+                    data, observed_at, source = read(tool, arguments)
+                    body = self._body(data, source=source)
+                    body["observed_at"] = datetime.fromtimestamp(observed_at, timezone.utc).isoformat()
+                    return 200, body
                 except Exception as exc:
                     return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
                                            error="SOURCE_UNAVAILABLE",
