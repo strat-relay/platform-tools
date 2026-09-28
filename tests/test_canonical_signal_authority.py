@@ -264,6 +264,37 @@ class CanonicalSignalAuthorityTests(unittest.TestCase):
 
 
 class OutboxRelayRestartTests(unittest.TestCase):
+    def test_pending_events_are_selected_oldest_first(self):
+        event_row = ("evt-1", "signal.entry.created.v1", "signal", "sig-1", 1,
+                     "event-envelope.v1", {"signal_id": "sig-1"},
+                     "2026-09-22T10:00:00Z", None, None)
+
+        class Cursor:
+            def __init__(self, conn): self.conn = conn; self.sql = ""
+            def execute(self, sql, args=None):
+                self.sql = sql
+                self.conn.queries.append(sql)
+                if "SELECT event_id,event_type" in sql:
+                    self.rows = [event_row]
+            def fetchall(self): return getattr(self, "rows", [])
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+
+        class Conn:
+            def __init__(self): self.queries = []
+            def cursor(self):
+                return Cursor(self)
+            def commit(self): pass
+
+        class Publisher:
+            async def publish(self, envelope): pass
+
+        import asyncio
+        conn = Conn()
+        asyncio.run(OutboxRelay(conn, Publisher()).publish_batch(limit=1))
+        self.assertTrue(any("ORDER BY created_at, aggregate_id, aggregate_version NULLS LAST, event_id" in query
+                            for query in conn.queries))
+
     def test_nats_failure_is_retryable_after_restart_without_signal_file(self):
         event_row = ("evt-1", "signal.entry.created.v1", "signal", "sig-1", 1,
                      "event-envelope.v1", {"signal_id": "sig-1", "entry_mechanisms": ["DEPTH_ONLY"]},

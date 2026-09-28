@@ -20,9 +20,15 @@ class OutboxRelay:
 
     async def publish_batch(self, *, limit: int = 100) -> dict[str, int]:
         with self.conn.cursor() as cur:
+            # Prioritize the oldest pending event globally.  Ordering by aggregate_id first
+            # lets a busy aggregate monopolize a batch and can leave a newly-created signal
+            # waiting behind unrelated backlog long enough to fail the execution freshness
+            # gate.  Aggregate/version remain deterministic tie-breakers for equal creation
+            # timestamps; downstream consumers remain idempotent and enforce their own
+            # aggregate lifecycle rules.
             cur.execute("""SELECT event_id,event_type,aggregate_type,aggregate_id,aggregate_version,schema_version,payload,occurred_at,correlation_id,causation_id
                 FROM platform.outbox_events WHERE publish_status <> 'PUBLISHED' AND (leased_until IS NULL OR leased_until < now())
-                ORDER BY aggregate_id, aggregate_version NULLS LAST, created_at FOR UPDATE SKIP LOCKED LIMIT %s""", (limit,))
+                ORDER BY created_at, aggregate_id, aggregate_version NULLS LAST, event_id FOR UPDATE SKIP LOCKED LIMIT %s""", (limit,))
             rows = cur.fetchall()
             ids = [row[0] for row in rows]
             if ids:
