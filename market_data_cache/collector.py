@@ -56,6 +56,20 @@ class MarketDataCollector:
         self.commands = 0                      # bridge commands issued (observability / tests)
         self._metadata_at: dict[str, float] = {}
         self._quote_at: dict[str, float] = {}
+        self._health: dict[str, Any] = {"process_heartbeat_at": None, "pass_started_at": None, "last_progress_at": None,
+                                        "last_completed_pass_at": None, "in_pass": False, "current_symbol": None,
+                                        "symbols_completed_in_pass": 0, "symbols_total_in_pass": 0,
+                                        "status": "starting", "unhealthy_symbols": [], "bridge_commands_total": 0}
+
+    def _publish(self, **changes: Any) -> None:
+        """Write md:health. Every write is a heartbeat: it is issued between bridge calls, so its age
+        is bounded by one bridge call however long a (catch-up) pass takes."""
+        now = self.clock()
+        self._health.update(changes, process_heartbeat_at=now, updated_at=now,
+                            bridge_commands_total=self.commands)
+        started = self._health["pass_started_at"]
+        self._health["current_pass_duration"] = now - started if self._health["in_pass"] and started else None
+        self.store.set_health(dict(self._health))
 
     def _read(self, tool: str, arguments: dict[str, Any]) -> Any:
         self.commands += 1
@@ -159,12 +173,22 @@ class MarketDataCollector:
     def tick(self) -> dict[str, Any]:
         """One pass: due bar snapshots first (strategy inputs), then quotes, then metadata."""
         now = self.clock()
-        results = [self.fetch_bars(s) for s in self.bar_symbols() if self.bars_due(s, now)]
+        due = [s for s in self.bar_symbols() if self.bars_due(s, now)]
+        self._publish(pass_started_at=now, in_pass=True, current_symbol=None,
+                      symbols_completed_in_pass=0, symbols_total_in_pass=len(due))
+        results = []
+        for index, symbol in enumerate(due):
+            self._publish(current_symbol=symbol)
+            result = self.fetch_bars(symbol)
+            results.append(result)
+            progress = {"last_progress_at": self.clock()} if result["ok"] else {}
+            self._publish(current_symbol=None, symbols_completed_in_pass=index + 1, **progress)
         quotes = self.refresh_quotes(now)
         metadata = self.refresh_metadata(now)
         failing = [r["symbol"] for r in results if not r["ok"]]
         states = {s: self.store.state(s) for s in self.bar_symbols()}
         unhealthy = sorted(s for s, st in states.items() if not st.get("healthy"))
-        self.store.set_health({"status": "healthy" if not unhealthy else "degraded", "updated_at": now,
-                               "unhealthy_symbols": unhealthy, "bridge_commands_total": self.commands})
+        progress = {"last_progress_at": self.clock()} if quotes or metadata else {}
+        self._publish(in_pass=False, current_symbol=None, last_completed_pass_at=self.clock(),
+                      status="healthy" if not unhealthy else "degraded", unhealthy_symbols=unhealthy, **progress)
         return {"bars": results, "quotes": quotes, "metadata": metadata, "failing": failing}
