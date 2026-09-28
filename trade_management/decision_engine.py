@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from core.strategies.evaluation import canonical_bytes
 from postgres.db import transaction
@@ -32,6 +32,11 @@ from .publication_gate import GateInputs, evaluate_publication_gate
 from .tm_breakeven_trail import EVALUATOR_ID as BREAKEVEN_TRAIL_EVALUATOR_ID
 from .tm_breakeven_trail import BreakevenTrailPolicy, TmBreakevenTrailEvaluator
 from .tm_none import DECISION_CONSUMER_NAME, TmNoneEvaluator
+from .tm_structure import EVALUATOR_ID as STRUCTURE_EVALUATOR_ID
+from .tm_structure import StructurePolicy, TmStructureEvaluator
+
+# (instrument, timeframe) -> completed bar rows (oldest first); injected by the runtime.
+BarsProvider = Callable[[str, str], "list[dict[str, Any]]"]
 
 __all__ = ["DECISION_CONSUMER_NAME", "DecisionResult", "record_decision"]
 
@@ -65,13 +70,15 @@ def _load_observation(conn: Any, observation_id: str) -> dict[str, Any] | None:
 
 def _load_trade(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
-        cur.execute("""SELECT direction, reference_entry_price, initial_stop, risk_distance, state
+        cur.execute("""SELECT direction, reference_entry_price, initial_stop, risk_distance, state,
+                             instrument, initial_target, decision_time
                       FROM trade_management.managed_trade WHERE managed_trade_id=%s""",
                     (managed_trade_id,))
         row = cur.fetchone()
     if row is None:
         return None
-    keys = ("direction", "reference_entry_price", "initial_stop", "risk_distance", "state")
+    keys = ("direction", "reference_entry_price", "initial_stop", "risk_distance", "state",
+            "instrument", "initial_target", "decision_time")
     return dict(zip(keys, row))
 
 
@@ -99,31 +106,28 @@ def _load_version(conn: Any, tm_version_id: str) -> dict[str, Any] | None:
     return {"evaluator_id": row[0], "manifest": manifest}
 
 
-def _load_latest_decision(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
-    """Most recent decision for this trade across ALL its observations - used only to derive the
-    currently-effective stop (initial_stop, or the last MOVE_TO_BREAKEVEN/TRAIL_STOP's new_stop).
-    A trade has exactly one bound tm_version_id for its whole life, so "latest decision" and
-    "latest decision under this trade's own evaluator" are the same query."""
+def _effective_levels(conn: Any, trade: dict[str, Any], managed_trade_id: str) -> tuple[float, float | None]:
+    """The stop/target in force: the most recent decision that set each one (a later HOLD or a
+    target-only move never resets the stop), else the trade's initial stop/target."""
+    stop, target = float(trade["initial_stop"]), (float(trade["initial_target"]) if trade.get("initial_target") is not None else None)
     with conn.cursor() as cur:
-        cur.execute("""SELECT action, parameters FROM trade_management.trade_manager_decision
-                      WHERE managed_trade_id=%s ORDER BY observation_seq DESC LIMIT 1""",
-                    (managed_trade_id,))
-        row = cur.fetchone()
-    if row is None:
-        return None
-    parameters = row[1]
-    if isinstance(parameters, str):
-        import json
-        parameters = json.loads(parameters)
-    return {"action": row[0], "parameters": parameters}
-
-
-def _current_stop(trade: dict[str, Any], latest_decision: dict[str, Any] | None) -> float:
-    if latest_decision and latest_decision["action"] in ("MOVE_TO_BREAKEVEN", "TRAIL_STOP"):
-        new_stop = (latest_decision["parameters"] or {}).get("new_stop")
-        if new_stop is not None:
-            return float(new_stop)
-    return float(trade["initial_stop"])
+        cur.execute("""SELECT parameters FROM trade_management.trade_manager_decision
+                      WHERE managed_trade_id=%s AND action IN ('MOVE_TO_BREAKEVEN','TRAIL_STOP','MOVE_STOP','MOVE_TARGET')
+                      ORDER BY observation_seq DESC""", (managed_trade_id,))
+        rows = cur.fetchall()
+    found_stop = found_target = False
+    for (parameters,) in rows:
+        if isinstance(parameters, str):
+            import json
+            parameters = json.loads(parameters)
+        parameters = parameters or {}
+        if not found_stop and parameters.get("new_stop") is not None:
+            stop, found_stop = float(parameters["new_stop"]), True
+        if not found_target and parameters.get("new_target") is not None:
+            target, found_target = float(parameters["new_target"]), True
+        if found_stop and found_target:
+            break
+    return stop, target
 
 
 def _mark_price(direction: str, snapshot: dict[str, Any]) -> float:
@@ -138,8 +142,30 @@ def _policy_from_manifest(manifest: dict[str, Any]) -> BreakevenTrailPolicy:
                                 trail_distance_r=float(bundle["trail_distance_r"]))
 
 
+def _epoch(value: Any) -> float:
+    if isinstance(value, datetime):
+        return value.timestamp()
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+
+
 def _evaluate(*, evaluator_id: str, manifest: dict[str, Any], trade: dict[str, Any],
-             snapshot: dict[str, Any], current_stop: float) -> tuple[str, tuple[str, ...], dict]:
+             snapshot: dict[str, Any], current_stop: float, current_target: float | None = None,
+             as_of: Any = None, bars_provider: BarsProvider | None = None) -> tuple[str, tuple[str, ...], dict]:
+    if evaluator_id == STRUCTURE_EVALUATOR_ID:
+        bundle = dict(manifest.get("policy_bundle") or [])
+        bars = None
+        if bars_provider is not None:
+            try:
+                bars = {tf: bars_provider(trade["instrument"], tf) for tf in ("M5", "M15", "H1")}
+            except Exception:  # noqa: BLE001 - no bars: the evaluator degrades to R-only breakeven/HOLD
+                bars = None
+        return TmStructureEvaluator().evaluate(
+            direction=trade["direction"], entry=float(trade["reference_entry_price"]),
+            risk_distance=float(trade["risk_distance"]) if trade["risk_distance"] else None,
+            current_stop=current_stop, current_target=current_target,
+            bid=float(snapshot["bid"]), ask=float(snapshot["ask"]), trade_state=trade["state"] or "OPEN",
+            entry_time=_epoch(trade["decision_time"]), as_of=_epoch(as_of), bars=bars,
+            policy=StructurePolicy(**{k: float(v) for k, v in bundle.items()}))
     if evaluator_id == TmNoneEvaluator.evaluator_id:
         action, reasons = TmNoneEvaluator().evaluate(managed_trade_state=trade["state"] or "OPEN")
         return action, reasons, {}
@@ -154,7 +180,8 @@ def _evaluate(*, evaluator_id: str, manifest: dict[str, Any], trade: dict[str, A
 
 
 def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: datetime,
-                    consumer_name: str = DECISION_CONSUMER_NAME) -> DecisionResult:
+                    consumer_name: str = DECISION_CONSUMER_NAME,
+                    bars_provider: BarsProvider | None = None) -> DecisionResult:
     with transaction(conn):
         if not claim_inbox(conn, consumer_name, event_id):
             return DecisionResult(status="INBOX_DUPLICATE", decision_id=None, action=None)
@@ -196,12 +223,12 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
             return DecisionResult(status="TRADE_NOT_OPEN", decision_id=None, action=None)
 
         snapshot = _load_market_snapshot(conn, observation["market_snapshot_id"]) or {}
-        latest_decision = _load_latest_decision(conn, observation["managed_trade_id"])
-        current_stop = _current_stop(trade, latest_decision)
+        current_stop, current_target = _effective_levels(conn, trade, observation["managed_trade_id"])
 
         action, reason_codes, parameters = _evaluate(
             evaluator_id=version["evaluator_id"], manifest=version["manifest"], trade=trade,
-            snapshot=snapshot, current_stop=current_stop)
+            snapshot=snapshot, current_stop=current_stop, current_target=current_target,
+            as_of=observation["effective_at"], bars_provider=bars_provider)
 
         persisted_at = now_utc.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
         with conn.cursor() as cur:

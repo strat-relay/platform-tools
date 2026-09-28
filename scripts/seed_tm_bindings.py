@@ -34,7 +34,7 @@ from typing import Any
 
 from postgres.db import connect
 from trade_management.ids import binding_id as _binding_id
-from trade_management.versions import TmVersionManifest, tm_breakeven_trail_manifest
+from trade_management.versions import TmVersionManifest, tm_breakeven_trail_manifest, tm_structure_manifest
 
 
 # Extend this as new evaluators are built - each entry maps a config `policy` string to a
@@ -45,6 +45,7 @@ _MANIFEST_BUILDERS = {
     "tm-breakeven-trail.v1": lambda params, label: tm_breakeven_trail_manifest(
         breakeven_trigger_r=params["breakeven_trigger_r"], trail_trigger_r=params["trail_trigger_r"],
         trail_distance_r=params["trail_distance_r"], label=label),
+    "tm-structure.v1": lambda params, label: tm_structure_manifest(label=label, **params),
 }
 
 

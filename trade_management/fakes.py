@@ -99,7 +99,8 @@ class FakeCursor:
                 self._result = None
             else:
                 self._result = (row["direction"], row["reference_entry_price"], row["initial_stop"],
-                                row["risk_distance"], row["state"])
+                                row["risk_distance"], row["state"], row.get("instrument"),
+                                row.get("initial_target"), row.get("decision_time"))
             return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "STATE FROM" in upper:
             row = self.conn.view("trade_management.managed_trade").get(params[0])
@@ -133,6 +134,14 @@ class FakeCursor:
             else:
                 self._result = (row["observation_id"], row["managed_trade_id"], row["observation_seq"],
                                 row["tm_version_id"], row["effective_at"], row["data_status"])
+            return
+        if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper and "ACTION IN" in upper:
+            # decision_engine._effective_levels: level-setting decisions, newest first.
+            levels = ("MOVE_TO_BREAKEVEN", "TRAIL_STOP", "MOVE_STOP", "MOVE_TARGET")
+            rows = [r for r in self.conn.view("trade_management.trade_manager_decision").values()
+                    if r["managed_trade_id"] == params[0] and r["action"] in levels]
+            self._rows = [(r["parameters"],) for r in sorted(rows, key=lambda r: r["observation_seq"], reverse=True)]
+            self._result = self._rows[0] if self._rows else None
             return
         if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper and "WHERE MANAGED_TRADE_ID" in upper:
             managed_trade_id = params[0]

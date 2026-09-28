@@ -89,7 +89,7 @@ def parameters_of(row: dict) -> dict:
     """FakeConnection stores whatever was passed to the `::jsonb`-cast column verbatim - a JSON
     string, since decision_engine.py encodes it before the INSERT the same way it encodes the
     outbox payload. A real driver auto-deserializes jsonb on read; this mirrors that for
-    assertions, the same defensive parse decision_engine.py's own _load_latest_decision uses."""
+    assertions, the same defensive parse decision_engine.py's own _effective_levels uses."""
     value = row["parameters"]
     return json.loads(value) if isinstance(value, str) else value
 

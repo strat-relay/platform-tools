@@ -49,3 +49,9 @@ CREATE TABLE IF NOT EXISTS execution_v2.management_intent (
 );
 CREATE INDEX IF NOT EXISTS management_intent_trade_idx ON execution_v2.management_intent (managed_trade_id, created_at);
 CREATE INDEX IF NOT EXISTS management_intent_status_idx ON execution_v2.management_intent (status);
+
+-- TM-STRUCTURE-1 (tm-actions.v2) can move the take-profit.
+ALTER TABLE trade_management.trade_manager_decision DROP CONSTRAINT IF EXISTS trade_manager_decision_action_check;
+ALTER TABLE trade_management.trade_manager_decision
+    ADD CONSTRAINT trade_manager_decision_action_check
+    CHECK (action IN ('HOLD', 'MOVE_STOP', 'MOVE_TO_BREAKEVEN', 'TRAIL_STOP', 'PARTIAL_PROFIT', 'EXIT', 'MOVE_TARGET'));
