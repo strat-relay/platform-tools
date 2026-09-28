@@ -1,0 +1,27 @@
+{
+  "schema": "research.context_exact_index_execution_status.v1",
+  "base_commit": "c4ea5bf",
+  "bounded_verification": {
+    "golden_equivalence_pass": true,
+    "prefix_invariance_pass": true,
+    "raw_causal_invariants_pass": true,
+    "index_query_equivalence_pass": true
+  },
+  "full_eur_usd_discovery": {
+    "started": true,
+    "completed": false,
+    "elapsed_before_stop_seconds": 1392,
+    "peak_observed_rss_bytes": 862523392,
+    "stop_reason": "RSS continued rising during the long replay; stopped before the prior multi-GB failure mode",
+    "discovery_results_persisted": false
+  },
+  "full_gbp_usd_discovery": {
+    "started": false,
+    "completed": false,
+    "reason": "EURUSD completion and parallel/serial equivalence gates were not available"
+  },
+  "validation_outcomes_accessed": false,
+  "parameter_optimization": false,
+  "production_changed": false,
+  "broker_writes": 0
+}

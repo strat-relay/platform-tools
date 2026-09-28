@@ -33,6 +33,7 @@ import strategy_backtest.raw_ohlc_adapters as raw_adapters  # noqa: E402
 from context_structure_retrace.data import CausalReplay  # noqa: E402
 from research.context_replay_optimized import OptimizedContextRawOhlcEvaluator  # noqa: E402
 from research.context_feature_tape import build_causal_feature_tape  # noqa: E402
+from research.indexed_replay import IndexedCausalReplay  # noqa: E402
 
 
 DATA_ROOT = ROOT.parent / "artifacts/research/multitimeframe_structure_sniper/paged_native_full"
@@ -71,21 +72,17 @@ def _load_discovery(instrument: str) -> list[MarketEvent]:
 
 
 def _fast_replay_factory(all_events: tuple[MarketEvent, ...]):
-    """Return the same causal replay view with precomputed completed buckets."""
+    """Return the same causal replay view with indexed immutable history."""
     higher = {
         timeframe: aggregate_completed_events(all_events, timeframe)
         for timeframe in ("M15", "H1", "H4")
     }
 
-    def replay(state: Any, as_of: int) -> CausalReplay:
-        bars = {
-            "M5": [event for event in state.events if event.close_timestamp <= as_of],
-            **{
-                timeframe: [event for event in events if event.close_timestamp <= as_of]
-                for timeframe, events in higher.items()
-            },
-        }
-        return CausalReplay({timeframe: [
+    bars = {
+        "M5": list(all_events),
+        **{timeframe: list(events) for timeframe, events in higher.items()},
+    }
+    indexed_bars = {timeframe: [
             {
                 "time": event.open_timestamp,
                 "open": event.open,
@@ -96,7 +93,13 @@ def _fast_replay_factory(all_events: tuple[MarketEvent, ...]):
                 "tick_volume": event.provenance.get("tick_volume", 0),
             }
             for event in events
-        ] for timeframe, events in bars.items()})
+        ] for timeframe, events in bars.items()}
+
+    replay_view = IndexedCausalReplay(indexed_bars)
+
+    def replay(state: Any, as_of: int) -> CausalReplay:
+        del state, as_of
+        return replay_view
 
     return replay
 

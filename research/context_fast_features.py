@@ -37,6 +37,7 @@ def fast_feature_snapshot(
         points = confirmed_swings(completed, timeframe, as_of, 2)
         atr_value = atr(completed)[-1] if completed else 0.0
         intermediates[timeframe] = (points, atr_value)
+        historical_index = working.historical_index(timeframe) if hasattr(working, "historical_index") else None
         contexts[timeframe] = {
             "timeframe": timeframe,
             "completed_direction": _direction(view["completed"]),
@@ -46,7 +47,7 @@ def fast_feature_snapshot(
             "completed_location": _location(view["completed"]),
             "forming_location": _location(forming),
             "ema_context": ema_context(completed, forming, as_of, timeframe),
-            "sr_context": sr_context(completed, timeframe, as_of, confirmed_points=points, atr_value_override=atr_value),
+            "sr_context": sr_context(completed, timeframe, as_of, confirmed_points=points, atr_value_override=atr_value, historical_index=historical_index),
             "patterns": detect_patterns(working.bars_by_timeframe.get(timeframe, []), timeframe, as_of, symbol),
             "provenance": view["provenance"],
         }
