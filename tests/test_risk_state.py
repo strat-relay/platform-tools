@@ -134,22 +134,8 @@ def signal(n: int, instrument="ETHUSD") -> dict:
 
 
 class EthusdIncidentRegressionTests(RiskStateTestCase):
-    def test_bridge_path_turned_an_open_position_into_risk_state_unavailable(self):
-        """The production behaviour being replaced: any open position aborted risk construction."""
-        from execution_v2.runtime.bridge_client import BridgeUnreachable, HttpBridgeFenceClient
-        for t in self.tripwires:
-            t.stop()
-        self.broker.positions = [BTC_POSITION]
-        client = HttpBridgeFenceClient(base_url="http://bridge:22348/mcp", read_base_url="http://bridge:22347/mcp")
-        with mock.patch.object(HttpBridgeFenceClient, "_read_tool", side_effect=lambda tool, args: self.broker(tool, args)):
-            with self.assertRaisesRegex(BridgeUnreachable, "open-position exposure"):
-                client.read_risk_context(broker_symbol="ETHUSDm", as_of=NOW)
-            result = create_execution_intent(self.conn(), signal_id=ETH_SIGNAL["signal_id"], account_id=ACCOUNT,
-                                             risk_policy=policy(), now_utc=NOW,
-                                             risk_context_provider=lambda r: client.read_risk_context(broker_symbol="ETHUSDm", as_of=NOW))
-        self.assertEqual((result.status, result.reason), ("BLOCKED", "RISK_STATE_UNAVAILABLE"))
-        for t in self.tripwires:
-            t.start()
+    # The bridge path no longer aborts on any open position (it counts platform positions and
+    # excludes manual ones): see tests/test_bridge_risk_context.py.
 
     def test_cached_snapshot_makes_existing_positions_normal_policy_input(self):
         self.broker.positions = [BTC_POSITION]

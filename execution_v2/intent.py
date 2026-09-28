@@ -32,6 +32,17 @@ from .risk_policy_store import policy_fingerprint
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
 
 
+def _bridge_risk_diagnostics(risk_context: dict[str, Any]) -> dict[str, Any]:
+    """JSON-safe summary of the bridge risk context (an unbounded exposure is reported as such,
+    not as a non-JSON infinity)."""
+    account, state = risk_context.get("account", {}), risk_context.get("state", {})
+    exposure = state.get("account_exposure")
+    unbounded = isinstance(exposure, float) and exposure == float("inf")
+    return {"sizing_basis": account.get("sizing_basis", "EQUITY"), "sizing_capital": account.get("sizing_capital"),
+            "free_margin": account.get("free_margin"), "account_exposure": None if unbounded else exposure,
+            "account_exposure_unbounded": unbounded, "positions": risk_context.get("positions")}
+
+
 class EntrySignalRecordMissing(RuntimeError):
     """The EntrySignal referenced does not (yet) exist in strategy.entry_signals. Caller
     retries with backoff; never creates an intent from event payload alone (same contract as
@@ -165,6 +176,7 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
             else:
                 try:
                     risk_context = risk_context_provider(record)
+                    diagnostics = _bridge_risk_diagnostics(risk_context)
                     risk_decision = evaluate_candidate(record, policy=risk_policy, account_id=account_id,
                                                        now_utc=now_utc, broker=risk_context["broker"],
                                                        account=risk_context["account"], state=risk_context["state"])
@@ -174,9 +186,12 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                     else:
                         volume = float(risk_decision.volume)
                         risk_fraction = risk_policy.risk_per_trade
-                except Exception:
+                except Exception as exc:
                     eligibility = EligibilityResult(False, "RISK_STATE_UNAVAILABLE")
                     status = "BLOCKED"
+                    # Record why, so a rejection is explainable without the bridge journal.
+                    diagnostics = {"risk_context_failure": {"stage": "BRIDGE_RISK_CONTEXT",
+                                                            "error": f"{type(exc).__name__}: {exc}"[:300]}}
         elif eligibility.eligible:
             volume = _compute_volume(record, risk_policy)
 
@@ -222,8 +237,11 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                 "policy_fingerprint": policy_fingerprint(risk_policy),
                 "risk_per_trade": risk_policy.risk_per_trade,
                 "account_equity": risk_context.get("account", {}).get("equity"),
-                "risk_budget_usd": (float(risk_context.get("account", {}).get("equity")) * risk_policy.risk_per_trade
-                                    if risk_context.get("account", {}).get("equity") is not None else None),
+                # The budget sizing actually used: equity, or free margin under FREE_MARGIN sizing.
+                "risk_budget_usd": (float(_capital) * risk_policy.risk_per_trade
+                                    if (_capital := risk_context.get("account", {}).get("sizing_capital",
+                                                                                         risk_context.get("account", {}).get("equity"))) is not None
+                                    else None),
                 "stop_distance": abs(float(record["entry_price"]) - float(record["stop_price"])),
                 "broker_volume_min": risk_context.get("broker", {}).get("volume_min"),
                 "broker_volume_step": risk_context.get("broker", {}).get("volume_step"),

@@ -65,6 +65,16 @@ def register_runtime_instance(conn: Any, *, instance_id: str, component: str = "
                        (instance_id, component, json.dumps(metadata or {})))
 
 
+def platform_broker_tickets(connect_fn: Any, account_id: str) -> frozenset[str]:
+    """Broker tickets of orders V2 execution placed on this account (any outcome that may hold a
+    position). On a hedging account an open position's ticket is its opening order's ticket, so
+    these identify the platform's own positions; anything else on the account is manual."""
+    with connect_fn(readonly=True) as conn, conn.cursor() as cur:
+        cur.execute("""SELECT broker_order_id, broker_position_id FROM execution_v2.execution_result
+                       WHERE account_id = %s AND outcome NOT IN ('REJECTED', 'BLOCKED')""", (account_id,))
+        return frozenset(str(value) for row in cur.fetchall() for value in row if value)
+
+
 def probe_bridge_health(bridge_fence_url: str) -> str:
     """Read the bridge health endpoint and return a truthful persisted status."""
     try:
@@ -195,7 +205,9 @@ async def main_async() -> None:
     def risk_context_provider(record: dict[str, Any]) -> dict[str, Any]:
         broker_symbol = resolve_broker_symbol(record["instrument"], account_id=config.account_id,
                                               mode=config.bridge_mode, catalog_lookup=symbol_lookup)
-        return bridge.read_risk_context(broker_symbol=broker_symbol)
+        return bridge.read_risk_context(broker_symbol=broker_symbol,
+                                        platform_tickets=platform_broker_tickets(policy_connect, config.account_id),
+                                        sizing_basis=config.risk_sizing_basis)
     risk_gate = None
     if config.risk_context_source == "REDIS":
         # Cached risk state: no read-bridge calls on the execution path (execution_v2/risk_state).
@@ -225,6 +237,7 @@ async def main_async() -> None:
                          status_metadata={
                              "execution_authority_mode": authority_provider(),
                              "risk_context_source": config.risk_context_source,
+                             "risk_sizing_basis": config.risk_sizing_basis,
                              "account_id": config.account_id,
                              "canary_environment": config.bridge_mode,
                              "canary_account_id": config.account_id,
