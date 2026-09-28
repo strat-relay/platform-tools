@@ -130,3 +130,17 @@ The read bridge runs one command per EA poll, so its capacity is a command budge
 
 All switches default to `BRIDGE`. Readers never fall back to the bridge: missing or stale data
 raises exactly like a failed bridge read.
+
+## Broker view (`broker_view/`)
+
+The API's broker endpoints (`/api/v1/broker/{account,positions,pending-orders,history-orders,deals,symbols,exposure}`,
+`/api/v1/exposure`) and the Trade Manager live projection read broker state **Redis first**:
+
+- `python -m broker_view.service` is the only writer. Every `BROKER_VIEW_REFRESH_SECONDS` (15) it
+  reads each allow-listed read-only tool once from the read bridge (22347; 22348 is refused) and
+  stores it with its `observed_at`. That is 5 bridge commands per pass, whatever the Console load.
+  A transport failure ends the pass and keeps the previous entries; health is in `broker:view:health`.
+- The API (`BROKER_VIEW_REDIS_URL`) serves an entry younger than `BROKER_VIEW_MAX_AGE_SECONDS` (45)
+  and reports `source: redis_broker_view` plus `observed_at`. A missing or stale entry, or an
+  unreachable Redis, falls back to the bridge exactly as before (`source: mt5_bridge_read_only`).
+- Unset `BROKER_VIEW_REDIS_URL` and the API reads the bridge directly, as before.

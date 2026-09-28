@@ -1,2 +1,3 @@
-# Hot risk state client for execution_v2/risk_state (RISK_CONTEXT_SOURCE=REDIS and the collector).
+# Redis client: execution_v2/risk_state (RISK_CONTEXT_SOURCE=REDIS and the collector),
+# market_data_cache, and the API's Redis-first broker view (broker_view).
 redis>=5,<6
