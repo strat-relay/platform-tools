@@ -39,14 +39,22 @@ class OptimizedContextRawOhlcEvaluator(ContextRawOhlcEvaluator):
         structure_timeframe = snapshot["provenance"]["structure_timeframe"]
         structure_context = snapshot["timeframes"][structure_timeframe]
         m15_context = snapshot["timeframes"].get("M15", {})
+        compact_zones = [
+            {
+                "zone_low": zone["zone_low"],
+                "zone_high": zone["zone_high"],
+                "support_resistance_role": zone["support_resistance_role"],
+            }
+            for zone in structure_context.get("sr_context", {}).get("zones", [])
+        ]
         retained_timeframes = {
             "M15": {
                 "ema_context": {"atr": m15_context.get("ema_context", {}).get("atr")},
-                "sr_context": structure_context.get("sr_context", {}) if structure_timeframe == "M15" else {},
+                "sr_context": {"zones": compact_zones} if structure_timeframe == "M15" else {},
             },
         }
         if structure_timeframe != "M15":
-            retained_timeframes[structure_timeframe] = {"sr_context": structure_context.get("sr_context", {})}
+            retained_timeframes[structure_timeframe] = {"sr_context": {"zones": compact_zones}}
         return {
             "setup_id": setup["setup_id"],
             "symbol": setup["symbol"],

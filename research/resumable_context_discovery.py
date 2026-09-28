@@ -33,7 +33,7 @@ import strategy_backtest.raw_ohlc_adapters as raw_adapters
 
 
 OUT = ROOT / "artifacts/research/intraday-variants/context-exploratory"
-RUNNER_VERSION = "context-indexed-resumable-discovery-v1"
+RUNNER_VERSION = "context-indexed-resumable-discovery-v2"
 DEFAULT_CADENCE_BARS = 900
 DEFAULT_MAX_RSS_MIB = 1024
 
@@ -202,6 +202,11 @@ def run(instrument: str, *, checkpoint_path: Path | None = None, cadence_bars: i
     original_replay = raw_adapters._replay
     raw_adapters._replay = _fast_replay_factory(events)
     profile: list[dict[str, Any]] = []
+    if profile_path and profile_path.exists():
+        prior_profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        if prior_profile.get("identity") != identity:
+            raise RuntimeError("memory profile identity mismatch; refusing append")
+        profile = list(prior_profile.get("checkpoints", []))
     try:
         for index in range(start_index, len(events)):
             event = events[index]
