@@ -1,0 +1,87 @@
+{
+  "schema": "research.context_incremental_structure_audit.v1",
+  "base_commit": "e5bfea3",
+  "strategy": "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1",
+  "parameter_set": "context-intraday-v1-research-001",
+  "timeframe_hierarchy": ["H4", "H1", "M15"],
+  "bounded_profile": {
+    "input": "EURUSD first 240 discovery-only M5 bars",
+    "tape_records": 30,
+    "tape_build_seconds": 1.5388949519838206,
+    "feature_snapshot_calls": 30,
+    "structure_detection_calls": {
+      "build_zones": 120,
+      "trendline_candidates": 30,
+      "channel_candidates": 30,
+      "confirmed_swings": 135,
+      "pattern_detection": 200
+    },
+    "primary_costs": {
+      "feature_snapshot_seconds": 0.921,
+      "build_zones_seconds": 0.348,
+      "trendline_candidates_seconds": 0.343,
+      "serialization_and_compression_seconds": 0.464
+    }
+  },
+  "calculations": {
+    "confirmed_swings": {
+      "inputs": "completed candles and lookback=2",
+      "lookback_requirement": "2 candles on each side; candidate i is confirmed after i+2",
+      "state_transition": "when a new candle closes, evaluate the newly confirmable candle",
+      "invalidation": "none after confirmation in the current implementation",
+      "output": "ordered support/resistance pivot records",
+      "classification": "INCREMENTALIZABLE"
+    },
+    "atr": {
+      "inputs": "true ranges of completed candles",
+      "lookback_requirement": "period=14 rolling values",
+      "state_transition": "append true range and evict value older than 14",
+      "invalidation": "none",
+      "output": "current ATR and historical ATR values used by the current snapshot",
+      "classification": "INCREMENTALIZABLE"
+    },
+    "ema_context": {
+      "inputs": "completed closes, forming close, EMA periods 20/50/100/200, cross and touch history",
+      "lookback_requirement": "EMA recurrence plus retained cross/touch event history",
+      "state_transition": "update EMA recurrence and append newly observable events",
+      "invalidation": "none",
+      "output": "EMA values, slopes, ordering, crosses, touches, compression",
+      "classification": "INCREMENTALIZABLE_WITH_RESTORABLE_EVENT_STATE"
+    },
+    "build_zones": {
+      "inputs": "all confirmed pivots, current ATR tolerance, all candles after each zone first_seen",
+      "lookback_requirement": "full confirmed-pivot history and full candle history for reactions and role flips",
+      "state_transition": "not represented as a stable append-only transition in current code",
+      "invalidation": "ATR tolerance can change clustering of previously observed pivots; role can flip based on any later close",
+      "output": "zones, reaction arrays, role flips, nearest support/resistance",
+      "classification": "FULL_HISTORY_REQUIRED_FOR_EXACT_CURRENT_SEMANTICS",
+      "reason": "Re-clustering with a changed tolerance can merge or split old zones; reaction and role-flip arrays are historical projections over those zones."
+    },
+    "trendline_candidates": {
+      "inputs": "last 24 confirmed pivots plus every candle from each left anchor through current time",
+      "lookback_requirement": "bounded pivot candidate set but unbounded interaction interval",
+      "state_transition": "candidate pairs can be updated incrementally only with per-pair retained interaction state",
+      "invalidation": "new pivots alter the retained 24-pivot set",
+      "output": "touches, meaningful interaction episodes, violations and penetration history",
+      "classification": "INCREMENTALIZABLE_ONLY_WITH_NEW_RESTORABLE_PER_PAIR_STATE"
+    },
+    "channel_candidates": {
+      "inputs": "last 24 confirmed pivots, all valid top/bottom combinations, current ATR and current close",
+      "lookback_requirement": "bounded pivot combinations but current geometry changes every update",
+      "state_transition": "new pivot combinations can be added; old combinations need current geometry refresh",
+      "invalidation": "retained pivot window and ATR-dependent slope filter",
+      "output": "channel geometry and normalized position",
+      "classification": "INCREMENTALIZABLE_WITH_EXACT_GEOMETRY_REFRESH"
+    }
+  },
+  "conclusion": {
+    "safe_exact_incremental_feature_tape": false,
+    "reason": "The frozen feature contract includes historical zone reaction/role-flip arrays and dynamic ATR-based clustering. Replacing these with bounded state without a semantic redesign would not prove exact equivalence.",
+    "incremental_state_implemented": false,
+    "full_discovery_engine_run": false,
+    "frozen_discovery_run": false,
+    "validation_outcomes_accessed": false,
+    "production_changed": false,
+    "broker_writes": 0
+  }
+}

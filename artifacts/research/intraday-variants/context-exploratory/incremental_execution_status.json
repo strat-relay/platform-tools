@@ -1,0 +1,32 @@
+{
+  "schema": "research.context_incremental_execution_status.v1",
+  "status": "BLOCKED_BY_EXACT_SEMANTIC_STATE_REQUIREMENT",
+  "base_commit": "e5bfea3",
+  "incremental_structure_state_implemented": false,
+  "streaming_mode_implemented": false,
+  "incremental_tape_equivalence_pass": false,
+  "incremental_replay_equivalence_pass": false,
+  "incremental_prefix_invariance_pass": false,
+  "streaming_tape_equivalence_pass": false,
+  "full_discovery_engine_pass": false,
+  "full_discovery_engine_runtime": "NOT_RUN",
+  "blockers": [
+    "Exact zone clustering is ATR-tolerance dependent and can regroup historical pivots.",
+    "Exact zone reactions and role flips are full-history projections.",
+    "Trendline interaction episodes require retained per-candidate history for exact output."
+  ],
+  "raw_invariants_from_e5bfea3": {
+    "no_lookahead": true,
+    "prefix_invariance": true,
+    "deterministic_rerun": true,
+    "historical_live_parity": true,
+    "restart_parity": true
+  },
+  "context_parent_parity_status": "UNPROVEN",
+  "context_discovery_evidence_class": "EXPLORATORY_RAW_PIPELINE_PARENT_PARITY_UNPROVEN",
+  "validation_outcomes_accessed": false,
+  "parameter_optimization": false,
+  "liquidity_discovery_run": false,
+  "production_changed": false,
+  "broker_writes": 0
+}
