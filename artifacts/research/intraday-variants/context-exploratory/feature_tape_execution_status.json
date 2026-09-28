@@ -1,0 +1,22 @@
+{
+  "broker_writes": 0,
+  "context_discovery_completed": false,
+  "context_discovery_evidence_class": "EXPLORATORY_RAW_PIPELINE_PARENT_PARITY_UNPROVEN",
+  "context_parent_parity_status": "UNPROVEN",
+  "feature_tape_golden_equivalence_pass": true,
+  "feature_tape_prefix_invariance_pass": true,
+  "full_discovery_operationally_feasible": false,
+  "parameter_optimization": false,
+  "production_changed": false,
+  "raw_invariants": {
+    "deterministic_rerun": true,
+    "historical_live_parity": true,
+    "no_lookahead": true,
+    "prefix_invariance": true,
+    "restart_parity": true
+  },
+  "reason": "Measured feature-tape construction remains the dominant cost; full discovery was not launched.",
+  "schema": "research.context_feature_tape_execution_status.v1",
+  "status": "BOUNDED_VALIDATION_COMPLETE_FULL_DISCOVERY_NOT_RUN",
+  "validation_outcomes_accessed": false
+}

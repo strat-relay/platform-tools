@@ -1,0 +1,23 @@
+{
+  "study": "KOJO_STRUCTURE_FIB_SOURCE_FIDELITY_V2",
+  "version": "v2-causal-descriptive-1",
+  "base_commit": "2524387",
+  "fixture": {
+    "provider": "OANDA",
+    "symbol": "XAUUSD",
+    "timeframe": "H1",
+    "bar_count": 183,
+    "sha256": "fbb5ec907c8f6bd979e49012eea0510ba06dcc50fa00916f8776500d91de8af9"
+  },
+  "classification_policy": [
+    "SOURCE_EXPLICIT",
+    "SOURCE_FIXTURE_OBSERVATION",
+    "STANDARD_MECHANICAL_DEFINITION",
+    "RESEARCH_HYPOTHESIS",
+    "UNRESOLVED"
+  ],
+  "is_detector": false,
+  "profitability_accessed": false,
+  "production_changed": false,
+  "broker_writes": 0
+}

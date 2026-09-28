@@ -1,0 +1,18 @@
+{
+  "additional_speedup_replay_only": 12.255240843225456,
+  "broker_writes": 0,
+  "feature_precompute_seconds": 1.8669596340041608,
+  "feature_snapshot_calls": 30,
+  "feature_tape_memory_bytes": 11549565,
+  "feature_tape_record_count": 30,
+  "feature_tape_runtime_seconds": 2.2638499939930625,
+  "m15_decisions_per_second_after_precompute": 75.5876257635456,
+  "m15_evaluations": 30,
+  "m5_bars_per_second_after_precompute": 604.7010061083648,
+  "net_speedup_including_precompute": 2.1485464862621764,
+  "reference_runtime_seconds": 4.863986950018443,
+  "replay_after_precompute_seconds": 0.39689035998890176,
+  "schema": "research.context_feature_tape_profile.v1",
+  "validation_outcomes_accessed": false,
+  "window_bars": 240
+}

@@ -1,0 +1,11 @@
+{
+  "broker_writes": 0,
+  "cutoffs": [
+    80,
+    160,
+    240
+  ],
+  "pass": true,
+  "schema": "research.context_feature_tape_prefix_invariance.v1",
+  "validation_outcomes_accessed": false
+}

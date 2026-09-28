@@ -30,11 +30,11 @@ def _line(a: dict[str, Any], b: dict[str, Any], timestamp: int) -> float:
     return float(a["price"]) + (float(b["price"]) - float(a["price"])) * ((int(timestamp) - int(a["timestamp"])) / dt)
 
 
-def trendline_candidates(bars: list[dict[str, Any]], timeframe: str, as_of: int, lookback: int = 2, max_points: int = 24) -> list[dict[str, Any]]:
-    points = confirmed_swings(bars, timeframe, as_of, lookback)
+def trendline_candidates(bars: list[dict[str, Any]], timeframe: str, as_of: int, lookback: int = 2, max_points: int = 24, *, confirmed_points: list[dict[str, Any]] | None = None, atr_value_override: float | None = None) -> list[dict[str, Any]]:
+    points = confirmed_points if confirmed_points is not None else confirmed_swings(bars, timeframe, as_of, lookback)
     points = points[-max_points:]
     available_all = [x for x in bars if bar_end(x, timeframe) <= int(as_of)]
-    atr_value = atr(available_all)[-1] if available_all else 0.0
+    atr_value = atr_value_override if atr_value_override is not None else (atr(available_all)[-1] if available_all else 0.0)
     tolerance = atr_value * 0.25
     out = []
     for left, right in combinations(points, 2):
@@ -69,13 +69,13 @@ def trendline_candidates(bars: list[dict[str, Any]], timeframe: str, as_of: int,
     return out
 
 
-def channel_candidates(bars: list[dict[str, Any]], timeframe: str, as_of: int, lookback: int = 2, max_points: int = 24) -> list[dict[str, Any]]:
-    points = confirmed_swings(bars, timeframe, as_of, lookback)
+def channel_candidates(bars: list[dict[str, Any]], timeframe: str, as_of: int, lookback: int = 2, max_points: int = 24, *, confirmed_points: list[dict[str, Any]] | None = None, atr_value_override: float | None = None) -> list[dict[str, Any]]:
+    points = confirmed_points if confirmed_points is not None else confirmed_swings(bars, timeframe, as_of, lookback)
     points = points[-max_points:]
     highs = [x for x in points if x["type"] == "RESISTANCE"]
     lows = [x for x in points if x["type"] == "SUPPORT"]
     available_all = [x for x in bars if bar_end(x, timeframe) <= int(as_of)]
-    atr_value = atr(available_all)[-1] if available_all else 0.0
+    atr_value = atr_value_override if atr_value_override is not None else (atr(available_all)[-1] if available_all else 0.0)
     current = float(available_all[-1]["close"]) if available_all else 0.0
     out = []
     for top in combinations(highs, 2):

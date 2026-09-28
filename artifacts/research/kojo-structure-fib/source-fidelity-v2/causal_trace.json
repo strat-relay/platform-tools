@@ -1,0 +1,1169 @@
+{
+  "classification": "SOURCE_FIXTURE_OBSERVATION",
+  "fixture_sha256": "fbb5ec907c8f6bd979e49012eea0510ba06dcc50fa00916f8776500d91de8af9",
+  "bars": [
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T00:00:00Z",
+      "ohlc": {
+        "open": "4201.580",
+        "high": "4211.860",
+        "low": "4199.910",
+        "close": "4210.760"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T01:00:00Z",
+      "ohlc": {
+        "open": "4210.745",
+        "high": "4211.775",
+        "low": "4197.540",
+        "close": "4201.250"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T02:00:00Z",
+      "ohlc": {
+        "open": "4201.190",
+        "high": "4212.635",
+        "low": "4198.720",
+        "close": "4208.515"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T03:00:00Z",
+      "ohlc": {
+        "open": "4208.510",
+        "high": "4213.305",
+        "low": "4206.860",
+        "close": "4210.240"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T04:00:00Z",
+      "ohlc": {
+        "open": "4210.215",
+        "high": "4213.415",
+        "low": "4207.045",
+        "close": "4208.670"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T05:00:00Z",
+      "ohlc": {
+        "open": "4208.625",
+        "high": "4217.365",
+        "low": "4204.770",
+        "close": "4217.300"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T06:00:00Z",
+      "ohlc": {
+        "open": "4217.295",
+        "high": "4219.175",
+        "low": "4212.180",
+        "close": "4217.185"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T07:00:00Z",
+      "ohlc": {
+        "open": "4217.190",
+        "high": "4217.610",
+        "low": "4206.310",
+        "close": "4206.830"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T08:00:00Z",
+      "ohlc": {
+        "open": "4206.815",
+        "high": "4216.695",
+        "low": "4203.175",
+        "close": "4209.875"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T09:00:00Z",
+      "ohlc": {
+        "open": "4209.660",
+        "high": "4213.045",
+        "low": "4204.305",
+        "close": "4207.855"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T10:00:00Z",
+      "ohlc": {
+        "open": "4207.850",
+        "high": "4210.385",
+        "low": "4201.105",
+        "close": "4203.685"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T11:00:00Z",
+      "ohlc": {
+        "open": "4203.510",
+        "high": "4214.465",
+        "low": "4199.710",
+        "close": "4208.735"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T12:00:00Z",
+      "ohlc": {
+        "open": "4208.770",
+        "high": "4215.585",
+        "low": "4208.540",
+        "close": "4213.860"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T13:00:00Z",
+      "ohlc": {
+        "open": "4213.780",
+        "high": "4214.785",
+        "low": "4197.895",
+        "close": "4201.900"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T14:00:00Z",
+      "ohlc": {
+        "open": "4201.905",
+        "high": "4211.850",
+        "low": "4195.315",
+        "close": "4196.575"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T15:00:00Z",
+      "ohlc": {
+        "open": "4196.565",
+        "high": "4196.800",
+        "low": "4176.205",
+        "close": "4182.905"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T16:00:00Z",
+      "ohlc": {
+        "open": "4182.890",
+        "high": "4197.880",
+        "low": "4176.815",
+        "close": "4191.640"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T17:00:00Z",
+      "ohlc": {
+        "open": "4191.645",
+        "high": "4195.680",
+        "low": "4185.725",
+        "close": "4195.045"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T18:00:00Z",
+      "ohlc": {
+        "open": "4195.010",
+        "high": "4195.740",
+        "low": "4184.555",
+        "close": "4187.415"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T19:00:00Z",
+      "ohlc": {
+        "open": "4187.450",
+        "high": "4189.055",
+        "low": "4184.435",
+        "close": "4187.030"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T20:00:00Z",
+      "ohlc": {
+        "open": "4187.045",
+        "high": "4195.695",
+        "low": "4184.980",
+        "close": "4191.670"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T21:00:00Z",
+      "ohlc": {
+        "open": "4191.685",
+        "high": "4193.360",
+        "low": "4188.465",
+        "close": "4190.660"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-08T23:00:00Z",
+      "ohlc": {
+        "open": "4191.480",
+        "high": "4195.490",
+        "low": "4190.785",
+        "close": "4194.860"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T00:00:00Z",
+      "ohlc": {
+        "open": "4194.835",
+        "high": "4195.820",
+        "low": "4190.030",
+        "close": "4190.535"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T01:00:00Z",
+      "ohlc": {
+        "open": "4190.595",
+        "high": "4197.415",
+        "low": "4188.885",
+        "close": "4196.375"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T02:00:00Z",
+      "ohlc": {
+        "open": "4196.315",
+        "high": "4197.290",
+        "low": "4186.105",
+        "close": "4190.035"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T03:00:00Z",
+      "ohlc": {
+        "open": "4190.100",
+        "high": "4198.905",
+        "low": "4190.100",
+        "close": "4194.605"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T04:00:00Z",
+      "ohlc": {
+        "open": "4194.580",
+        "high": "4195.760",
+        "low": "4184.530",
+        "close": "4186.780"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T05:00:00Z",
+      "ohlc": {
+        "open": "4186.765",
+        "high": "4187.385",
+        "low": "4178.035",
+        "close": "4179.665"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T06:00:00Z",
+      "ohlc": {
+        "open": "4179.700",
+        "high": "4184.075",
+        "low": "4169.985",
+        "close": "4182.285"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T07:00:00Z",
+      "ohlc": {
+        "open": "4182.290",
+        "high": "4186.030",
+        "low": "4175.855",
+        "close": "4182.415"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T08:00:00Z",
+      "ohlc": {
+        "open": "4182.435",
+        "high": "4192.025",
+        "low": "4182.425",
+        "close": "4191.730"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T09:00:00Z",
+      "ohlc": {
+        "open": "4191.740",
+        "high": "4213.050",
+        "low": "4190.795",
+        "close": "4203.035"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T10:00:00Z",
+      "ohlc": {
+        "open": "4203.070",
+        "high": "4208.505",
+        "low": "4201.355",
+        "close": "4204.120"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T11:00:00Z",
+      "ohlc": {
+        "open": "4204.100",
+        "high": "4206.660",
+        "low": "4201.235",
+        "close": "4203.140"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T12:00:00Z",
+      "ohlc": {
+        "open": "4203.190",
+        "high": "4207.705",
+        "low": "4198.595",
+        "close": "4204.235"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T13:00:00Z",
+      "ohlc": {
+        "open": "4204.245",
+        "high": "4208.570",
+        "low": "4195.725",
+        "close": "4201.515"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T14:00:00Z",
+      "ohlc": {
+        "open": "4201.540",
+        "high": "4210.455",
+        "low": "4189.505",
+        "close": "4204.990"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T15:00:00Z",
+      "ohlc": {
+        "open": "4204.780",
+        "high": "4216.545",
+        "low": "4190.140",
+        "close": "4212.575"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T16:00:00Z",
+      "ohlc": {
+        "open": "4212.600",
+        "high": "4221.625",
+        "low": "4210.140",
+        "close": "4212.400"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T17:00:00Z",
+      "ohlc": {
+        "open": "4212.410",
+        "high": "4216.265",
+        "low": "4201.665",
+        "close": "4203.140"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T18:00:00Z",
+      "ohlc": {
+        "open": "4203.225",
+        "high": "4209.935",
+        "low": "4201.255",
+        "close": "4209.195"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T19:00:00Z",
+      "ohlc": {
+        "open": "4209.140",
+        "high": "4214.485",
+        "low": "4207.150",
+        "close": "4212.620"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T20:00:00Z",
+      "ohlc": {
+        "open": "4212.530",
+        "high": "4216.035",
+        "low": "4208.940",
+        "close": "4212.125"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T21:00:00Z",
+      "ohlc": {
+        "open": "4212.140",
+        "high": "4213.050",
+        "low": "4207.415",
+        "close": "4207.915"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-09T23:00:00Z",
+      "ohlc": {
+        "open": "4209.445",
+        "high": "4212.990",
+        "low": "4208.020",
+        "close": "4210.750"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T00:00:00Z",
+      "ohlc": {
+        "open": "4210.680",
+        "high": "4212.770",
+        "low": "4207.010",
+        "close": "4208.295"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T01:00:00Z",
+      "ohlc": {
+        "open": "4208.310",
+        "high": "4218.150",
+        "low": "4206.930",
+        "close": "4213.750"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T02:00:00Z",
+      "ohlc": {
+        "open": "4213.730",
+        "high": "4218.860",
+        "low": "4211.740",
+        "close": "4217.095"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T03:00:00Z",
+      "ohlc": {
+        "open": "4216.995",
+        "high": "4217.270",
+        "low": "4203.485",
+        "close": "4206.440"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T04:00:00Z",
+      "ohlc": {
+        "open": "4206.395",
+        "high": "4209.845",
+        "low": "4205.580",
+        "close": "4207.120"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T05:00:00Z",
+      "ohlc": {
+        "open": "4207.015",
+        "high": "4214.660",
+        "low": "4201.700",
+        "close": "4211.575"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T06:00:00Z",
+      "ohlc": {
+        "open": "4211.515",
+        "high": "4211.855",
+        "low": "4203.005",
+        "close": "4207.415"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T07:00:00Z",
+      "ohlc": {
+        "open": "4207.420",
+        "high": "4209.260",
+        "low": "4203.170",
+        "close": "4203.370"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T08:00:00Z",
+      "ohlc": {
+        "open": "4203.300",
+        "high": "4206.660",
+        "low": "4197.050",
+        "close": "4197.920"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T09:00:00Z",
+      "ohlc": {
+        "open": "4197.720",
+        "high": "4200.520",
+        "low": "4192.650",
+        "close": "4194.390"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T10:00:00Z",
+      "ohlc": {
+        "open": "4194.340",
+        "high": "4196.670",
+        "low": "4187.800",
+        "close": "4193.245"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T11:00:00Z",
+      "ohlc": {
+        "open": "4193.345",
+        "high": "4197.845",
+        "low": "4192.655",
+        "close": "4197.440"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T12:00:00Z",
+      "ohlc": {
+        "open": "4197.405",
+        "high": "4202.375",
+        "low": "4195.405",
+        "close": "4196.575"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T13:00:00Z",
+      "ohlc": {
+        "open": "4196.565",
+        "high": "4205.230",
+        "low": "4193.220",
+        "close": "4200.745"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T14:00:00Z",
+      "ohlc": {
+        "open": "4200.700",
+        "high": "4207.105",
+        "low": "4191.415",
+        "close": "4192.560"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T15:00:00Z",
+      "ohlc": {
+        "open": "4192.530",
+        "high": "4201.270",
+        "low": "4188.970",
+        "close": "4193.750"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T16:00:00Z",
+      "ohlc": {
+        "open": "4193.780",
+        "high": "4205.160",
+        "low": "4192.720",
+        "close": "4204.975"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T17:00:00Z",
+      "ohlc": {
+        "open": "4204.920",
+        "high": "4204.955",
+        "low": "4196.905",
+        "close": "4199.735"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T18:00:00Z",
+      "ohlc": {
+        "open": "4199.775",
+        "high": "4200.750",
+        "low": "4192.150",
+        "close": "4194.070"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T19:00:00Z",
+      "ohlc": {
+        "open": "4194.105",
+        "high": "4219.860",
+        "low": "4182.080",
+        "close": "4216.450"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T20:00:00Z",
+      "ohlc": {
+        "open": "4216.410",
+        "high": "4238.785",
+        "low": "4211.425",
+        "close": "4229.555"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T21:00:00Z",
+      "ohlc": {
+        "open": "4229.525",
+        "high": "4232.335",
+        "low": "4221.320",
+        "close": "4228.775"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-10T23:00:00Z",
+      "ohlc": {
+        "open": "4228.245",
+        "high": "4234.215",
+        "low": "4224.255",
+        "close": "4232.585"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T00:00:00Z",
+      "ohlc": {
+        "open": "4232.565",
+        "high": "4245.385",
+        "low": "4231.615",
+        "close": "4237.375"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T01:00:00Z",
+      "ohlc": {
+        "open": "4237.380",
+        "high": "4247.805",
+        "low": "4233.030",
+        "close": "4238.390"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T02:00:00Z",
+      "ohlc": {
+        "open": "4238.365",
+        "high": "4240.915",
+        "low": "4220.360",
+        "close": "4222.280"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T03:00:00Z",
+      "ohlc": {
+        "open": "4222.220",
+        "high": "4225.020",
+        "low": "4209.470",
+        "close": "4216.905"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T04:00:00Z",
+      "ohlc": {
+        "open": "4216.820",
+        "high": "4218.450",
+        "low": "4208.430",
+        "close": "4213.525"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T05:00:00Z",
+      "ohlc": {
+        "open": "4213.405",
+        "high": "4216.315",
+        "low": "4206.075",
+        "close": "4207.350"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T06:00:00Z",
+      "ohlc": {
+        "open": "4207.355",
+        "high": "4215.610",
+        "low": "4204.270",
+        "close": "4214.725"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "intersects descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "structure_interaction",
+        "confirmation_candidate"
+      ]
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T07:00:00Z",
+      "ohlc": {
+        "open": "4214.750",
+        "high": "4218.750",
+        "low": "4210.595",
+        "close": "4216.110"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T08:00:00Z",
+      "ohlc": {
+        "open": "4216.105",
+        "high": "4219.650",
+        "low": "4212.835",
+        "close": "4216.775"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T09:00:00Z",
+      "ohlc": {
+        "open": "4216.785",
+        "high": "4221.615",
+        "low": "4210.400",
+        "close": "4218.495"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T10:00:00Z",
+      "ohlc": {
+        "open": "4218.510",
+        "high": "4226.080",
+        "low": "4211.840",
+        "close": "4217.035"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T11:00:00Z",
+      "ohlc": {
+        "open": "4217.060",
+        "high": "4219.125",
+        "low": "4209.610",
+        "close": "4211.190"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": []
+    },
+    {
+      "classification": "SOURCE_FIXTURE_OBSERVATION",
+      "timestamp": "2025-12-11T12:00:00Z",
+      "ohlc": {
+        "open": "4211.195",
+        "high": "4220.610",
+        "low": "4208.770",
+        "close": "4220.565"
+      },
+      "confirmed_at_close": true,
+      "relationship_to_4200": "does not intersect descriptive 4195-4205 observation band",
+      "candidate_roles": [
+        "confirmation_candidate"
+      ]
+    }
+  ]
+}
