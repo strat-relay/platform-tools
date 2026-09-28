@@ -102,7 +102,7 @@ class StrategyPageModelTests(unittest.TestCase):
                     "technical_metadata", "trade_management", "instruments"):
             self.assertIn(key, page)
         lifecycle = {s["key"]: s["count"] for s in page["lifecycle"]}
-        self.assertEqual(lifecycle, {"SIGNALS": 130, "OPEN": 10, "TARGET_HIT": 60, "STOPPED": 40, "UNTRACKED": 20})
+        self.assertEqual(lifecycle, {"SIGNALS": 130, "OPEN": 10, "TARGET_HIT": 60, "STOPPED": 40, "INVALIDATED": 0, "UNTRACKED": 20})
         perf = page["performance"]
         self.assertEqual((perf["closed"], perf["open"]), (100, 10))
         self.assertAlmostEqual(perf["series"][-1]["cumulative_realized_r"], -10.0)

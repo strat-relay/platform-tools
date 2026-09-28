@@ -1,7 +1,9 @@
 """Operator control for the Trade Manager mode: GET/POST /api/v1/trade-manager/mode.
 
-OFF and SHADOW are the only modes. Neither has broker effects, so unlike execution authority
-there is no preflight; a change is revision-checked (optimistic concurrency) and audited in
+Modes: OFF, SHADOW, LIVE. OFF and SHADOW have no broker effects. LIVE lets the execution plane act on
+Trade Manager decisions for platform positions (reduce-only SL/TP changes and closes), and still
+only while execution authority is ENABLED - so execution authority, not this switch, remains the
+gate for any broker write. A change is revision-checked (optimistic concurrency) and audited in
 trade_management.trade_manager_mode_change.
 """
 from __future__ import annotations
@@ -44,7 +46,7 @@ class TradeManagerModeApi:
             mode = submitted.get("mode")
             revision = submitted.get("expectedRevision")
             if mode not in MODES or isinstance(revision, bool) or not isinstance(revision, int):
-                raise ValueError("mode (OFF or SHADOW) and integer expectedRevision are required")
+                raise ValueError("mode (OFF, SHADOW or LIVE) and integer expectedRevision are required")
         except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, ValueError) as exc:
             return 400, self._error("INVALID_REQUEST", str(exc))
         try:

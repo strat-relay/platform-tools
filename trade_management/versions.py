@@ -19,7 +19,10 @@ DECISION_SCHEMA_VERSION = "trade-manager-decision.v1"
 ACTION_VOCABULARY_VERSION = "tm-actions.v1"
 REASON_CODE_REGISTRY_VERSION = "tm-reasons.v1"
 
-ACTIONS = ("HOLD", "MOVE_STOP", "MOVE_TO_BREAKEVEN", "TRAIL_STOP", "PARTIAL_PROFIT", "EXIT")
+ACTIONS = ("HOLD", "MOVE_STOP", "MOVE_TO_BREAKEVEN", "TRAIL_STOP", "PARTIAL_PROFIT", "EXIT", "MOVE_TARGET")
+# tm-actions.v2 adds MOVE_TARGET. A version declares the vocabulary it was frozen against, so existing
+# versions (tm-actions.v1) keep exactly the identity hash they were registered with.
+ACTION_VOCABULARY_V2 = "tm-actions.v2"
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,7 @@ class TmVersionManifest:
     arithmetic: dict[str, Any] = field(default_factory=dict)
     code_manifest: dict[str, str] = field(default_factory=dict)
     scope: dict[str, Any] = field(default_factory=lambda: {"strategies": ["*"], "instruments": ["*"]})
+    action_vocabulary_version: str = ACTION_VOCABULARY_VERSION
 
     def identity_manifest(self) -> dict[str, Any]:
         """The hashed payload. Excludes `label`/`description`/timestamps/author/environment/
@@ -44,7 +48,7 @@ class TmVersionManifest:
             "manifest_schema": MANIFEST_SCHEMA,
             "evaluator_id": self.evaluator_id,
             "decision_schema_version": DECISION_SCHEMA_VERSION,
-            "action_vocabulary_version": ACTION_VOCABULARY_VERSION,
+            "action_vocabulary_version": self.action_vocabulary_version,
             "reason_code_registry_version": REASON_CODE_REGISTRY_VERSION,
             "policy_bundle": list(self.policy_bundle),
             "resolution_table": list(self.resolution_table),
@@ -165,4 +169,34 @@ def tm_breakeven_trail_manifest_with_code_hash(module_source: bytes, *, breakeve
         resolution_table=base.resolution_table, observation_spec=base.observation_spec,
         price_semantics=base.price_semantics, arithmetic=base.arithmetic,
         code_manifest={"trade_management/tm_breakeven_trail.py": digest}, scope=base.scope,
+    )
+
+
+# --------------------------------------------------------------------------------------
+# TM-STRUCTURE-1 (trade_management/tm_structure.py): structure-driven SL/TP management and early
+# exit. Parametrized per binding exactly like TM-BREAKEVEN-TRAIL; defaults are the conservative
+# production parameters.
+# --------------------------------------------------------------------------------------
+
+def tm_structure_manifest(*, label: str = "TM-STRUCTURE-1", module_source: bytes | None = None,
+                          **params: float) -> TmVersionManifest:
+    import hashlib
+    from .tm_structure import EVALUATOR_ID, StructurePolicy
+    policy = StructurePolicy(**params)              # validates before anything can be frozen
+    code = hashlib.sha256(module_source).hexdigest() if module_source is not None else "computed-at-registration"
+    return TmVersionManifest(
+        evaluator_id=EVALUATOR_ID,
+        label=label,
+        policy_bundle=policy.as_bundle(),
+        resolution_table=(),
+        observation_spec={
+            "timeframes_consumed": ["M5", "M15", "H1"], "completed_bars_only": True,
+            "swing_lookback_left": 2, "swing_lookback_right": 2,
+            "max_market_age_ms": 60_000, "late_event_rule": "IGNORE_NEVER_EVALUATE", "quote_required": True,
+        },
+        price_semantics={"version": "ps.v1", "reference": "mark = bid for LONG / ask for SHORT; breakeven = entry + spread"},
+        arithmetic={"r_multiple_definition": "(mark-entry)/risk_distance signed by direction", "rounding": "none"},
+        code_manifest={"trade_management/tm_structure.py": code},
+        scope={"strategies": ["*"], "instruments": ["*"]},
+        action_vocabulary_version=ACTION_VOCABULARY_V2,
     )

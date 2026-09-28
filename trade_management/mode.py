@@ -1,11 +1,13 @@
-"""Operator-controlled Trade Manager mode: OFF | SHADOW (migration 024).
+"""Operator-controlled Trade Manager mode: OFF | SHADOW | LIVE (migrations 024, 036).
 
 The runtime reads the mode on its own connection at every unit of work (each opening event,
 each observation tick, each decision message), so a change takes effect without a restart.
 Reads fail closed: the runtime does no work when the mode is OFF, missing, invalid or
 unreadable; the operator read reports such a row as OFF with an error.
 
-There is no mode with broker effects; nothing here can enable one.
+OFF and SHADOW have no broker effects. LIVE evaluates exactly like SHADOW; the Trade Manager itself
+still never talks to a broker - the execution plane (execution_v2.management) acts on its decisions
+for platform positions only while the mode is LIVE and execution authority is ENABLED.
 """
 from __future__ import annotations
 
@@ -16,7 +18,8 @@ from postgres.db import transaction
 
 OFF = "OFF"
 SHADOW = "SHADOW"
-MODES = (OFF, SHADOW)
+LIVE = "LIVE"
+MODES = (OFF, SHADOW, LIVE)
 SKIP_REASON_OFF = "TRADE_MANAGER_OFF"
 
 
@@ -61,7 +64,7 @@ def read_mode_record(conn: Any) -> dict[str, Any]:
 def set_mode(conn: Any, mode: str, *, expected_revision: int, changed_by: str | None,
              reason: str | None = None) -> dict[str, Any]:
     if mode not in MODES:
-        raise TradeManagerModeError("mode must be OFF or SHADOW")
+        raise TradeManagerModeError("mode must be OFF, SHADOW or LIVE")
     with transaction(conn):
         with conn.cursor() as cur:
             cur.execute("""SELECT mode, revision FROM trade_management.trade_manager_mode
