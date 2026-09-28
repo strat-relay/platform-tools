@@ -25,6 +25,43 @@ class OptimizedContextRawOhlcEvaluator(ContextRawOhlcEvaluator):
     VERSION = "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1_RAW_OHLC_ADAPTER_RESEARCH_OPTIMIZED"
     FEATURE_TAPE: CausalFeatureTape | None = None
 
+    @staticmethod
+    def _retain_waiting_setup_state(setup: dict[str, Any]) -> dict[str, Any]:
+        """Keep only fields consumed after setup creation.
+
+        The parent geometry/retrace path needs the originating bar, entry
+        level, direction/timestamp, and the structure zones plus M15 ATR.
+        All other snapshot branches are observational evidence that is not
+        read again by this adapter.  Retaining them per waiting setup caused
+        memory to grow with the number of historical candidates.
+        """
+        snapshot = setup["context_snapshot"]
+        structure_timeframe = snapshot["provenance"]["structure_timeframe"]
+        structure_context = snapshot["timeframes"][structure_timeframe]
+        m15_context = snapshot["timeframes"].get("M15", {})
+        retained_timeframes = {
+            "M15": {
+                "ema_context": {"atr": m15_context.get("ema_context", {}).get("atr")},
+                "sr_context": structure_context.get("sr_context", {}) if structure_timeframe == "M15" else {},
+            },
+        }
+        if structure_timeframe != "M15":
+            retained_timeframes[structure_timeframe] = {"sr_context": structure_context.get("sr_context", {})}
+        return {
+            "setup_id": setup["setup_id"],
+            "symbol": setup["symbol"],
+            "direction": setup["direction"],
+            "pattern": setup["pattern"],
+            "setup_timestamp": setup["setup_timestamp"],
+            "event_bar": setup["event_bar"],
+            "entry_level": setup["entry_level"],
+            "status": setup["status"],
+            "context_snapshot": {
+                "timeframes": retained_timeframes,
+                "provenance": {"structure_timeframe": structure_timeframe},
+            },
+        }
+
     def _compact_terminal_setups(self) -> None:
         """Release large immutable feature payloads after terminal lifecycle."""
         terminal = {"FILLED", "INVALIDATED_NO_REENTRY", "NO_REMAINING_TARGET_UNDER_CURRENT_SETUP_GEOMETRY"}
@@ -63,7 +100,7 @@ class OptimizedContextRawOhlcEvaluator(ContextRawOhlcEvaluator):
             setup = make_setup(event.canonical_instrument, pattern, m15[-1], snapshot, quote, contract)
             setup["intraday_variant"] = self.strategy_version.strategy_version_id
             setup["status"] = "WAITING_FOR_RETRACE"
-            self.setups[setup["setup_id"]] = setup
+            self.setups[setup["setup_id"]] = self._retain_waiting_setup_state(setup)
             outputs.append(SetupLifecycleEvent(
                 setup["setup_id"], self.strategy_version.strategy_version_id,
                 event.canonical_instrument, "SETUP_DETECTED", int(pattern["timestamp"]),
