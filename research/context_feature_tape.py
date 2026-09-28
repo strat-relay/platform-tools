@@ -14,7 +14,7 @@ from typing import Any, Callable, Iterable
 
 from context_structure_retrace.config import ResearchTimeframes
 from context_structure_retrace.patterns import detect_patterns
-from context_structure_retrace.replay import feature_snapshot
+from research.context_fast_features import fast_feature_snapshot
 from strategy_backtest.models import MarketEvent
 
 
@@ -27,11 +27,12 @@ class FeatureTapeRecord:
     source_timeframe: str
     latest_source_candle_close: int
     generation_version: str
-    snapshot_payload: bytes
+    snapshot_data: dict[str, Any]
+    serialized_payload: bytes | None = None
 
     @property
     def snapshot(self) -> dict[str, Any]:
-        return json.loads(zlib.decompress(self.snapshot_payload).decode("utf-8"))
+        return self.snapshot_data
 
 
 class CausalFeatureTape:
@@ -67,7 +68,7 @@ class CausalFeatureTape:
         # This is an intentionally conservative payload estimate for the JSON
         # representation, suitable for comparing tape variants without relying
         # on CPython object allocator details.
-        return sum(len(record.snapshot_payload) for record in self.records)
+        return sum(len(json.dumps(record.snapshot_data, sort_keys=True, separators=(",", ":"))) for record in self.records)
 
 
 def _encode_snapshot(snapshot: dict[str, Any]) -> bytes:
@@ -80,6 +81,7 @@ def build_causal_feature_tape(
     replay_factory: Callable[[Any, int], Any],
     timeframes: ResearchTimeframes,
     generation_version: str = TAPE_VERSION,
+    serialize: bool = False,
 ) -> CausalFeatureTape:
     """Build snapshots from a growing causal prefix.
 
@@ -117,9 +119,10 @@ def build_causal_feature_tape(
         for pattern in new_patterns:
             seen_patterns.add(pattern["event_id"])
         replay = replay_factory(prefix, event.close_timestamp)
-        snapshot = feature_snapshot(replay, symbol, event.close_timestamp, timeframes=timeframes)
+        snapshot = fast_feature_snapshot(replay, symbol, event.close_timestamp, timeframes=timeframes)
         latest = max((int(item.close_timestamp) for item in prefix.events), default=event.close_timestamp)
-        record = FeatureTapeRecord(event.close_timestamp, "M15", latest, generation_version, _encode_snapshot(snapshot))
+        payload = _encode_snapshot(snapshot) if serialize else None
+        record = FeatureTapeRecord(event.close_timestamp, "M15", latest, generation_version, snapshot, payload)
         if record.latest_source_candle_close > record.feature_timestamp:
             raise AssertionError("causal feature tape generation violated source cutoff")
         records.append(record)

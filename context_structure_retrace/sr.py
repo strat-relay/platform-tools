@@ -45,12 +45,12 @@ def _touch_reaction(bar: dict[str, Any], center: float, zone_low: float, zone_hi
     }
 
 
-def build_zones(bars: list[dict[str, Any]], timeframe: str, as_of: int, lookback: int = 2, cluster_tolerance_atr: float = 0.25) -> list[dict[str, Any]]:
+def build_zones(bars: list[dict[str, Any]], timeframe: str, as_of: int, lookback: int = 2, cluster_tolerance_atr: float = 0.25, *, confirmed_points: list[dict[str, Any]] | None = None, atr_value_override: float | None = None) -> list[dict[str, Any]]:
     available = [x for x in bars if bar_end(x, timeframe) <= int(as_of)]
     if len(available) < lookback * 2 + 5:
         return []
-    points = confirmed_swings(available, timeframe, as_of, lookback)
-    atr_value = atr(available)[-1] if atr(available) else 0.0
+    points = confirmed_points if confirmed_points is not None else confirmed_swings(available, timeframe, as_of, lookback)
+    atr_value = atr_value_override if atr_value_override is not None else (atr(available)[-1] if atr(available) else 0.0)
     tolerance = max(atr_value * cluster_tolerance_atr, 1e-12)
     zones: list[dict[str, Any]] = []
     for point in sorted(points, key=lambda x: (x["type"], x["price"], x["timestamp"])):
@@ -101,8 +101,8 @@ def build_zones(bars: list[dict[str, Any]], timeframe: str, as_of: int, lookback
     return output
 
 
-def sr_context(bars: list[dict[str, Any]], timeframe: str, as_of: int) -> dict[str, Any]:
-    zones = build_zones(bars, timeframe, as_of)
+def sr_context(bars: list[dict[str, Any]], timeframe: str, as_of: int, *, confirmed_points: list[dict[str, Any]] | None = None, atr_value_override: float | None = None) -> dict[str, Any]:
+    zones = build_zones(bars, timeframe, as_of, confirmed_points=confirmed_points, atr_value_override=atr_value_override)
     close = float(bars[-1]["close"]) if bars else None
     supports = sorted([z for z in zones if z["support_resistance_role"] == "SUPPORT" and close is not None and z["midpoint"] <= close], key=lambda x: close - x["midpoint"])
     resistances = sorted([z for z in zones if z["support_resistance_role"] == "RESISTANCE" and close is not None and z["midpoint"] >= close], key=lambda x: x["midpoint"] - close)

@@ -1,18 +1,18 @@
 {
   "benchmark": {
-    "feature_precompute_seconds": 2.46285026599071,
-    "new_peak_rss_self_process_bytes": 104054784,
-    "new_runtime_seconds": 0.919685164000839,
-    "old_peak_rss_self_process_bytes": 97828864,
-    "old_runtime_seconds": 3.0206992789753713,
-    "replay_after_precompute_seconds": 0.919685164000839,
+    "feature_precompute_seconds": 0.4052198939898517,
+    "new_peak_rss_self_process_bytes": 94629888,
+    "new_runtime_seconds": 0.13236342000891455,
+    "old_peak_rss_self_process_bytes": 76034048,
+    "old_runtime_seconds": 1.240564973995788,
+    "replay_after_precompute_seconds": 0.13236342000891455,
     "rss_note": "macOS ru_maxrss is bytes; same-process ru_maxrss is an upper bound, not an isolated old/new peak",
-    "speedup": 3.284492777761734,
+    "speedup": 9.372415535290923,
     "window_bars": 240
   },
   "broker_writes": 0,
   "feature_tape": {
-    "memory_bytes": 944343,
+    "memory_bytes": 11549565,
     "record_count": 30,
     "version": "context-causal-feature-tape-v1"
   },

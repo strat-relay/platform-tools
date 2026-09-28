@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from context_structure_retrace.replay import feature_snapshot
+from research.context_fast_features import fast_feature_snapshot
 from context_structure_retrace.patterns import detect_patterns
 from context_structure_retrace_forward import _geometry, _spread, make_setup
 from strategy_backtest.models import EntrySignal, SetupLifecycleEvent
@@ -24,6 +25,24 @@ class OptimizedContextRawOhlcEvaluator(ContextRawOhlcEvaluator):
     VERSION = "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1_RAW_OHLC_ADAPTER_RESEARCH_OPTIMIZED"
     FEATURE_TAPE: CausalFeatureTape | None = None
 
+    def _compact_terminal_setups(self) -> None:
+        """Release large immutable feature payloads after terminal lifecycle."""
+        terminal = {"FILLED", "INVALIDATED_NO_REENTRY", "NO_REMAINING_TARGET_UNDER_CURRENT_SETUP_GEOMETRY"}
+        for setup_id, setup in list(self.setups.items()):
+            if setup.get("status") in terminal and "context_snapshot" in setup:
+                self.setups[setup_id] = {
+                    "setup_id": setup_id,
+                    "setup_timestamp": setup.get("setup_timestamp"),
+                    "status": setup.get("status"),
+                    "direction": setup.get("direction"),
+                    "pattern": setup.get("pattern"),
+                }
+
+    def consume_market_event(self, event: Any) -> tuple[SetupLifecycleEvent | EntrySignal, ...]:
+        outputs = super().consume_market_event(event)
+        self._compact_terminal_setups()
+        return outputs
+
     def _new_setups(self, event: Any) -> list[SetupLifecycleEvent]:
         replay = raw_adapters._replay(self.state, event.close_timestamp)
         m15 = replay.bars_by_timeframe.get("M15", [])
@@ -35,8 +54,8 @@ class OptimizedContextRawOhlcEvaluator(ContextRawOhlcEvaluator):
             return []
         snapshot = self.FEATURE_TAPE.get(event.close_timestamp) if self.FEATURE_TAPE else None
         if snapshot is None:
-            snapshot = feature_snapshot(replay, event.canonical_instrument, event.close_timestamp,
-                                        timeframes=self.timeframes)
+            snapshot = fast_feature_snapshot(replay, event.canonical_instrument, event.close_timestamp,
+                                             timeframes=self.timeframes)
         quote, contract = _quote_contract(event)
         outputs = []
         for pattern in patterns:
