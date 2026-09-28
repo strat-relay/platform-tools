@@ -151,6 +151,51 @@ async def subscribe_consumer(js: Any, consumer: ExecutionSignalConsumer, *, cons
     return await js.subscribe(SUBJECT, stream=STREAM, durable=consumer_name, manual_ack=True, cb=_on_message)
 
 
+MANAGEMENT_CONSUMER_NAME = "execution-v2-management"
+MANAGEMENT_SUBJECT = "trade.decision.made.v1"
+
+
+async def bootstrap_management_consumer(js: Any) -> bool:
+    """Durable consumer of Trade Manager decisions. DeliverPolicy.NEW: only decisions made after the
+    consumer first exists are ever considered (older ones would fail the 120 s freshness rule anyway)."""
+    from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
+    import uuid
+
+    try:
+        await js.consumer_info(STREAM, MANAGEMENT_CONSUMER_NAME)
+        return True
+    except Exception:
+        config = ConsumerConfig(durable_name=MANAGEMENT_CONSUMER_NAME, ack_policy=AckPolicy.EXPLICIT,
+                                deliver_policy=DeliverPolicy.NEW, filter_subject=MANAGEMENT_SUBJECT,
+                                deliver_subject=f"_INBOX.{MANAGEMENT_CONSUMER_NAME}.{uuid.uuid4().hex}",
+                                ack_wait=30, max_deliver=-1)
+        await js.add_consumer(STREAM, config)
+        return False
+
+
+async def subscribe_management_consumer(js: Any, manager: Any) -> Any:
+    """Trade Manager decision -> ManagementWorker.process_decision. Every outcome that was persisted
+    (including IGNORED/REJECTED/APPLIED) acks; an exception naks, and the redelivery is a no-op
+    DUPLICATE once the decision's management intent exists."""
+    from datetime import datetime, timezone
+    from infrastructure.messaging.contracts import EventEnvelope
+
+    async def _on_message(msg: Any) -> None:
+        try:
+            envelope = EventEnvelope(**json.loads(msg.data.decode("utf-8")))
+            outcome = manager.process_decision(dict(envelope.payload), now_utc=datetime.now(timezone.utc))
+            if outcome.status not in ("IGNORED", "DUPLICATE"):
+                log.warning("management decision %s -> %s %s", envelope.payload.get("decision_id"),
+                            outcome.status, outcome.reason or "")
+            await msg.ack()
+        except Exception:
+            log.exception("execution_v2 management decision handling failed for delivery")
+            await msg.nak()
+
+    return await js.subscribe(MANAGEMENT_SUBJECT, stream=STREAM, durable=MANAGEMENT_CONSUMER_NAME,
+                              manual_ack=True, cb=_on_message)
+
+
 async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
     register_runtime_instance(ctx.conn, instance_id=ctx.config.holder_instance_id,
                               metadata=ctx.status_metadata)
@@ -160,6 +205,12 @@ async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
 
     await subscribe_consumer(ctx.js, ctx.consumer, consumer_name=CONSUMER_NAME)
     ctx.health.mark_ready("entry_signal_consumer")
+
+    # Trade Manager LIVE: the same worker's lease, fence authority and bridge act on decisions.
+    from ..management import ManagementWorker
+    await bootstrap_management_consumer(ctx.js)
+    await subscribe_management_consumer(ctx.js, ManagementWorker(ctx.consumer.worker))
+    ctx.health.mark_ready("management_consumer")
 
     while not stop.is_set():
         try:

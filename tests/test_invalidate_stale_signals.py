@@ -74,7 +74,8 @@ class InvalidateStaleSignalsTests(unittest.TestCase):
         return sid
 
     def _managed_trades(self):
-        from trade_management.managed_trade import DefaultTmNoneResolver, create_managed_trade
+        from trade_management.binding import DefaultTmNoneResolver
+        from trade_management.managed_trade import create_managed_trade
         from test_trade_manager_live_real_postgres import TM_NONE_1
         with self.db.connect() as conn:
             for sid in self.ids.values():
@@ -118,7 +119,9 @@ class InvalidateStaleSignalsTests(unittest.TestCase):
     def test_managed_trades_of_invalidated_signals_close_and_others_stay_open(self):
         self._managed_trades()
         report = self._run()
-        self.assertEqual(report["managed_trades_closed"], 3)                    # 2 invalidated + old STOPPED
+        # The old STOPPED signal's trade is created already CLOSED (terminal outcome), so only the 2
+        # invalidated trades close here.
+        self.assertEqual(report["managed_trades_closed"], 2)
         with self.db.connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT entry_signal_id, state FROM trade_management.managed_trade")
             states = dict(cur.fetchall())

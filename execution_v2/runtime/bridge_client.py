@@ -129,6 +129,44 @@ class HttpBridgeFenceClient:
         # Preserve the bridge state and force reconciliation instead of manufacturing success.
         return SubmitResult(authorization.attempt_id, payload.get("state") or "DISPATCHED", None)
 
+    def submit_management(self, *, authorization: WriteAuthorization, request_args: dict[str, Any]) -> SubmitResult:
+        """Send one fenced REDUCE_ONLY write (mt5_position_modify / mt5_close_position) to the
+        execution bridge. The authorization's fingerprint is the management request fingerprint of
+        `request_args`, which the bridge recomputes from the arguments it will actually send; it is
+        therefore never carried inside the arguments."""
+        if authorization.scope_class != "REDUCE_ONLY":
+            raise ValueError("management writes require a REDUCE_ONLY authorization")
+        headers = {"Content-Type": "application/json", "X-Execution-Mode": self.execution_mode,
+                   "X-Bridge-Origin": "REAL_EXECUTION_MANAGEMENT"}
+        auth = authorization.to_dict()
+        for field, name in (("resource", "X-Fence-Resource"), ("generation", "X-Fence-Generation"),
+                            ("attempt_id", "X-Fence-Attempt-Id"), ("tool", "X-Fence-Tool"),
+                            ("request_fingerprint", "X-Fence-Request-Fingerprint"),
+                            ("scope_class", "X-Fence-Scope-Class"), ("exp", "X-Fence-Exp"),
+                            ("key_id", "X-Fence-Key-Id"), ("sig", "X-Fence-Sig")):
+            headers[name] = str(auth[field])
+        body = {"jsonrpc": "2.0", "id": authorization.attempt_id, "method": "tools/call",
+                "params": {"name": authorization.tool, "arguments": dict(request_args)}}
+        response = self._mcp(body, headers=headers)
+        result = response.get("result", {})
+        if result.get("isError"):
+            self._raise_bridge_error(result.get("content", [{}])[0].get("text", "bridge rejected request"))
+        payload = json.loads(result.get("content", [{}])[0].get("text", "{}"))
+        if payload.get("idempotent_duplicate"):
+            return SubmitResult(authorization.attempt_id, payload.get("state") or "UNCERTAIN_AFTER_RESTART",
+                                payload.get("broker_response"))
+        broker_response = payload.get("broker_response")
+        return SubmitResult(authorization.attempt_id, "DISPATCHED" if broker_response is not None
+                            else (payload.get("state") or "UNCERTAIN"), broker_response)
+
+    def read_positions(self) -> list[dict[str, Any]]:
+        """Current broker positions from the read bridge (authorization and goal-state checks)."""
+        rows = self._read_tool("mt5_positions", {})
+        rows = rows.get("positions") if isinstance(rows, dict) else rows
+        if not isinstance(rows, list) or any(not isinstance(r, dict) or r.get("ticket") is None for r in rows):
+            raise BridgeUnreachable("broker positions are malformed")
+        return rows
+
     def _mcp(self, body: dict[str, Any], *, headers: dict[str, str], endpoint: str | None = None) -> dict[str, Any]:
         data = json.dumps(body).encode("utf-8")
         try:
