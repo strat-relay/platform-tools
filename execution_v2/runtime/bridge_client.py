@@ -16,6 +16,7 @@ in this mission - nothing here can reach port 22348 or send a live order).
 from __future__ import annotations
 
 import json
+import math
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -38,6 +39,24 @@ class BridgeUnreachable(RuntimeError):
     which means the bridge WAS reached and explicitly said no. Callers must treat this the same
     as any other inability to determine a safe outcome (mission section 4: "inability to
     determine broker result safely" is itself a fail-closed condition)."""
+
+
+def position_stop_risk(position: dict[str, Any], spec: Any) -> float:
+    """Loss in account currency if an open position is stopped out:
+    volume * max(0, adverse distance from open to stop) / tick_size * tick_value.
+    A position without a stop is unbounded (inf); missing symbol metadata fails closed."""
+    try:
+        volume, opened = float(position["volume"]), float(position["price_open"])
+        stop = float(position.get("sl") or 0.0)
+        side = int(position["type"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BridgeUnreachable("broker position lacks exposure fields") from exc
+    if stop <= 0:
+        return math.inf
+    if not isinstance(spec, dict) or spec.get("tick_size") in (None, 0) or spec.get("tick_value") is None:
+        raise BridgeUnreachable(f"symbol metadata for open position {position.get('symbol')} is incomplete")
+    distance = max(0.0, opened - stop) if side == 0 else max(0.0, stop - opened)
+    return volume * distance / float(spec["tick_size"]) * float(spec["tick_value"])
 
 
 class HttpBridgeFenceClient:
@@ -156,12 +175,28 @@ class HttpBridgeFenceClient:
         text = result.get("content", [{}])[0].get("text", "null")
         return json.loads(text)
 
-    def read_risk_context(self, *, broker_symbol: str, as_of: datetime | None = None) -> dict[str, Any]:
+    def read_risk_context(self, *, broker_symbol: str, as_of: datetime | None = None,
+                          platform_tickets: frozenset[str] | None = None,
+                          sizing_basis: str = "EQUITY") -> dict[str, Any]:
         """Read the bounded broker facts required by the V2 evaluator.
 
         Any malformed/missing broker fact raises and therefore fails the caller closed. This
         deliberately does not cache account, position, order, or history state.
+
+        Open positions are risk input, not a refusal. A position or pending order is the
+        platform's when its ticket is one of `platform_tickets` (the broker order tickets of V2
+        fills; on a hedging account a position's ticket is its opening order's ticket). Platform
+        positions/orders count toward concurrent_positions/concurrent_orders, and platform
+        positions' open stop risk is account_exposure (a platform position without a stop is
+        unbounded). Positions/orders the platform did not open (manual trades) are excluded from
+        both; they still reduce free margin and their closed deals still count in daily loss.
+
+        sizing_basis EQUITY sizes from account equity; FREE_MARGIN sizes from the account's free
+        margin, so each additional open trade leaves less capital for the next one.
         """
+        if sizing_basis not in ("EQUITY", "FREE_MARGIN"):
+            raise BridgeUnreachable(f"unsupported sizing basis {sizing_basis!r}")
+        platform = frozenset(str(t) for t in (platform_tickets or ()))
         account = self._read_tool("mt5_account_info", {})
         symbol = self._read_tool("mt5_symbol_info", {"symbol": broker_symbol})
         positions = self._read_tool("mt5_positions", {})
@@ -196,15 +231,33 @@ class HttpBridgeFenceClient:
         order_rows = orders if isinstance(orders, list) else orders.get("orders") if isinstance(orders, dict) else None
         if not isinstance(position_rows, list) or not isinstance(order_rows, list):
             raise BridgeUnreachable("broker positions/orders are malformed")
-        if position_rows:
-            raise BridgeUnreachable("open-position exposure cannot be calculated safely")
+        if any(not isinstance(row, dict) or row.get("ticket") is None for row in position_rows + order_rows):
+            raise BridgeUnreachable("broker position/order row lacks a ticket")
+        own_positions = [row for row in position_rows if str(row["ticket"]) in platform]
+        own_orders = [row for row in order_rows if str(row["ticket"]) in platform]
+        specs = {broker_symbol: symbol}
+        exposure = 0.0
+        for row in own_positions:
+            row_symbol = row.get("symbol")
+            if row_symbol not in specs:
+                specs[row_symbol] = self._read_tool("mt5_symbol_info", {"symbol": row_symbol})
+            exposure += position_stop_risk(row, specs[row_symbol])
+        free_margin = account.get("free_margin", account.get("margin_free"))
+        if sizing_basis == "FREE_MARGIN" and free_margin is None:
+            raise BridgeUnreachable("broker free margin is unavailable")
+        capital = float(free_margin) if sizing_basis == "FREE_MARGIN" else float(account["equity"])
         return {
-            "account": {"equity": float(account["equity"])},
+            "account": {"equity": float(account["equity"]),
+                        "free_margin": float(free_margin) if free_margin is not None else None,
+                        "sizing_basis": sizing_basis, "sizing_capital": capital},
             "broker": {"tick_size": float(symbol["tick_size"]), "tick_value": float(symbol["tick_value"]),
                         "volume_min": float(symbol["min_lot"]), "volume_max": float(symbol["max_lot"]),
                         "volume_step": float(symbol["lot_step"])},
-            "state": {"daily_loss": abs(daily_loss), "concurrent_positions": len(position_rows),
-                      "concurrent_orders": len(order_rows), "account_exposure": 0.0, "canary_used": 0},
+            "state": {"daily_loss": abs(daily_loss), "concurrent_positions": len(own_positions),
+                      "concurrent_orders": len(own_orders), "account_exposure": exposure, "canary_used": 0},
+            "positions": {"platform": len(own_positions), "manual": len(position_rows) - len(own_positions),
+                          "platform_orders": len(own_orders), "manual_orders": len(order_rows) - len(own_orders),
+                          "exposure_unbounded": math.isinf(exposure)},
         }
 
     @classmethod

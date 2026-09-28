@@ -43,6 +43,9 @@ class RuntimeConfig:
     # REDIS: cached RiskSnapshot + atomic reservation (execution_v2/risk_state); requires RISK_REDIS_URL.
     risk_context_source: str = "BRIDGE"
     risk_redis_url: str | None = None
+    # V2_RISK_SIZING_BASIS: EQUITY (default) or FREE_MARGIN - the capital risk_per_trade applies to
+    # on the bridge risk path.
+    risk_sizing_basis: str = "EQUITY"
 
     @classmethod
     def from_env(cls) -> "RuntimeConfig":
@@ -115,6 +118,9 @@ class RuntimeConfig:
         risk_redis_url = (os.getenv("RISK_REDIS_URL") or "").strip() or None
         if risk_context_source == "REDIS" and risk_redis_url is None:
             raise RuntimeConfigError("RISK_CONTEXT_SOURCE=REDIS requires RISK_REDIS_URL")
+        risk_sizing_basis = os.getenv("V2_RISK_SIZING_BASIS", "EQUITY").strip().upper() or "EQUITY"
+        if risk_sizing_basis not in ("EQUITY", "FREE_MARGIN"):
+            raise RuntimeConfigError("V2_RISK_SIZING_BASIS must be EQUITY or FREE_MARGIN")
 
         return cls(postgres=pg, nats_url=nats_url.strip(),
                    nats_user=os.getenv("V2_NATS_USER") or os.getenv("P2_NATS_USER"),
@@ -123,4 +129,5 @@ class RuntimeConfig:
                    bridge_fence_url=bridge_fence_url, read_bridge_url=read_bridge_url,
                    fence_signing_key=key_bytes, fence_key_id=key_id, risk_policy_path=risk_policy_path,
                    health_port=health_port, holder_instance_id=holder_instance_id.strip(),
-                   risk_context_source=risk_context_source, risk_redis_url=risk_redis_url)
+                   risk_context_source=risk_context_source, risk_redis_url=risk_redis_url,
+                   risk_sizing_basis=risk_sizing_basis)

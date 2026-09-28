@@ -144,3 +144,22 @@ The API's broker endpoints (`/api/v1/broker/{account,positions,pending-orders,hi
   and reports `source: redis_broker_view` plus `observed_at`. A missing or stale entry, or an
   unreachable Redis, falls back to the bridge exactly as before (`source: mt5_bridge_read_only`).
 - Unset `BROKER_VIEW_REDIS_URL` and the API reads the bridge directly, as before.
+
+## Bridge risk path with open positions (`RISK_CONTEXT_SOURCE=BRIDGE`)
+
+The bridge path no longer refuses to size while any position is open.
+
+- **Platform vs manual.** A position or pending order is the platform's when its ticket is the
+  broker order ticket of a V2 execution result (not REJECTED/BLOCKED). On a hedging account a
+  position's ticket is its opening order's ticket. Everything else on the account is manual.
+- **Platform** positions count toward `max_concurrent_positions`, platform orders toward
+  `max_concurrent_orders`, and platform positions' open stop risk
+  (`volume * max(0, adverse distance to stop) / tick_size * tick_value`) is `account_exposure`.
+  A platform position without a stop is unbounded, so `MAX_ACCOUNT_EXPOSURE_EXCEEDED`.
+- **Manual** positions and orders are excluded from slots and exposure. They still reduce free
+  margin, and their closed deals still count in daily loss.
+- **Sizing basis** (`V2_RISK_SIZING_BASIS`): `EQUITY` (default) or `FREE_MARGIN`. With
+  `FREE_MARGIN` the budget is `free_margin * risk_per_trade`, so each open trade leaves less for the
+  next. A missing free margin fails closed.
+- A failed risk read is still `RISK_STATE_UNAVAILABLE`, and now records
+  `risk_context_failure {stage, error}` in the risk evidence diagnostics.
