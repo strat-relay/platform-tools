@@ -96,6 +96,13 @@ class LiquidityLiveRuntimeTests(unittest.TestCase):
             evaluator.evaluate(replace(snapshot(), validated_by="paper-runner"),
                                evaluation_time="2026-09-26T12:00:00Z")
 
+    def test_market_data_cache_is_a_validated_live_boundary(self):
+        evaluator = LiquidityLiveEvaluator(PARAMETER_SETS["liquidity-xau-base"], strategy=FakeStrategy())
+        result = evaluator.evaluate(replace(snapshot(), validated_by="market-data-cache"),
+                                     evaluation_time="2026-09-26T12:00:00Z")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.provenance["validated_by"], "market-data-cache")
+
     def test_incremental_setup_waits_for_later_completed_bar_and_survives_restart(self):
         params = PARAMETER_SETS["liquidity-xau-base"]
         bars = list(snapshot().M5[:40]) + [

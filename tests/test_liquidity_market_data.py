@@ -1,6 +1,6 @@
 import unittest
 
-from liquidity_market_data import ReadOnlyLiquidityMarketData
+from liquidity_market_data import CachedLiquidityMarketData, ReadOnlyLiquidityMarketData
 from trade_management.runtime.market_data_live import build_bridge_client
 
 
@@ -23,6 +23,24 @@ class FakeReadClient:
 
 
 class LiquidityMarketDataTests(unittest.TestCase):
+    def test_cached_snapshot_does_not_call_bridge(self):
+        bars = [{"time": 1_000 + i * 300, "open": 99, "high": 101, "low": 98, "close": 100}
+                for i in range(400)]
+
+        class Store:
+            def snapshot(self, symbol):
+                return {"fetched_at": 1000, "quote": {"bid": 100, "ask": 100.2},
+                        "symbol_info": {"point": 0.01}}
+
+            def bars(self, symbol, timeframe):
+                return bars
+
+        snapshot = CachedLiquidityMarketData(Store(), max_age=330, clock=lambda: 1100).snapshot("XAUUSD", "XAUUSDm")
+        self.assertEqual(snapshot.validated_by, "market-data-cache")
+        self.assertEqual(snapshot.provider_symbol, "XAUUSDm")
+        self.assertEqual(len(snapshot.M5), 159)
+        self.assertEqual(len(snapshot.M15), 63)
+
     def test_execution_bridge_is_rejected(self):
         with self.assertRaises(ValueError):
             build_bridge_client("http://127.0.0.1:22348/mcp")

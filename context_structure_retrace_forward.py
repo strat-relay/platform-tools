@@ -310,6 +310,9 @@ def _completed(rates: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def read_symbol(symbol: str, mcp_url: str, limit: int = 320, include_provenance: bool = False) -> tuple[Any, ...]:
+    if os.getenv("MARKET_DATA_SOURCE", "BRIDGE").strip().upper() == "REDIS":
+        from market_data_cache.reader import default_store, read_symbol_cached
+        return read_symbol_cached(default_store(), symbol, limit, include_provenance)
     # One bounded, read-only per-symbol snapshot replaces the six serialized
     # reads previously needed for one strategy evaluation.  The EA builds the
     # snapshot from the same QuoteJson/RatesJson/SymbolInfoJson primitives;
