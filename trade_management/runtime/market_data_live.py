@@ -127,7 +127,12 @@ def build_bridge_client(mcp_url: str) -> ReadOnlyBridgeClient:
     if ":22348" in mcp_url:
         raise ValueError("live market data adapter must never target the execution port (22348)")
     from contracts.mt5_bridge import BridgeEndpoint, Mt5ReadClient
-    return Mt5ReadClient(BridgeEndpoint(mcp_url, profile="research"))
+    client = Mt5ReadClient(BridgeEndpoint(mcp_url, profile="research"))
+    if os.getenv("TM_MARKET_DATA_SOURCE", "BRIDGE").strip().upper() == "REDIS":
+        # Quotes from the market-data cache (one shared collector read); bars pass through.
+        from market_data_cache.reader import CachedQuoteClient, default_store
+        return CachedQuoteClient(default_store(), client)
+    return client
 
 
 class LiveMarketDataProvider:

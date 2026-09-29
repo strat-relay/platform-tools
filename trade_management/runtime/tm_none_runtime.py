@@ -50,18 +50,31 @@ async def bootstrap_tm_none_consumer(js_manager: Any, *, consumer_name: str) -> 
     await js_manager.add_consumer(STREAM, config)
 
 
+def build_bars_provider() -> Callable[[str, str], list[dict[str, Any]]] | None:
+    """Completed bars for structure-aware versions (TM-STRUCTURE-1), from the market-data cache.
+    None without MARKET_DATA_REDIS_URL: such versions then only move to breakeven by R."""
+    import os
+    if not os.getenv("MARKET_DATA_REDIS_URL"):
+        return None
+    from market_data_cache.reader import default_store
+    from .market_data_live import resolve_broker_symbol
+    store = default_store()
+    return lambda instrument, timeframe: store.bars(resolve_broker_symbol(instrument), timeframe)
+
+
 async def subscribe_tm_none_consumer(js: Any, conn_factory: Callable[[], Any], *,
                                      consumer_name: str = DECISION_CONSUMER_NAME,
                                      clock: Callable[[], Any] | None = None) -> Any:
     from datetime import datetime, timezone
     clock = clock or (lambda: datetime.now(timezone.utc))
+    bars_provider = build_bars_provider()
 
     async def on_message(msg: Any) -> None:
         try:
             envelope = decode_envelope(msg.data)
             conn = conn_factory()
             record_decision(conn, observation_id=envelope.event_id, event_id=envelope.event_id,
-                            now_utc=clock(), consumer_name=consumer_name)
+                            now_utc=clock(), consumer_name=consumer_name, bars_provider=bars_provider)
             await msg.ack()
         except Exception:
             await msg.nak()

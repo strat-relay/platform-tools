@@ -1,0 +1,22 @@
+{
+  "schema": "research.context_exact_historical_index_profile.v1",
+  "base_commit": "c4ea5bf",
+  "index_version": "exact-historical-candle-index-v1",
+  "reaction_query_contract": "bar.high >= zone_low AND bar.low <= zone_high; completed bar close <= as_of; optional start_open inclusive; chronological output",
+  "role_flip_query_contract": "bar.close < zone_low OR bar.close > zone_high; completed bar close <= as_of; optional start_open inclusive; chronological output",
+  "reaction_index_query_equivalence_pass": true,
+  "role_flip_index_query_equivalence_pass": true,
+  "index_prefix_invariance_pass": true,
+  "indexed_reaction_golden_equivalence_pass": true,
+  "raw_causal_invariants": {
+    "no_lookahead": true,
+    "prefix_invariance": true,
+    "deterministic_rerun": true,
+    "historical_live_parity": true,
+    "restart_parity": true
+  },
+  "checks": 18,
+  "validation_outcomes_accessed": false,
+  "production_changed": false,
+  "broker_writes": 0
+}

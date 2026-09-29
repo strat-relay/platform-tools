@@ -311,6 +311,9 @@ def _completed(rates: dict[str, Any]) -> list[dict[str, Any]]:
 
 def read_symbol(symbol: str, mcp_url: str, limit: int = 320, include_provenance: bool = False) -> tuple[Any, ...]:
     if os.getenv("MARKET_DATA_SOURCE", "BRIDGE").strip().upper() == "REDIS":
+        # Same (contract, quote, bars) shape from the market-data cache (market_data_cache/),
+        # which one collector keeps current; no bridge call here. Missing/stale data raises,
+        # exactly like a failed bridge read. Not part of the frozen decision code.
         from market_data_cache.reader import default_store, read_symbol_cached
         return read_symbol_cached(default_store(), symbol, limit, include_provenance)
     # One bounded, read-only per-symbol snapshot replaces the six serialized

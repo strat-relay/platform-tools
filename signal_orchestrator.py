@@ -35,6 +35,7 @@ from trade_manager.central import authorize_pending_proposals
 from orchestration.tradeability import evaluate as evaluate_tradeability, load_policy
 from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
 from platform_runtime import trading_platform_runtime_dir
+from observability.strategy_audit import audit, configure_strategy_audit_logging
 
 ROOT = Path(__file__).resolve().parent
 PLATFORM_RUNTIME = trading_platform_runtime_dir(root=ROOT)
@@ -177,6 +178,10 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
 
 def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict[str, Any], provider: MT5ShadowProvider | None,
                  orchestration_mode: str = "SHADOW") -> None:
+    audit("signal_routing_started", runner="signal-orchestrator", signal_id=signal.signal_id,
+          strategy_id=signal.strategy_id, strategy_instance_id=signal.strategy_instance_id,
+          canonical_instrument=signal.canonical_symbol, provider_symbol=signal.broker_symbol_hint,
+          direction=signal.direction, orchestration_mode=orchestration_mode)
     registry = PortfolioRegistry(config)
     created = now()
     for route_type, destination in (("AUDIT", "audit-store"), ("DISTRIBUTION", "internal-queue")):
@@ -258,6 +263,10 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
                 **tradeability.to_dict()}
             store.append("tradeability_decisions", tradeability_row,
                          stable_id("TRADEABILITY", {"signal_id": signal.signal_id, "account": account["account_id"]}))
+            audit("tradeability_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
+                  strategy_id=signal.strategy_id, account_id=account["account_id"],
+                  decision=tradeability.status, reason=tradeability.rejection_reason,
+                  symbol=signal.broker_symbol_hint)
             if orchestration_mode == "REAL_EXECUTION" and tradeability.status != "TRADEABLE":
                 for fraction in config.get("sizing_scenarios", []):
                     rejected = {"signal_id": signal.signal_id, "account_id": account["account_id"],
@@ -288,6 +297,10 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
                         decision_row["reason"] = "ORDER_CHECK_UNAVAILABLE"
                         decision_row["order_check"] = {"success": False, "error": str(exc)}
                 store.append("sizing_decisions", decision_row, decision.sizing_decision_id)
+                audit("sizing_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
+                      strategy_id=signal.strategy_id, account_id=account["account_id"],
+                      decision=decision_row["decision"], reason=decision_row.get("reason"),
+                      volume=decision_row.get("rounded_volume"), risk_fraction=fraction)
                 event(store, "SIZING_" + ("EXECUTABLE" if decision_row["decision"] == "EXECUTABLE" else "REJECTED"), signal,
                       {"account_id": account["account_id"], "portfolio_id": portfolio["portfolio_id"], "risk_fraction": fraction, "reason": decision_row["reason"]})
         except Exception as exc:
@@ -296,6 +309,9 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
                 "portfolio_id": portfolio["portfolio_id"], "decision": "SKIPPED", "reason": reason,
                 "error": str(exc), "created_at": now()}, stable_id("SKIP", {"signal": signal.signal_id, "account": account["account_id"]}))
             event(store, "SIZING_SKIPPED", signal, {"account_id": account["account_id"], "reason": reason})
+            audit("sizing_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
+                  strategy_id=signal.strategy_id, account_id=account["account_id"],
+                  decision="SKIPPED", reason=reason, error=str(exc))
 
 
 def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, Any],
@@ -315,6 +331,9 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     if orchestration_mode == "REAL_EXECUTION" and not startup_epoch:
         raise RuntimeError("STARTUP_MARKET_WATERMARK_MISSING")
     watermark_by_strategy = records_by_strategy(startup_epoch or {})
+    audit("runner_cycle_started", runner="signal-orchestrator",
+          orchestration_mode=orchestration_mode,
+          signal_authority_mode=signal_authority_mode.value)
     orchestrator_boundary = mf["freeze_timestamp"]
     if signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
         for raw in store.rows("signals"):
@@ -328,8 +347,21 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     if orchestration_mode != "PRIMARY" and provider is None:
         provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
-    for adapter in load_adapters(config, orchestrator_boundary):
-        discovered.extend(adapter.discover_new_signals(seen))
+    adapters = load_adapters(config, orchestrator_boundary)
+    audit("strategies_loaded", runner="signal-orchestrator",
+          strategies=[getattr(adapter, "strategy_id", adapter.__class__.__name__) for adapter in adapters])
+    for adapter in adapters:
+        strategy_id = getattr(adapter, "strategy_id", adapter.__class__.__name__)
+        before = len(discovered)
+        try:
+            discovered.extend(adapter.discover_new_signals(seen))
+            audit("strategy_scan_completed", runner="signal-orchestrator", strategy_id=strategy_id,
+                  decision="SIGNALS_FOUND" if len(discovered) > before else "NO_SIGNAL",
+                  signal_count=len(discovered) - before)
+        except Exception as exc:
+            audit("strategy_scan_failed", runner="signal-orchestrator", strategy_id=strategy_id,
+                  decision="ERROR", error=str(exc))
+            raise
     known = (set(seen) if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY else
              {row.get("signal_id") for row in store.rows("signals")})
     if signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
@@ -344,9 +376,18 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                     k: row[k] for k in StrategySignal.__dataclass_fields__ if k in row
                 }))
     for signal in discovered:
+        audit("signal_received", runner="signal-orchestrator", signal_id=signal.signal_id,
+              strategy_id=signal.strategy_id, strategy_instance_id=signal.strategy_instance_id,
+              canonical_instrument=signal.canonical_symbol, provider_symbol=signal.broker_symbol_hint,
+              direction=signal.direction, signal_timestamp=signal.signal_timestamp,
+              decision_time=signal.decision_time, entry=signal.entry_price,
+              stop=signal.stop_price, target=signal.target_price)
         if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
             assert canonical_publisher is not None
             _, inserted = canonical_publisher.publish(signal)
+            audit("canonical_signal_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
+                  strategy_id=signal.strategy_id,
+                  decision="ACCEPTED" if inserted else "DUPLICATE", inserted=inserted)
             if not inserted:
                 seen.add(signal.signal_id)
                 continue
@@ -366,6 +407,9 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                                               "startup_market_watermark": (watermark or {}).get("startup_market_watermark")})
                 store.append("delivery_status", {"signal_id": signal.signal_id,
                     "status": reason, "classification": classification, "timestamp": now()}, delivery_key)
+                audit("signal_delivery_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
+                      strategy_id=signal.strategy_id, decision="BLOCKED", reason=reason,
+                      classification=classification)
                 seen.add(signal.signal_id)
                 state["processed_signal_ids"] = sorted(seen)
                 state["last_poll_at"] = now()
@@ -375,9 +419,13 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
             store.append("delivery_status", {"signal_id": signal.signal_id, "status": "DELIVERY_ATTEMPTED", "timestamp": now()}, delivery_key + ":attempt")
             route_signal(store, signal, config, provider, orchestration_mode)
             store.append("delivery_status", {"signal_id": signal.signal_id, "status": "DELIVERY_COMPLETE", "timestamp": now()}, delivery_key)
+            audit("signal_delivery_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
+                  strategy_id=signal.strategy_id, decision="COMPLETE", orchestration_mode=orchestration_mode)
         except Exception as exc:
             event(store, "ROUTE_DEGRADED", signal, {"reason": str(exc)})
             store.append("delivery_status", {"signal_id": signal.signal_id, "status": "ROUTE_DEGRADED", "reason": str(exc), "timestamp": now()}, delivery_key)
+            audit("signal_delivery_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
+                  strategy_id=signal.strategy_id, decision="DEGRADED", error=str(exc))
         # A signal is processed only after a durable downstream disposition.
         seen.add(signal.signal_id)
         state["processed_signal_ids"] = sorted(seen)
@@ -386,6 +434,8 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
         total += 1
     state["processed_signal_ids"] = sorted(seen); state["last_poll_at"] = now(); state["status"] = "ACTIVE"; store.save_state(state)
     atomic(HEARTBEAT, {"pid": os.getpid(), "status": "ACTIVE", "timestamp": now(), "signals_seen": len(seen)})
+    audit("runner_cycle_completed", runner="signal-orchestrator", processed=total,
+          signals_seen=len(seen), orchestration_mode=orchestration_mode)
     return total
 
 
@@ -759,6 +809,7 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
 
 
 def main() -> None:
+    configure_strategy_audit_logging()
     p = argparse.ArgumentParser(description="Signal orchestration with independent signal and execution authority")
     sub = p.add_subparsers(dest="command", required=True)
     start = sub.add_parser("shadow-start"); start.add_argument("--interval", type=int, default=15)

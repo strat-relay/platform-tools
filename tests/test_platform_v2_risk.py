@@ -91,6 +91,9 @@ class FakeCursor:
             self.conn.allowed_symbols.add(params[0])
         elif upper.startswith("INSERT INTO EXECUTION_V2.RISK_POLICY_CHANGE"):
             pass
+        elif "FROM PLATFORM.INSTRUMENT_PROVIDER_MAPPING" in upper:
+            symbol = self.conn.provider_mappings.get(params[0])
+            self._result = (symbol,) if symbol else None
         elif "FROM EXECUTION_V2.CANARY_STATE" in upper:
             row = self.conn.canary_rows.get(params[0])
             if "LIFECYCLE_STATE" in upper and row is not None:
@@ -121,6 +124,9 @@ class FakeConnection:
             self.allowed_strategies = set(policy["allowed_strategies"])
             self.allowed_symbols = set(policy["allowed_symbols"])
         self.canary_rows = canary_rows or {}
+        # platform.instrument_provider_mapping (ACTIVE, MT5)
+        self.provider_mappings = {"XAUUSD": "XAUUSDm", "BTCUSD": "BTCUSDm", "EURUSD": "EURUSDm",
+                                  "USDJPY": "USDJPYm", "ETHUSD": "ETHUSDm", "GBPUSD": "GBPUSDm"}
 
     def cursor(self) -> FakeCursor:
         return FakeCursor(self)
@@ -261,6 +267,32 @@ class SaveTests(unittest.TestCase):
         status, body = api.execute("POST", "/api/v1/v2-execution/risk-policy", None)
         self.assertEqual(status, 400)
         self.assertEqual(body["error"], "INVALID_REQUEST_BODY")
+
+
+class AllowedSymbolTests(unittest.TestCase):
+    def test_a_catalog_instrument_can_be_allowed_for_live_trading(self):
+        api, conn = make_api(policy=VALID_POLICY)
+        symbols = sorted(set(VALID_POLICY["allowed_symbols"]) | {"ETHUSD", "gbpusd"})
+        status, body = api.execute("POST", "/api/v1/v2-execution/risk-policy",
+                                   json.dumps({"revision": 1, "allowedSymbols": symbols}).encode())
+        self.assertEqual(status, 200, body)
+        self.assertTrue({"ETHUSD", "GBPUSD"} <= conn.allowed_symbols)   # canonical, upper-cased
+
+    def test_an_instrument_without_an_active_mapping_is_refused_and_nothing_written(self):
+        api, conn = make_api(policy=VALID_POLICY)
+        before = set(conn.allowed_symbols)
+        status, body = api.execute("POST", "/api/v1/v2-execution/risk-policy",
+                                   json.dumps({"revision": 1, "allowedSymbols": [*before, "ADAUSD"]}).encode())
+        self.assertEqual((status, body["error"]), (400, "SYMBOL_NOT_TRADABLE"))
+        self.assertIn("ADAUSD", body["message"])
+        self.assertEqual((conn.allowed_symbols, conn.row["revision"]), (before, 1))
+
+    def test_already_allowed_symbols_are_never_re_validated(self):
+        api, conn = make_api(policy=VALID_POLICY)
+        conn.provider_mappings = {}
+        status, _ = api.execute("POST", "/api/v1/v2-execution/risk-policy",
+                                json.dumps({"revision": 1, "riskPerTrade": 0.01}).encode())
+        self.assertEqual(status, 200)
 
 
 class ReadOnlyGuardTests(unittest.TestCase):

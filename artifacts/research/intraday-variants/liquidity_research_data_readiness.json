@@ -1,0 +1,20 @@
+{
+  "schema": "research.liquidity_intraday_data_readiness.v1",
+  "status": "PREPARED_NOT_EXECUTED",
+  "purpose": "Prepare a later Liquidity intraday M5 study without running discovery.",
+  "preferred_instruments": ["XAUUSD", "USDJPY", "EURUSD", "GBPUSD", "BTCUSD"],
+  "source_preference": "Native MT5 / Exness where available",
+  "discovery_run": false,
+  "performance_accessed": false,
+  "datasets": {
+    "XAUUSD": {"status": "MISSING_M5", "available": "H1 only", "action": "Acquire trusted M5 with spread and contract metadata before study"},
+    "USDJPY": {"status": "REJECTED_FOR_NOW", "available": "native M5 export", "reason": "unexplained gaps and insufficient contract/quality proof"},
+    "EURUSD": {"status": "INSUFFICIENT_FOR_LIQUIDITY", "available": "native M5 export plus fixture-sized provider-symbol export", "reason": "long raw export lacks complete contract metadata; fixture-sized export is not a study dataset"},
+    "GBPUSD": {"status": "INSUFFICIENT_FOR_LIQUIDITY", "available": "native M5 export plus fixture-sized provider-symbol export", "reason": "long raw export lacks complete contract metadata; fixture-sized export is not a study dataset"},
+    "BTCUSD": {"status": "MISSING_M5", "available": "no existing local raw M5 dataset", "action": "Acquire trusted M5 with spread and contract metadata before study"}
+  },
+  "no_synthetic_bars": true,
+  "no_provider_mixing": true,
+  "production_changed": false,
+  "broker_writes": 0
+}

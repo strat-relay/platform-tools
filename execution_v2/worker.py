@@ -75,7 +75,9 @@ class ExecutionWorker:
                  holder_instance_id: str, account_id: str, mode: str, risk_policy: RiskPolicy,
                  risk_context_provider: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
                  risk_policy_provider: Callable[[], RiskPolicy] | None = None,
-                 authority_provider: Callable[[], str] | None = None) -> None:
+                 authority_provider: Callable[[], str] | None = None,
+                 broker_symbol_lookup: Callable[[str], str | None] | None = None,
+                 risk_gate: Any | None = None) -> None:
         if mode not in ("demo", "real"):
             raise ValueError("mode must be 'demo' or 'real'")
         self.conn = conn
@@ -88,6 +90,10 @@ class ExecutionWorker:
         self.risk_policy_provider = risk_policy_provider
         self.authority_provider = authority_provider
         self.risk_context_provider = risk_context_provider
+        self.broker_symbol_lookup = broker_symbol_lookup
+        # RISK_CONTEXT_SOURCE=REDIS: cached risk state + atomic reservation (execution_v2/risk_state).
+        # None keeps the synchronous bridge risk_context_provider path unchanged.
+        self.risk_gate = risk_gate
         self.resource = f"execution:{mode}:{account_id}"
 
     def _read_generation(self) -> int:
@@ -196,6 +202,33 @@ class ExecutionWorker:
         keys = ("instrument", "direction", "approved_volume", "stop_price", "target_price", "requested_entry_price")
         return dict(zip(keys, row))
 
+    def _reservation(self, action: str, intent_id: str, reason: str = "") -> bool:
+        """Move this intent's risk reservation with the execution outcome. Only `submit` gates the
+        flow (a reservation that is no longer RESERVED must never reach the broker). Every other
+        failure leaves the reservation in a stricter state: an unreleased RESERVED one expires
+        (never submitted), an unconfirmed SUBMITTED one keeps blocking until reconciliation."""
+        if self.risk_gate is None:
+            return True
+        store = self.risk_gate.store
+        try:
+            if action == "submit":
+                return store.mark_submitted(intent_id)[0]
+            if action == "release":
+                return store.release_before_submit(intent_id, reason)[0]
+            if action == "release_not_dispatched":
+                done = store.release_not_dispatched(intent_id, reason)[0]
+                store.request_refresh(reason)
+                return done
+            if action == "confirm":
+                done = store.confirm(intent_id)[0]
+                store.request_refresh("BROKER_CONFIRMED_FILL")
+                return done
+            if action == "unknown":
+                return store.mark_unknown(intent_id, reason)[0]
+        except Exception:
+            return action != "submit"
+        raise ValueError(f"unknown reservation action {action}")
+
     def process_signal(self, signal_id: str, *, execution_authority_enabled: bool,
                        broker_call: Callable[[], dict[str, Any]], now_utc: datetime | None = None) -> ExecutionOutcome:
         # `broker_call` has no default: mission section 8 forbids manufacturing FILLED from
@@ -227,7 +260,8 @@ class ExecutionWorker:
 
         intent_result = create_execution_intent(self.conn, signal_id=signal_id, account_id=self.account_id,
                                                 risk_policy=self.risk_policy, now_utc=now_utc,
-                                                risk_context_provider=self.risk_context_provider)
+                                                risk_context_provider=self.risk_context_provider,
+                                                risk_gate=self.risk_gate)
         if intent_result.status == "QUARANTINED" or not intent_result.eligible:
             return ExecutionOutcome("BLOCKED", intent_result, None, None, intent_result.reason)
 
@@ -247,7 +281,12 @@ class ExecutionWorker:
         # Resolve the canonical instrument before claiming an execution attempt.  A missing
         # account-specific broker mapping is a deterministic configuration block, never a
         # partially claimed attempt or a guessed suffix.
-        broker_symbol = resolve_broker_symbol(intent["instrument"], account_id=self.account_id, mode=self.mode)
+        try:
+            broker_symbol = resolve_broker_symbol(intent["instrument"], account_id=self.account_id, mode=self.mode,
+                                                  catalog_lookup=self.broker_symbol_lookup)
+        except Exception:
+            self._reservation("release", execution_intent_id, "SYMBOL_MAPPING_FAILED")
+            raise
         order_args = {
             "schema_version": 1, "action": 1, "magic": 0, "symbol": broker_symbol,
             "volume": float(intent["approved_volume"]),
@@ -269,15 +308,18 @@ class ExecutionWorker:
                                     "attempt already terminal; no new broker effect")
         if existing_attempt is not None and existing_attempt["state"] in _NON_REPLAYABLE_ATTEMPT_STATES:
             self._quarantine_attempt(att_id, state=existing_attempt["state"])
+            self._reservation("unknown", execution_intent_id, "NON_REPLAYABLE_PRIOR_ATTEMPT")
             return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id, "UNCERTAIN",
                                     "prior attempt is non-replayable and requires reconciliation")
 
         try:
             generation = self._acquire_generation()
         except Exception as exc:
+            self._reservation("release", execution_intent_id, "OWNERSHIP_ACQUISITION_FAILED")
             return ExecutionOutcome("FENCED_OUT", intent_result, None, None, f"ownership acquisition failed: {exc}")
 
         if self.authority_provider is not None and self.authority_provider() != "ENABLED":
+            self._reservation("release", execution_intent_id, "AUTHORITY_DISABLED_BEFORE_FENCING")
             return ExecutionOutcome("FENCED_OUT", intent_result, None, None,
                                     "execution authority was disabled before fencing")
 
@@ -291,7 +333,15 @@ class ExecutionWorker:
         except (StaleGeneration, ExpiredGrant, InvalidSignature, WrongAccount) as exc:
             with transaction(self.conn):
                 self._set_attempt_state(att_id, "FENCED", terminal=True)
+            self._reservation("release", execution_intent_id, "FENCE_ADVANCE_REJECTED")
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None, f"fence advance rejected: {exc}")
+
+        # The reservation must move RESERVED -> SUBMITTED before the attempt can reach SENDING: an
+        # expired or released reservation no longer holds capacity, so this attempt ends unsent.
+        if not self._reservation("submit", execution_intent_id):
+            with transaction(self.conn):
+                self._set_attempt_state(att_id, "NOT_SENT", terminal=True)
+            return ExecutionOutcome("BLOCKED", intent_result, att_id, None, "RISK_RESERVATION_NOT_HELD")
 
         with transaction(self.conn):
             with self.conn.cursor() as cur:
@@ -310,6 +360,7 @@ class ExecutionWorker:
         if self.authority_provider is not None and self.authority_provider() != "ENABLED":
             with transaction(self.conn):
                 self._set_attempt_state(att_id, "FENCED", terminal=True)
+            self._reservation("release_not_dispatched", execution_intent_id, "AUTHORITY_DISABLED_BEFORE_SUBMISSION")
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None,
                                     "execution authority was disabled before broker submission")
 
@@ -317,6 +368,7 @@ class ExecutionWorker:
             submit_result = self.bridge.submit(authorization=authorization, request_fingerprint=fingerprint,
                                                broker_call=broker_call, request_args=order_args)
         except (WrongAccount, InvalidSignature, RequestFingerprintMismatch) as exc:
+            self._reservation("release_not_dispatched", execution_intent_id, "BRIDGE_REJECTED_BEFORE_DISPATCH")
             # The bridge's own independent verification rejected the request outright (never
             # reached broker_call) - this is exactly the OD-06 guarantee working as intended
             # (mission section 5: a fence/authorization the bridge does not accept must never
@@ -325,6 +377,10 @@ class ExecutionWorker:
             with transaction(self.conn):
                 self._set_attempt_state(att_id, "FENCED", terminal=True)
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None, f"bridge rejected submission: {exc}")
+        except Exception:
+            # Transport failure mid-submission: the broker effect is unknown, so capacity stays held.
+            self._reservation("unknown", execution_intent_id, "SUBMISSION_OUTCOME_UNKNOWN")
+            raise
 
         if submit_result.state == "DISPATCHED":
             broker_response = submit_result.broker_response or {}
@@ -333,27 +389,32 @@ class ExecutionWorker:
                 self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                      outcome="UNKNOWN_RECONCILIATION_REQUIRED", attempt_terminal_state="UNCERTAIN",
                                      broker_response=broker_response)
+                self._reservation("unknown", execution_intent_id, "UNKNOWN_RECONCILIATION_REQUIRED")
                 return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id,
                                         "UNKNOWN_RECONCILIATION_REQUIRED", "broker response lost/ambiguous")
             if broker_status == "REJECTED":
                 self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                      outcome="REJECTED", attempt_terminal_state="REJECTED",
                                      broker_response=broker_response)
+                self._reservation("release_not_dispatched", execution_intent_id, "BROKER_REJECTED")
                 return ExecutionOutcome("RESULT_RECORDED", intent_result, att_id, "REJECTED", broker_response.get("reason"))
             outcome = broker_status
             self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                  outcome=outcome, attempt_terminal_state="CONFIRMED", broker_response=broker_response)
+            self._reservation("confirm", execution_intent_id)
             return ExecutionOutcome("RESULT_RECORDED", intent_result, att_id, outcome, None)
 
         if submit_result.state in ("CANCELLED_FENCED", "EXPIRED_BEFORE_DISPATCH"):
             self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                  outcome="BLOCKED", attempt_terminal_state="FENCED" if submit_result.state == "CANCELLED_FENCED" else "NOT_SENT",
                                  broker_response={"bridge_state": submit_result.state})
+            self._reservation("release_not_dispatched", execution_intent_id, submit_result.state)
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, "BLOCKED", submit_result.state)
 
         # Any other/unexpected bridge state: never assume success. Block for reconciliation.
         with transaction(self.conn):
             self._set_attempt_state(att_id, "UNCERTAIN", terminal=False)
+        self._reservation("unknown", execution_intent_id, f"UNEXPECTED_BRIDGE_STATE:{submit_result.state}")
         return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id, None,
                                 f"unrecognized bridge ledger state: {submit_result.state}")
 

@@ -1,0 +1,40 @@
+{
+  "classification": "RESEARCH_HYPOTHESIS",
+  "anchor_candidates": [
+    {
+      "id": "IMPULSE_A",
+      "classification": "RESEARCH_HYPOTHESIS",
+      "low_timestamp": "2025-12-09T06:00:00Z",
+      "low_price": 4169.985,
+      "high_timestamp": "2025-12-09T16:00:00Z",
+      "high_price": 4221.625,
+      "fib_61_8": 4189.71148,
+      "fib_78_6": 4181.03596,
+      "dec11_observed_region_intersects_pocket": false
+    },
+    {
+      "id": "IMPULSE_B",
+      "classification": "RESEARCH_HYPOTHESIS",
+      "low_timestamp": "2025-12-10T10:00:00Z",
+      "low_price": 4187.8,
+      "high_timestamp": "2025-12-11T01:00:00Z",
+      "high_price": 4247.805,
+      "fib_61_8": 4210.72191,
+      "fib_78_6": 4200.64107,
+      "dec11_observed_region_intersects_pocket": false
+    },
+    {
+      "id": "IMPULSE_C",
+      "classification": "RESEARCH_HYPOTHESIS",
+      "low_timestamp": "2025-12-10T18:00:00Z",
+      "low_price": 4192.15,
+      "high_timestamp": "2025-12-11T01:00:00Z",
+      "high_price": 4247.805,
+      "fib_61_8": 4213.41021,
+      "fib_78_6": 4204.06017,
+      "dec11_observed_region_intersects_pocket": true
+    }
+  ],
+  "matching_anchor_count": 1,
+  "anchor_selection_unique_from_source": false
+}

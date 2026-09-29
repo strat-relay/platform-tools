@@ -22,7 +22,8 @@ from typing import Any
 
 from postgres.db import transaction
 
-TERMINAL_OUTCOMES = ("TARGET_HIT", "STOPPED", "TIME_EXIT")
+# INVALIDATED: an operator invalidated the signal (migration 035); it carries no realized R.
+TERMINAL_OUTCOMES = ("TARGET_HIT", "STOPPED", "TIME_EXIT", "INVALIDATED")
 REASON_STRATEGY_OUTCOME = "STRATEGY_OUTCOME"
 
 
@@ -49,7 +50,7 @@ def close_terminal_trades(conn: Any, *, now_utc: datetime,
     sql = """SELECT mt.managed_trade_id, mt.entry_signal_id, o.status, o.exit_timestamp, o.realized_r, o.source
              FROM trade_management.managed_trade mt
              JOIN strategy.entry_signal_outcomes o ON o.signal_id = mt.entry_signal_id
-             WHERE mt.state = 'OPEN' AND o.status IN ('TARGET_HIT', 'STOPPED', 'TIME_EXIT')"""
+             WHERE mt.state = 'OPEN' AND o.status IN ('TARGET_HIT', 'STOPPED', 'TIME_EXIT', 'INVALIDATED')"""
     params: tuple[Any, ...] = ()
     if managed_trade_id is not None:
         sql += " AND mt.managed_trade_id = %s"

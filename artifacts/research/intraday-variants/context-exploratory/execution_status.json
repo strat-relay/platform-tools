@@ -1,0 +1,25 @@
+{
+  "schema": "research.context_intraday_exploratory_execution_status.v1",
+  "status": "BLOCKED_RESOURCE_COST_AFTER_SEMANTICS_PRESERVING_OPTIMIZATION",
+  "protocol": "discovery_protocol.json",
+  "strategy_version": "CONTEXT_STRUCTURE_RETRACE_INTRADAY_V1@V1",
+  "parameter_set_id": "context-intraday-v1-research-001",
+  "evidence_class": "EXPLORATORY_RAW_PIPELINE_PARENT_PARITY_UNPROVEN",
+  "reason": "A semantics-preserving no-pattern fast path passed exact golden equivalence and bounded causal invariants, but the full two-instrument discovery still remained operationally too expensive and was stopped before a completed result artifact was produced.",
+  "optimization": "Detect identical completed M15 patterns before constructing feature_snapshot; precompute completed higher-timeframe replay buckets causally for the research runner.",
+  "golden_equivalence_pass": true,
+  "bounded_speedup": 2.3067072392034875,
+  "discovery_metrics_available": false,
+  "validation_outcomes_accessed": false,
+  "parent_parity_status": "UNPROVEN",
+  "bounded_raw_pipeline_invariants": {
+    "deterministic_rerun": true,
+    "restart_identity": true,
+    "historical_live_replay_parity": true,
+    "no_lookahead_prefix": true,
+    "fixture_scope": "bounded smoke windows only; not performance evidence"
+  },
+  "liquidity_discovery_run": false,
+  "production_changed": false,
+  "broker_writes": 0
+}

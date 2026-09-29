@@ -203,10 +203,12 @@ def evaluate_candidate(record: Mapping[str, Any], *, policy: RiskPolicy, account
         return RiskDecision(False, "STALE_SIGNAL")
     if "equity" not in account or any(key not in broker for key in ("tick_size", "tick_value", "volume_min", "volume_max", "volume_step")):
         return RiskDecision(False, "BROKER_METADATA_UNAVAILABLE")
-    equity = float(account.get("equity"))
+    # The risk budget is a fraction of the sizing capital: equity, or free margin when the context
+    # sizes from free margin (account["sizing_capital"]).
+    capital = float(account["sizing_capital"] if account.get("sizing_capital") is not None else account.get("equity"))
     tick_size, tick_value = float(broker["tick_size"]), float(broker["tick_value"])
     minimum, maximum, step = map(float, (broker["volume_min"], broker["volume_max"], broker["volume_step"]))
-    risk_budget = equity * policy.risk_per_trade
+    risk_budget = capital * policy.risk_per_trade
     per_lot_risk = abs(float(entry) - float(stop)) / tick_size * tick_value
     raw = risk_budget / per_lot_risk if per_lot_risk > 0 else 0.0
     if raw + 1e-9 < minimum:

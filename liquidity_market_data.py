@@ -67,11 +67,16 @@ class ReadOnlyLiquidityMarketData:
                                   canonical_instrument, symbol, _timestamp(source_timestamp))
 
 
+# Bar windows the evaluator receives (completed candles), identical to the bridge reads above:
+# rates(limit=160) / rates(limit=64) minus the forming candle.
 M5_COMPLETED, M15_COMPLETED = 159, 63
 
 
 class CachedLiquidityMarketData:
-    """Read the collector-owned Redis snapshot without calling the bridge."""
+    """MARKET_DATA_SOURCE=REDIS: the same LiveMarketSnapshot from the market-data cache
+    (market_data_cache/, kept current by one collector), with no bridge call. The quote and
+    contract come from the same real bridge snapshot as the bars. Missing, stale or shallow data
+    raises, exactly like a failed bridge read."""
 
     def __init__(self, store: Any, *, max_age: float | None = None, clock: Any = None):
         import os

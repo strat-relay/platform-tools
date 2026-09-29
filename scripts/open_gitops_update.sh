@@ -44,13 +44,14 @@ cp "$manifest_path" "$target_path"
 # YAML workloads under the application instead of maintaining a hand-written
 # list: this keeps newly added runners, such as Liquidity, on the exact release
 # digest automatically.
-changed_paths=$(python3 - "$manifest_path" <<'PY'
+changed_paths=$(python3 - "$manifest_path" "$app_name" <<'PY'
 import json
 import pathlib
 import re
 import sys
 
 manifest_path = pathlib.Path(sys.argv[1])
+app_name = sys.argv[2]
 manifest = json.loads(manifest_path.read_text())
 references = {image["name"]: image["reference"] for image in manifest["images"]}
 

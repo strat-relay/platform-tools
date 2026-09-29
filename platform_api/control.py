@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -72,6 +74,40 @@ class ReadOnlyBridgeReader:
         return json.loads(content[0].get("text", "null"))
 
 
+class TtlCache:
+    """Per-key, thread-safe, single-flight TTL cache for expensive read models: concurrent callers
+    of an expired key wait for one computation instead of each running it. Failures are not cached."""
+
+    def __init__(self, ttl_seconds: float, clock: Callable[[], float] = time.monotonic):
+        self.ttl, self.clock = ttl_seconds, clock
+        self._values: dict[str, tuple[float, Any]] = {}
+        self._locks: dict[str, threading.Lock] = {}
+        self._guard = threading.Lock()
+
+    def get(self, key: str, compute: Callable[[], Any]) -> Any:
+        hit = self._values.get(key)
+        if hit and self.clock() - hit[0] < self.ttl:
+            return hit[1]
+        with self._guard:
+            lock = self._locks.setdefault(key, threading.Lock())
+        with lock:
+            hit = self._values.get(key)
+            if hit and self.clock() - hit[0] < self.ttl:
+                return hit[1]
+            value = compute()
+            self._values[key] = (self.clock(), value)
+            return value
+
+
+# Exact count(*) over the event and Trade Manager history tables (hundreds of thousands of rows)
+# took seconds per request and queued every other request behind it. These status numbers are
+# informational, so they come from PostgreSQL's maintained row estimates instead.
+_ESTIMATE_SQL = ("SELECT greatest(reltuples, 0)::bigint FROM pg_class "
+                 "WHERE oid = to_regclass(%s)")
+TM_SUMMARY_TTL_SECONDS = float(os.getenv("TM_SUMMARY_CACHE_SECONDS", "60"))
+_TM_SUMMARY_CACHE = TtlCache(TM_SUMMARY_TTL_SECONDS)
+
+
 class PlatformControlRepository:
     def __init__(self, connect_fn: Callable[..., Any] = connect):
         self._connect = connect_fn
@@ -99,11 +135,11 @@ class PlatformControlRepository:
                 (SELECT count(*) FROM platform.runtime_instances
                  WHERE component = 'orchestrator' AND status = 'RUNNING') AS orchestrator_running""")
             return rows[0]
-        rows = self.query("""SELECT
-            (SELECT count(*) FROM platform.outbox_events) AS outbox_count,
-            (SELECT count(*) FROM platform.inbox_events) AS inbox_count,
+        rows = self.query(f"""SELECT
+            ({_ESTIMATE_SQL.replace('%s', "'platform.outbox_events'")}) AS outbox_count,
+            ({_ESTIMATE_SQL.replace('%s', "'platform.inbox_events'")}) AS inbox_count,
             (SELECT count(*) FROM platform.runtime_instances WHERE component = 'orchestrator' AND status = 'RUNNING') AS orchestrator_running""")
-        return rows[0]
+        return {**rows[0], "event_counts_estimated": True}
 
     def execution_runtime_status(self) -> dict[str, Any]:
         """Read the V2 runtime's effective, persisted status projection."""
@@ -206,18 +242,26 @@ class PlatformControlRepository:
             raise CanonicalSourceUnavailable("canonical PostgreSQL trade management source unavailable") from exc
 
     def trade_manager_summary(self) -> dict[str, Any]:
+        """Computed at most once per TM_SUMMARY_CACHE_SECONDS (default 60) per process; the scans
+        behind it (max() and filtered counts over the Trade Manager history tables) are costly."""
+        return _TM_SUMMARY_CACHE.get("trade_manager_summary", self._trade_manager_summary)
+
+    def _trade_manager_summary(self) -> dict[str, Any]:
         rows = self._trade_management_query("""SELECT
             (SELECT count(*) FROM trade_management.managed_trade) AS total_managed_trades,
             (SELECT count(*) FROM trade_management.managed_trade WHERE state = 'OPEN') AS open_managed_trades,
             (SELECT max(observed_at) FROM trade_management.trade_observation) AS latest_observation_at,
             (SELECT max(decision_time) FROM trade_management.trade_manager_decision) AS latest_decision_at,
-            (SELECT count(*) FROM trade_management.trade_observation) AS observation_count,
-            (SELECT count(*) FROM trade_management.trade_manager_decision) AS decision_count,
+            (SELECT greatest(reltuples, 0)::bigint FROM pg_class
+             WHERE oid = to_regclass('trade_management.trade_observation')) AS observation_count,
+            (SELECT greatest(reltuples, 0)::bigint FROM pg_class
+             WHERE oid = to_regclass('trade_management.trade_manager_decision')) AS decision_count,
             (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'PUBLISHED') AS published_decision_count,
             (SELECT count(*) FROM trade_management.publication_decision WHERE outcome = 'WITHHELD') AS withheld_decision_count,
             (SELECT json_agg(v ORDER BY v.tm_version_id) FROM
                 (SELECT tm_version_id, evaluator_id, label, status FROM trade_management.trade_manager_version) v) AS policy_versions""")
-        return rows[0]
+        return {**rows[0], "counts_estimated": ["observation_count", "decision_count"],
+                "computed_at": datetime.now(timezone.utc).isoformat()}
 
     def strategy_trade_management(self, strategy_id: str) -> dict[str, Any] | None:
         rows = self._trade_management_query("""SELECT b.binding_id, b.strategy_id,
@@ -502,6 +546,18 @@ class PlatformControlApi:
             setting = getattr(self.repository, "runtime_setting_reader", None)
             bridge_reader = ReadOnlyBridgeReader(self.environ.get("MT5_BRIDGE_MCP_URL")
                                                  or (setting("mcp_url") if setting else None), timeout=timeout)
+            redis_url = self.environ.get("BROKER_VIEW_REDIS_URL", "").strip()
+            if redis_url:
+                # Broker state is served from the populator's Redis view (broker_view.service);
+                # the bridge is read only when that view is missing or stale.
+                import redis
+                from broker_view.reader import RedisFirstBridgeReader
+                from broker_view.store import BrokerViewStore
+                store = BrokerViewStore(redis.Redis.from_url(redis_url, socket_timeout=0.5,
+                                                             socket_connect_timeout=0.5))
+                bridge_reader = RedisFirstBridgeReader(
+                    store, bridge_reader, allowed_tools={name for name, _ in READ_ONLY_BROKER_TOOLS.values()},
+                    max_age_seconds=float(self.environ.get("BROKER_VIEW_MAX_AGE_SECONDS", "45")))
         self.bridge_reader = bridge_reader
         if v2_risk_api is None:
             from .v2_risk import V2RiskExecutionApi
@@ -729,7 +785,7 @@ class PlatformControlApi:
             if path == "/healthz":
                 return 200, {"status": "ok", "service": "platform-control-api"}
             if path == "/readyz":
-                self._database()
+                self._database(include_event_counts=False)
                 return 200, {"status": "ready", "service": "platform-control-api",
                              "source": "canonical_postgres", "schema_version": SCHEMA_VERSION}
             if path == "/api/v1/system":
@@ -763,7 +819,7 @@ class PlatformControlApi:
                     "canonical_outbox_event_count": db["outbox_count"], "canonical_inbox_event_count": db["inbox_count"]}
                 return 200, self._body(state, source="canonical_platform")
             if path == "/api/v1/safety":
-                self._database()  # Canonical-source reachability/schema is required to make this assertion.
+                self._database(include_event_counts=False)  # Canonical-source reachability/schema is required to make this assertion.
                 execution = self._execution_state()
                 authority = {**self._authority(self.environ),
                              "execution_authority_mode": execution["execution_authority_mode"]}
@@ -844,7 +900,7 @@ class PlatformControlApi:
                 return 200, self._body(rows[0] if suffix else {"executions": rows}, source="canonical_postgres",
                                        status="INACTIVE" if self._authority(self.environ)["execution_authority_mode"] == "DISABLED" else "ACTIVE")
             if path == "/api/v1/connections":
-                self._database()
+                self._database(include_event_counts=False)   # reachability only
                 return 200, self._body({"data_channel": {"status": "UNAVAILABLE", "source": "mt5_bridge_read_only"},
                                         "execution_channel": {"status": "INACTIVE", "reason": "execution authority disabled"}}, source="platform_and_bridge", status="DEGRADED")
             if path == "/api/v1/trade-manager/summary":
@@ -883,8 +939,13 @@ class PlatformControlApi:
                     return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
                                            error="SOURCE_UNAVAILABLE", message="Read-only MT5 bridge resource is unavailable")
                 try:
-                    data = self.bridge_reader.call(tool, arguments)
-                    return 200, self._body(data, source="mt5_bridge_read_only")
+                    read = getattr(self.bridge_reader, "read", None)
+                    if read is None:
+                        return 200, self._body(self.bridge_reader.call(tool, arguments), source="mt5_bridge_read_only")
+                    data, observed_at, source = read(tool, arguments)
+                    body = self._body(data, source=source)
+                    body["observed_at"] = datetime.fromtimestamp(observed_at, timezone.utc).isoformat()
+                    return 200, body
                 except Exception as exc:
                     return 503, self._body(None, source="mt5_bridge_read_only", status="UNAVAILABLE",
                                            error="SOURCE_UNAVAILABLE",

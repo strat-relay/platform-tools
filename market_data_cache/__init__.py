@@ -1,1 +1,1 @@
-"""Redis-backed market-data cache readers and collector support."""
+"""Redis market-data cache owned by one collector on the read bridge (22347). See store.py."""

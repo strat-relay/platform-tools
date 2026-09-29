@@ -401,7 +401,9 @@ class PlatformSignalApi:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
         query_values = parse_qs(parsed.query, keep_blank_values=False, max_num_fields=32)
-        query = {key: values[-1] for key, values in query_values.items()}
+        # `_fresh` only varies the edge cache key (the Console bypasses cached copies right after
+        # a write); it never affects the result.
+        query = {key: values[-1] for key, values in query_values.items() if key != EDGE_CACHE_BYPASS_PARAM}
         if path == "/healthz":
             return 200, {"status": "ok", "service": "platform-signals-api"}
         if path == "/readyz":
@@ -463,6 +465,23 @@ def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, default=_json_value, separators=(",", ":")).encode("utf-8")
 
 
+# Edge (Cloudflare) caching for read models that tolerate a few seconds of staleness. The public
+# path to this API runs through a Cloudflare tunnel; when it stalls, the edge serves the last good
+# response (stale-if-error) instead of timing out. Only successful GETs of strategy and signal
+# read models are cacheable; everything else - broker/account state, execution, Trade Manager,
+# errors - stays no-store.
+EDGE_CACHEABLE_PREFIXES = ("/api/v1/strategies", "/api/v1/signals")
+EDGE_CACHE_CONTROL = "public, max-age=5, stale-while-revalidate=10, stale-if-error=300"
+EDGE_CACHE_BYPASS_PARAM = "_fresh"
+
+
+def edge_cache_control(method: str, target: str, status: int) -> str:
+    path = urlsplit(target).path.rstrip("/") or "/"
+    if method == "GET" and status == 200 and any(path == p or path.startswith(p + "/") for p in EDGE_CACHEABLE_PREFIXES):
+        return EDGE_CACHE_CONTROL
+    return "no-store"
+
+
 def create_server(host: str = "0.0.0.0", port: int = 22350,
                   api: PlatformSignalApi | None = None,
                   allowed_origins: set[str] | frozenset[str] | None = None):
@@ -485,13 +504,13 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status: int, body: dict[str, Any] | None = None,
-                  *, extra_headers: list[tuple[str, str]] | None = None) -> None:
+                  *, extra_headers: list[tuple[str, str]] | None = None, cache_control: str = "no-store") -> None:
             encoded = _json_bytes(body) if body is not None else b""
             self.send_response(status)
             if body is not None:
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(encoded)))
-                self.send_header("Cache-Control", "no-store")
+                self.send_header("Cache-Control", cache_control)
             else:
                 self.send_header("Content-Length", "0")
             for name, value in cors_headers(self.headers.get("Origin")):
@@ -504,7 +523,7 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
 
         def do_GET(self) -> None:
             status, body = instance.execute("GET", self.path)
-            self._send(status, body)
+            self._send(status, body, cache_control=edge_cache_control("GET", self.path, status))
 
         def do_POST(self) -> None:
             try:

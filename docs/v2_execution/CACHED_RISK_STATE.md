@@ -1,0 +1,165 @@
+# Cached execution risk state
+
+**Status:** implemented behind `RISK_CONTEXT_SOURCE` (default `BRIDGE`, unchanged production behaviour).
+
+## Ownership
+
+| Concern | Owner |
+|---|---|
+| Broker observation (account, positions, orders, deal history, symbol metadata) | **Risk-state collector** (`execution_v2/risk_state/collector.py`), the only component that polls the read bridge (22347) for risk |
+| Hot risk snapshot + execution risk reservations | **Redis** (`execution_v2/risk_state/store.py`) |
+| Durable audit/history (intents, attempts, results, risk evidence) | **PostgreSQL**, unchanged |
+| Risk decision on a signal | **Execution** (`CachedRiskGate`): reads Redis only; never the bridge |
+| Actual positions and orders | **The broker**, always |
+
+**Invariant: the cache is never more authoritative than the broker.** Every snapshot value is a
+timestamped broker observation, refreshed on a fixed cadence and immediately after known broker
+changes. Periodic collection is the reconciliation that corrects cache drift. When the cache can't
+prove it's fresh and trustworthy, execution fails closed; it never falls back to reading MT5
+synchronously.
+
+## Flow
+
+```
+Broker/MT5 -> read bridge (22347) -> collector -> normalize/validate -> Redis RiskSnapshot
+EntrySignal -> read Redis snapshot -> freshness + health -> evaluate_candidate (unchanged)
+            -> atomic reservation (Lua) -> existing authority / fence / idempotency -> 22348
+```
+
+## RiskSnapshot (`risk-snapshot.v1`)
+
+`account_ref` (a non-reversible hash, never the raw account id), `provider`, `generation`,
+`observed_at`, `balance`, `equity`, per-component timestamps (`equity_observed_at`,
+`positions_observed_at`, `orders_observed_at`, `history_observed_at`), `open_positions`
+(ticket, provider symbol, canonical instrument, direction, volume, open price, stop loss, take
+profit), `pending_orders`, `trading_day`, `daily_realized_pnl`, `daily_loss`, `source_health`,
+`source_errors`.
+
+Missing critical values are never treated as zero. A malformed broker row fails that collection
+and keeps the previous valid snapshot. `daily_loss` keeps the bridge path's exact semantics: the
+sum of today's (UTC) losing deal results; gains never offset losses.
+
+## Collection cadence
+
+| Class | Contents | Default | Max age used by execution |
+|---|---|---|---|
+| fast | equity/balance, positions, pending orders (+ metadata for any new position symbol) | `RISK_FAST_REFRESH_SECONDS=10` | positions/orders/equity: 30 s |
+| history | today's deals -> daily loss | `RISK_HISTORY_REFRESH_SECONDS=30` | 90 s, and it must be for today's UTC trading day |
+| reference | symbol sizing metadata for allowed symbols and position symbols | `RISK_REFERENCE_REFRESH_SECONDS=300` | 900 s |
+
+History at 30 s means realized loss can lag the broker by at most about 90 s before execution
+refuses. Losses that realize inside that window are bounded by the stops of positions the snapshot
+already shows, and by `max_concurrent_positions`.
+
+## Freshness and health gate (execution)
+
+The snapshot is **missing**, the **fast/history source is not `healthy`** (its latest collection
+failed), or a critical value is absent → `RISK_STATE_UNAVAILABLE`. A component is older than its
+max age, or history belongs to a previous day → `RISK_STATE_STALE`. Every rejection records
+`risk_context_failure {stage, code, retryable}` in `execution_risk_evidence.diagnostics`.
+
+Policy choice (test E): a snapshot that is still young but whose latest collection failed is
+**not** used. One failed fast collection blocks execution until the next successful one.
+
+## Positions are normal risk input
+
+Open positions no longer abort risk construction (the bridge path raised
+`open-position exposure cannot be calculated safely`, which became `RISK_STATE_UNAVAILABLE`).
+They count toward `max_concurrent_positions`, so with a limit of 1 an occupied slot is
+`MAX_CONCURRENT_POSITIONS_EXCEEDED`. They also feed `account_exposure`.
+
+**`account_exposure` definition (new; confirm before cutover):** the open stop-risk in account
+currency, meaning the sum over positions of `volume * max(0, distance from open to stop) / tick_size
+* tick_value`, plus active reservations' reserved risk. A position without a stop is unbounded
+(`MAX_ACCOUNT_EXPOSURE_EXCEEDED`). A position whose symbol metadata can't be obtained fails closed.
+Before this change the value was always a hard-coded `0.0`, so `max_account_exposure` has never
+actually been enforced.
+
+## Atomic reservation
+
+`RESERVE_LUA` evaluates, in one Redis script: broker snapshot (generation-checked) + active
+reservations against daily loss, positions, orders and exposure, then inserts the reservation.
+Two signals can't both take the last slot, even if both local reads saw capacity.
+
+Lifecycle:
+
+```
+RESERVED --submit--> SUBMITTED --confirm--> CONFIRMED --(snapshot newer than confirmation)--> RETIRED
+   |                     |  \--ambiguous--> UNKNOWN --(reconciliation from PostgreSQL only)--> CONFIRMED | RELEASED
+   |                     \--broker rejection / never dispatched--> RELEASED
+   |--definite pre-submit rejection--> RELEASED
+   \--TTL (RISK_RESERVATION_TTL_SECONDS=60), only while RESERVED--> EXPIRED
+```
+
+- The attempt reaches SENDING only after a successful `RESERVED -> SUBMITTED`. An expired or
+  released reservation ends the attempt `NOT_SENT`.
+- `SUBMITTED` and `UNKNOWN` never expire, and worker paths can't release `UNKNOWN`. The collector
+  releases or confirms them only when `execution_v2.execution_attempt` shows a definite outcome
+  (`CONFIRMED` / `REJECTED`, `FENCED`, `NOT_SENT`, `CANCELLED`, `FAILED`). `UNCERTAIN`/`SENDING`
+  keep holding capacity: UNKNOWN_RECONCILIATION_REQUIRED semantics are unchanged.
+- A fill or broker rejection requests an immediate collector refresh (`risk:refresh:<ref>`).
+  Execution never waits for it.
+
+## Cutover plan (separate, operator-approved)
+
+1. Deploy a dedicated Redis in the `trading` namespace (do not share another application's Redis).
+2. Deploy the collector (`python -m execution_v2.risk_state.collector_service`) with read-only
+   bridge and read-only PostgreSQL. Leave the execution runtime on `RISK_CONTEXT_SOURCE=BRIDGE`.
+3. Observe for at least a trading session: collector health `healthy`, component ages within
+   limits, snapshot positions/orders matching the broker, `daily_loss` matching the bridge path.
+4. Confirm the `account_exposure` definition and the `max_account_exposure` value against it.
+5. Set `RISK_CONTEXT_SOURCE=REDIS` and `RISK_REDIS_URL` on the execution runtime. This does not
+   change execution authority. Rollback: set it back to `BRIDGE`.
+
+## Market-data cache (`market_data_cache/`)
+
+The read bridge runs one command per EA poll, so its capacity is a command budget. One collector
+(`python -m market_data_cache.service`) owns market-data reads. It is built in three steps:
+
+1. **Completed bars.** One `mt5_symbol_snapshot` per symbol per M5 close: a full window on cold
+   start or after a detected gap or revision, otherwise an 8-row window merged under exact-overlap
+   rules. Completed bars never change, so they are never re-read. The Context runner
+   (`MARKET_DATA_SOURCE=REDIS`) then reads the same `(contract, quote, bars)` from Redis. Tests
+   prove this identical to a fresh full snapshot across hours, outages and revisions, at about
+   1/20 of the bridge commands.
+2. **Metadata.** Stored from each snapshot; extra symbols (the V2 allowed list) are refreshed by
+   `mt5_symbol_info` every 300 s.
+3. **Quotes.** Hot symbols (open managed trades + `MARKET_QUOTE_SYMBOLS`) are refreshed every 2 s,
+   capped per pass. The Trade Manager (`TM_MARKET_DATA_SOURCE=REDIS`) reads quotes from the cache
+   (15 s max age, fail closed); its bar reads pass through unchanged.
+
+All switches default to `BRIDGE`. Readers never fall back to the bridge: missing or stale data
+raises exactly like a failed bridge read.
+
+## Broker view (`broker_view/`)
+
+The API's broker endpoints (`/api/v1/broker/{account,positions,pending-orders,history-orders,deals,symbols,exposure}`,
+`/api/v1/exposure`) and the Trade Manager live projection read broker state **Redis first**:
+
+- `python -m broker_view.service` is the only writer. Every `BROKER_VIEW_REFRESH_SECONDS` (15) it
+  reads each allow-listed read-only tool once from the read bridge (22347; 22348 is refused) and
+  stores it with its `observed_at`. That is 5 bridge commands per pass, whatever the Console load.
+  A transport failure ends the pass and keeps the previous entries; health is in `broker:view:health`.
+- The API (`BROKER_VIEW_REDIS_URL`) serves an entry younger than `BROKER_VIEW_MAX_AGE_SECONDS` (45)
+  and reports `source: redis_broker_view` plus `observed_at`. A missing or stale entry, or an
+  unreachable Redis, falls back to the bridge exactly as before (`source: mt5_bridge_read_only`).
+- Unset `BROKER_VIEW_REDIS_URL` and the API reads the bridge directly, as before.
+
+## Bridge risk path with open positions (`RISK_CONTEXT_SOURCE=BRIDGE`)
+
+The bridge path no longer refuses to size while any position is open.
+
+- **Platform vs manual.** A position or pending order is the platform's when its ticket is the
+  broker order ticket of a V2 execution result (not REJECTED/BLOCKED). On a hedging account a
+  position's ticket is its opening order's ticket. Everything else on the account is manual.
+- **Platform** positions count toward `max_concurrent_positions`, platform orders toward
+  `max_concurrent_orders`, and platform positions' open stop risk
+  (`volume * max(0, adverse distance to stop) / tick_size * tick_value`) is `account_exposure`.
+  A platform position without a stop is unbounded, so `MAX_ACCOUNT_EXPOSURE_EXCEEDED`.
+- **Manual** positions and orders are excluded from slots and exposure. They still reduce free
+  margin, and their closed deals still count in daily loss.
+- **Sizing basis** (`V2_RISK_SIZING_BASIS`): `EQUITY` (default) or `FREE_MARGIN`. With
+  `FREE_MARGIN` the budget is `free_margin * risk_per_trade`, so each open trade leaves less for the
+  next. A missing free margin fails closed.
+- A failed risk read is still `RISK_STATE_UNAVAILABLE`, and now records
+  `risk_context_failure {stage, error}` in the risk evidence diagnostics.

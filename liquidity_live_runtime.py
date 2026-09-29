@@ -12,11 +12,12 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from orchestration.canonical_signal_publisher import CanonicalSignalPublisher
-from orchestration.liquidity_live import PARAMETER_SETS, LiquidityLiveEvaluator
+from orchestration.liquidity_live import STRATEGY_ID, PARAMETER_SETS, LiquidityLiveEvaluator
 from liquidity_market_data import LiveMarketSnapshot
 from liquidity_lifecycle import settle_filled_entry
 from liquidity_outcomes import project_liquidity_outcome
 from postgres.db import connect
+from observability.strategy_audit import audit
 
 
 def active_instance_memberships(conn: Any) -> list[dict[str, str]]:
@@ -55,11 +56,11 @@ class PostgresLiquiditySetupStore:
             cur.execute("""INSERT INTO strategy.liquidity_setup_state
                     (setup_id, strategy_id, strategy_version, instance_id,
                      canonical_instrument, state, payload)
-                    VALUES (%s,'LIQUIDITY_DISPLACEMENT_SCALP_V1','V1',%s,%s,%s,%s)
+                    VALUES (%s,'LIQUIDITY_DISPLACEMENT_SCALP_V1','V1',%s,%s,%s,%s::jsonb)
                     ON CONFLICT (setup_id) DO UPDATE SET state=EXCLUDED.state,
                     payload=EXCLUDED.payload, updated_at=now()""",
                         (state["setup_id"], state["instance_id"], state["canonical_instrument"],
-                         state["state"], state))
+                         state["state"], json.dumps(state)))
 
 
 def open_liquidity_entries(conn: Any) -> list[dict[str, Any]]:
@@ -112,6 +113,8 @@ class LiquidityLiveRuntime:
 
     def heartbeat(self, *, status: str = "RUNNING") -> None:
         """Persist workload liveness in the canonical runtime registry."""
+        audit("runner_heartbeat", runner="liquidity-live", status=status,
+              runtime_instance_id=self.runtime_instance_id, broker_writes=0)
         with self.conn.cursor() as cur:
             cur.execute("""INSERT INTO platform.runtime_instances
                     (instance_id, component, process_id, status, metadata)
@@ -125,9 +128,16 @@ class LiquidityLiveRuntime:
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         published: list[str] = []
+        audit("runner_cycle_started", runner="liquidity-live", evaluation_time=evaluation_time)
         self.heartbeat()
         terminal = monitor_open_liquidity_entries(self.conn, self.snapshot_reader)
+        audit("open_entries_monitored", runner="liquidity-live", terminal_outcomes=terminal,
+              terminal_count=len(terminal))
         memberships = active_instance_memberships(self.conn)
+        audit("memberships_loaded", runner="liquidity-live", membership_count=len(memberships),
+              memberships=[{"instance_id": row["instance_id"],
+                            "canonical_instrument": row["canonical_instrument"],
+                            "provider_symbol": row["provider_symbol"]} for row in memberships])
         for row in memberships:
             instance_id = row["instance_id"]
             parameter_set = PARAMETER_SETS.get(instance_id)
@@ -139,16 +149,31 @@ class LiquidityLiveRuntime:
                 self._restored.add(instance_id)
             snapshot = self.snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
             if not isinstance(snapshot, LiveMarketSnapshot):
+                audit("snapshot_rejected", runner="liquidity-live", instance_id=instance_id,
+                      canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"], reason="INVALID_LIVE_SNAPSHOT")
                 raise RuntimeError("snapshot reader did not return a validated LiveMarketSnapshot")
             signal = evaluator.evaluate(snapshot, evaluation_time=evaluation_time)
+            audit("strategy_decision", runner="liquidity-live", strategy_id=STRATEGY_ID,
+                  instance_id=instance_id, canonical_instrument=row["canonical_instrument"],
+                  provider_symbol=row["provider_symbol"],
+                  decision=("SIGNAL" if signal else "NO_SIGNAL"),
+                  signal_id=signal.signal_id if signal else None,
+                  setup_id=signal.setup_id if signal else None)
             for state in evaluator.export_state():
                 self.setup_store.save(state)
             if signal is None:
                 continue
             _, inserted = self.publisher.publish(signal)
+            audit("signal_persisted", runner="liquidity-live", strategy_id=signal.strategy_id,
+                  instance_id=signal.strategy_instance_id, signal_id=signal.signal_id,
+                  canonical_instrument=signal.canonical_symbol,
+                  provider_symbol=signal.broker_symbol_hint, inserted=inserted)
             if inserted:
                 published.append(signal.signal_id)
         self.conn.commit()
+        audit("runner_cycle_completed", runner="liquidity-live", memberships=len(memberships),
+              published=published, terminal_outcomes=terminal, production_broker_writes=0)
         return {"memberships": len(memberships), "published": published, "terminal_outcomes": terminal,
                 "production_broker_writes": 0}
 

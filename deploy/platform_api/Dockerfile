@@ -7,11 +7,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements-postgres.txt ./
-RUN pip install --no-cache-dir --disable-pip-version-check -r requirements-postgres.txt
+COPY requirements-postgres.txt requirements-risk-state.txt ./
+RUN pip install --no-cache-dir --disable-pip-version-check \
+    -r requirements-postgres.txt -r requirements-risk-state.txt
 
 COPY postgres ./postgres
 COPY platform_api ./platform_api
+# Redis-first broker reads (BROKER_VIEW_REDIS_URL); populated by broker_view.service.
+COPY broker_view ./broker_view
 # PlatformControlApi exposes Trade Manager mode as part of the unified API
 # startup path. Keep the domain package in the API image so import-time
 # construction cannot crash with ModuleNotFoundError.
