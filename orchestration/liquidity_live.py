@@ -21,6 +21,7 @@ STRATEGY_ID = "LIQUIDITY_DISPLACEMENT_SCALP_V1"
 STRATEGY_VERSION = "V1"
 _FROZEN_RULE_SOURCE = Path(__file__).resolve().parents[1] / "liquidity_displacement.py"
 CODE_FINGERPRINT = hashlib.sha256(_FROZEN_RULE_SOURCE.read_bytes()).hexdigest()
+LIVE_MARKET_VALIDATORS = frozenset({"mt5-read-22347", "market-data-cache"})
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,7 @@ class LiquidityLiveEvaluator:
                 "lifecycle": ["SWEEP", "RECLAIM", "DISPLACEMENT", "MSS"]}
 
     def _signal_for_fill(self, setup: dict[str, Any], *, bar: dict[str, Any], evaluation_time: str,
-                         broker_symbol: str) -> StrategySignal:
+                         broker_symbol: str, validated_by: str) -> StrategySignal:
         event_time = datetime.fromtimestamp(int(bar["time"]) + 300, timezone.utc).isoformat().replace("+00:00", "Z")
         source_event_id = stable_id("LIQUIDITY_EVT", {"setup_id": setup["setup_id"], "entry_time": event_time})
         signal_id = stable_id("SIG", {"strategy_id": STRATEGY_ID, "strategy_version": STRATEGY_VERSION,
@@ -184,14 +185,16 @@ class LiquidityLiveEvaluator:
                                "entry_fraction": self.parameter_set.entry_fraction,
                                "max_retrace_candles": self.parameter_set.max_retrace_candles},
             provenance={"source": "liquidity_live_market_evaluator", "source_kind": "LIVE_MARKET",
-                        "validated_by": "mt5-read-22347", "code_fingerprint": CODE_FINGERPRINT,
+                        "validated_by": validated_by, "code_fingerprint": CODE_FINGERPRINT,
                         "config_fingerprint": self.parameter_set.config_fingerprint,
                         "paper_only": False, "setup_lifecycle": "STRATEGY_OBSERVED_FILL"},
             decision_time=event_time, signal_emitted_at=evaluation_time)
 
     def evaluate(self, snapshot: LiveMarketSnapshot, *, evaluation_time: str) -> StrategySignal | None:
-        if not isinstance(snapshot, LiveMarketSnapshot) or snapshot.source_kind != "LIVE_MARKET" or snapshot.validated_by != "mt5-read-22347":
-            raise PaperStateRejected("Liquidity live evaluator requires a validated 22347 LiveMarketSnapshot")
+        if (not isinstance(snapshot, LiveMarketSnapshot)
+                or snapshot.source_kind != "LIVE_MARKET"
+                or snapshot.validated_by not in LIVE_MARKET_VALIDATORS):
+            raise PaperStateRejected("Liquidity live evaluator requires a validated live market snapshot")
         m5 = list(snapshot.M5)
         m15 = list(snapshot.M15)
         quote = snapshot.quote
@@ -228,7 +231,7 @@ class LiquidityLiveEvaluator:
                 held = float(bar["close"]) >= setup["entry"] if setup["direction"] == "LONG" else float(bar["close"]) <= setup["entry"]
                 if touched and held:
                     signal = self._signal_for_fill(setup, bar=bar, evaluation_time=evaluation_time,
-                                                   broker_symbol=broker_symbol)
+                                                   broker_symbol=broker_symbol, validated_by=snapshot.validated_by)
                     signals.append(signal)
                     self._published.add(signal.signal_id)
                     break
