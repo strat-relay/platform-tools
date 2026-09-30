@@ -7,6 +7,7 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from postgres.db import connect
+from outcome_attribution import THEORETICAL_OUTCOME_DISCLAIMER
 
 
 SCHEMA_VERSION = "012"
@@ -112,6 +113,7 @@ def _project(row: dict[str, Any]) -> dict[str, Any]:
     result.setdefault("outcome_source", None)
     result.setdefault("executionSummary", [])
     result.setdefault("executionEvaluations", [])
+    result["theoretical_outcome_disclaimer"] = THEORETICAL_OUTCOME_DISCLAIMER
     return result
 
 

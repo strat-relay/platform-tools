@@ -9,6 +9,13 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 
+THEORETICAL_OUTCOME_DISCLAIMER = (
+    "Signal outcomes are evaluated using StratRelay reference market data and may differ from "
+    "live broker execution because of spread, slippage, commissions, latency, and "
+    "broker-specific pricing."
+)
+
+
 def as_epoch(value: Any) -> float:
     if isinstance(value, datetime):
         parsed = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -113,15 +120,19 @@ def broker_authoritative(*, strategy_outcome: str | None, strategy_realized_r: f
                                       broker_fill_time=broker_fill_time,
                                       broker_exit_time=broker_exit_time,
                                       outcome_exit_time=broker_exit_time)
+    base = {"canonicalOutcome": strategy_outcome, "canonicalR": strategy_realized_r,
+            "executionOutcome": broker_outcome, "executionR": broker_realized_r,
+            "brokerRealizedPnl": None,
+            "outcomeDivergence": broker_outcome is not None and broker_outcome != strategy_outcome}
     if invalid:
-        return {"status": "INVALIDATED", "realized_r": None,
+        return {**base, "status": "INVALIDATED", "realized_r": None,
                 "reason": invalid, "strategy_outcome": strategy_outcome,
                 "strategy_realized_r": strategy_realized_r}
     if broker_outcome is None:
-        return {"status": strategy_outcome, "realized_r": strategy_realized_r,
+        return {**base, "status": strategy_outcome, "realized_r": strategy_realized_r,
                 "reason": "BROKER_CLOSE_TRUTH_PENDING",
                 "strategy_outcome": strategy_outcome,
                 "strategy_realized_r": strategy_realized_r}
-    return {"status": broker_outcome, "realized_r": broker_realized_r,
+    return {**base, "status": broker_outcome, "realized_r": broker_realized_r,
             "reason": "BROKER_AUTHORITATIVE", "strategy_outcome": strategy_outcome,
             "strategy_realized_r": strategy_realized_r}
