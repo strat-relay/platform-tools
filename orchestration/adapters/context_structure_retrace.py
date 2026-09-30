@@ -78,7 +78,7 @@ class ContextStructureRetraceAdapter:
                     decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     signal_emitted_at=created,
                     provenance={"source_process": "context_structure_retrace_forward.py", "source_pid": None,
-                                "source_state_reference": str(self.state_path), "source_strategy_fingerprint": "0a990dd5b3418bd065a702a3a50ffcebcf20dd26565fd432326b1f32ef3aeacf",
+                                "source_state_reference": str(self.state_path), "source_strategy_fingerprint": "0660e8a6003a07638c1256706517c5854e794f106fd87c75a1ad0be9f4d2c189",
                                 "source_config_hash": "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e",
                                 "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",
                                 "orchestrator_freeze_timestamp": self.freeze_timestamp,

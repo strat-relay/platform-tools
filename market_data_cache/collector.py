@@ -18,9 +18,10 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
-from .store import TIMEFRAMES, BarGap, MarketDataStore, merge_completed
+from .store import TIMEFRAMES, TIMEFRAME_SECONDS, BarGap, MarketDataStore, merge_by_time, merge_completed, unexpected_missing_times
 
 M5_SECONDS = 300
+RECOVERY_STATES = frozenset({"HEALTHY", "STALE", "GAP_DETECTED", "BACKFILL_REQUIRED", "BACKFILLING", "REPLAYING", "BACKFILL_FAILED"})
 
 
 class SnapshotUnhealthy(RuntimeError):
@@ -104,7 +105,9 @@ class MarketDataCollector:
                          last_error=f"{type(exc).__name__}: {exc}"[:300],
                          needs_full=bool(state.get("needs_full")) or isinstance(exc, BarGap))
             self.store.set_state(symbol, state)
-            return {"symbol": symbol, "ok": False, "error": state["last_error"]}
+            state["health_state"] = "BACKFILL_FAILED" if state.get("backfill_required") else "STALE"
+            self.store.set_state(symbol, state)
+            return {"symbol": symbol, "ok": False, "full": full, "reason": state["last_error"], "error": state["last_error"]}
 
     def _fetch(self, symbol: str, now: float, *, full: bool, previous: dict[str, Any], reason: str = "") -> dict[str, Any]:
         limit = self.full_limit if full else self.incremental_limit
@@ -115,12 +118,33 @@ class MarketDataCollector:
         if not isinstance(info, dict) or not isinstance(quote, dict) or any(tf not in rates for tf in TIMEFRAMES):
             raise SnapshotUnhealthy("symbol snapshot missing required component")
         merged, added = {}, {}
+        recovery = {}
         for tf in TIMEFRAMES:
             fresh = _completed(rates[tf])
             if full:
-                merged[tf], added[tf] = fresh, len(fresh)
+                cached = self.store.bars(symbol, tf)
+                if cached and fresh and int(fresh[-1]["time"]) > int(cached[-1]["time"]) + TIMEFRAME_SECONDS[tf]:
+                    merged[tf], recovery[tf] = self._recover_range(symbol, tf, cached, fresh, previous)
+                    added[tf] = max(0, len(merged[tf]) - len(cached))
+                else:
+                    merged[tf], added[tf] = fresh, len(fresh)
             else:
-                merged[tf], added[tf] = merge_completed(self.store.bars(symbol, tf), fresh)   # raises BarGap
+                try:
+                    merged[tf], added[tf] = merge_completed(self.store.bars(symbol, tf), fresh)
+                except BarGap as gap:
+                    if "differs" in str(gap):
+                        # A revision is not a range gap: force a full snapshot so the broker's
+                        # corrected overlap replaces the cached candle safely.
+                        raise
+                    cached = self.store.bars(symbol, tf)
+                    merged[tf], recovery[tf] = self._recover_range(symbol, tf, cached, fresh, previous)
+                    added[tf] = max(0, len(merged[tf]) - len(cached))
+            holes = unexpected_missing_times(merged[tf], tf)
+            if holes:
+                anchor = [row for row in self.store.bars(symbol, tf) if int(row["time"]) < holes[0]]
+                if anchor and fresh:
+                    merged[tf], recovery[tf] = self._recover_range(symbol, tf, [anchor[-1]], fresh, previous,
+                                                                    start_override=holes[0])
         for tf in TIMEFRAMES:        # write only after every timeframe validated
             self.store.set_bars(symbol, tf, merged[tf])
         forming = {tf: _forming_time(rates[tf]) for tf in TIMEFRAMES}
@@ -129,13 +153,74 @@ class MarketDataCollector:
         self.store.set_metadata(symbol, info, now)
         advanced = previous.get("forming", {}).get("M5") != forming["M5"]
         retries = 0 if advanced or full else int(previous.get("awaiting_new_bar_retries", 0)) + 1
-        state = {"fetched_at": now, "last_attempt_at": now, "healthy": True, "consecutive_failures": 0,
+        state = {"fetched_at": now, "last_attempt_at": now, "healthy": True, "health_state": "HEALTHY", "consecutive_failures": 0,
                  "needs_full": False, "forming": forming, "awaiting_new_bar_retries": retries,
                  "last_full_at": now if full else previous.get("last_full_at"),
                  "last_full_reason": reason or (previous.get("last_full_reason") if not full else "COLD_START"),
-                 "depth": {tf: len(merged[tf]) for tf in TIMEFRAMES}}
+                 "depth": {tf: len(merged[tf]) for tf in TIMEFRAMES}, "recovery": recovery,
+                 "backfill_required": False}
         self.store.set_state(symbol, state)
-        return {"symbol": symbol, "ok": True, "full": full, "added": added, "reason": reason}
+        result_reason = reason
+        if not result_reason and any(item.get("status") == "WINDOW_FALLBACK" for item in recovery.values()):
+            result_reason = "full window does not reach cached series; used overlapping full-window fallback"
+        return {"symbol": symbol, "ok": True, "full": full, "added": added, "reason": result_reason}
+
+    def _recover_range(self, symbol: str, timeframe: str, cached: list[dict[str, Any]],
+                       fresh: list[dict[str, Any]], previous: dict[str, Any],
+                       *, start_override: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Recover the exact missing interval, in <=500-bar pages, before committing it."""
+        if not cached or not fresh:
+            raise BarGap(f"{timeframe} range recovery has no bounded cache/source")
+        step = TIMEFRAME_SECONDS[timeframe]
+        start = int(start_override if start_override is not None else cached[-1]["time"] + step)
+        end = int(fresh[-1]["time"]) + step
+        expected = max(0, (end - start) // step)
+        self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "GAP_DETECTED",
+                                       "backfill_required": True, "gap_start": start, "gap_end": end,
+                                       "missing_candle_count": expected})
+        self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "BACKFILL_REQUIRED",
+                                       "backfill_required": True, "gap_start": start, "gap_end": end,
+                                       "missing_candle_count": expected})
+        self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "BACKFILLING",
+                                       "backfill_required": True, "gap_start": start, "gap_end": end,
+                                       "missing_candle_count": expected, "backfill_cursor": start})
+        recovered: list[dict[str, Any]] = []
+        cursor = start
+        page_span = step * 500
+        while cursor < end:
+            page_end = min(end, cursor + page_span)
+            try:
+                result = self._read("mt5_rates_range", {"symbol": symbol, "timeframe": timeframe,
+                                                          "start_timestamp": cursor, "end_timestamp": page_end,
+                                                          "page_size": 500, "completed_only": True})
+            except Exception as exc:
+                # A bounded full snapshot remains a safe compatibility fallback only when it
+                # overlaps the persisted series; it cannot hide a gap larger than that window.
+                if start_override is None and int(fresh[0]["time"]) <= int(cached[-1]["time"]):
+                    combined = merge_by_time(cached, fresh)
+                    cached_by_time = {int(row["time"]): row for row in cached}
+                    overlap_revisions = [row for row in fresh
+                                         if int(row["time"]) <= int(cached[-1]["time"])
+                                         and cached_by_time.get(int(row["time"])) != row]
+                    if not overlap_revisions and not [t for t in unexpected_missing_times(combined, timeframe)
+                                                      if start <= t < int(fresh[-1]["time"])]:
+                        return combined, {"status": "WINDOW_FALLBACK", "start": start, "end": end,
+                                          "requested": expected, "received": len(fresh), "holes": []}
+                raise BarGap(f"{timeframe} range recovery unavailable; full window does not reach cached series") from exc
+            rows = result.get("rates", []) if isinstance(result, dict) else result if isinstance(result, list) else []
+            rows = sorted((dict(row) for row in rows if isinstance(row, dict)), key=lambda row: int(row["time"]))
+            recovered.extend(rows)
+            cursor = page_end
+            self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "BACKFILLING",
+                                           "backfill_required": True, "gap_start": start, "gap_end": end,
+                                           "missing_candle_count": expected, "backfill_cursor": cursor})
+        combined = merge_by_time(cached, recovered, fresh)
+        holes = unexpected_missing_times(combined, timeframe)
+        bounded_holes = [t for t in holes if start <= t < int(fresh[-1]["time"])]
+        if int(combined[-1]["time"]) < int(fresh[-1]["time"]) or bounded_holes:
+            raise BarGap(f"{timeframe} range recovery left {len(bounded_holes)} internal holes")
+        return combined, {"status": "RECOVERED", "start": start, "end": end,
+                          "requested": expected, "received": len(recovered), "holes": bounded_holes}
 
     # ---- 2. metadata -------------------------------------------------------------------------
     def refresh_metadata(self, now: float) -> list[str]:

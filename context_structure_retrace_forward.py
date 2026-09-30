@@ -37,7 +37,7 @@ SCHEMA_VERSION = "context-structure-retrace-forward-v1-phase6-schema-1"
 PHASE2_HASH = "923d0d2762b6b78515a96e96dba17e42e34818aa82c406dc9ebc6f43b1a54c41"
 DEFAULT_SYMBOLS = ("XAUUSDm", "BTCUSDm", "USDJPYm", "EURUSDm")
 TF = ResearchTimeframes(execution="M15", lower=("M5",), higher=("H1", "H4"))
-READ_ONLY_BRIDGE_TOOLS = frozenset({"mt5_symbol_info", "mt5_quote", "mt5_rates", "mt5_symbol_snapshot"})
+READ_ONLY_BRIDGE_TOOLS = frozenset({"mt5_symbol_info", "mt5_quote", "mt5_rates", "mt5_rates_range", "mt5_symbol_snapshot"})
 MEMBERSHIP_REFRESH_SECONDS = 15
 
 # Runtime artifacts (state, event ledger, heartbeat, pid, summary, frozen manifest) live in
@@ -132,10 +132,13 @@ FROZEN_CONFIG = {
 LEGACY_FROZEN_SOURCE_HASH = "f931fe449d1bee78fde768374ad7ce88ded3f19f9afdf349e9acb47602772a0f"
 DECISION_FUNCTION_NAMES = ("_geometry", "make_setup", "_fill", "_process_bar", "process_symbol",
                            "_evaluate_open_position", "_unevaluated_open_positions")
-FROZEN_DECISION_CODE_HASH = "0a990dd5b3418bd065a702a3a50ffcebcf20dd26565fd432326b1f32ef3aeacf"
+FROZEN_DECISION_CODE_HASH = "0660e8a6003a07638c1256706517c5854e794f106fd87c75a1ad0be9f4d2c189"
 # Earlier decision-code identities, kept so historical signals (which carry their fingerprint in
 # source_strategy_fingerprint) stay attributable. Trading rules/config are unchanged across them.
 PRIOR_DECISION_CODE_HASHES = {
+    "7490aba224d0d08b805df30978e698cacc9a90ba24a3dae95d07c14414abdaae": "V1 decision code with timestamp identity recovery before rebasing onto the current main runtime",
+    "0a990dd5b3418bd065a702a3a50ffcebcf20dd26565fd432326b1f32ef3aeacf": "V1 decision code with rolling-index retrace bookkeeping before timestamp identity recovery",
+    "d080d8fd6ae1fbad889d646898a933aea475ac1d01448d047b8eac2a9efc3357": "V1 decision code with timestamp identity recovery before legacy-state migration guard",
     "70dba71d28fe8a5c09f9033b80eeb4c27a733c6c342537e03c631f41e2a1cdda": "V1 decision code through 2026-09-26: OPEN positions stopped receiving exit "
              "evaluation once their setup left FILLED (e.g. INVALIDATED_NO_REENTRY) or was compacted away",
 }
@@ -458,7 +461,13 @@ def _fill(state: dict[str, Any], setup: dict[str, Any], bar: dict[str, Any], ind
     opportunity_id = hashlib.sha256(f"{setup['setup_id']}|opportunity|{number}".encode()).hexdigest()[:20]
     position_id = hashlib.sha256(f"{opportunity_id}|economic".encode()).hexdigest()[:20]
     mechanisms = _m5_mechanisms(m5[:index + 1], direction, setup["symbol"])
-    opportunity = {"entry_opportunity_id": opportunity_id, "entry_attempt_id": hashlib.sha256(f"{opportunity_id}|attempt|1".encode()).hexdigest()[:20], "economic_position_id": position_id, "symbol": setup["symbol"], "direction": direction, "setup_id": setup["setup_id"], "fill_timestamp": int(bar["time"]), "fill_timestamp_iso": iso(int(bar["time"])), "fill_candle_number": index - setup.get("m5_start_index", index), "entry_mechanisms": mechanisms, "theoretical_entry": level, "executable_paper_entry": executable, "spread_at_fill": spread, "stop": geom["stop"], "target": geom["effective_target"], "geometry": geom, "leg_a": {"allocation_R": 0.5, "status": "OPEN"}, "leg_b": {"allocation_R": 0.5, "status": "OPEN", "runner_hypotheses": ["+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT"]}, "status": "OPEN", "mfe_price": 0.0, "mae_price": 0.0, "entry_bar": bar, "reentry_type": "INITIAL" if number == 1 else "REENTRY_BEFORE_TARGET_COMPLETION"}
+    start_time = int(setup.get("m5_start_timestamp", bar["time"]))
+    fill_candle_number = max(0, (int(bar["time"]) - start_time) // 300)
+    # A completed M5 bar becomes actionable at its close. Recording the bar
+    # opening time made the published signal appear five minutes old and let
+    # paper outcomes include movement that happened before broker dispatch.
+    decision_epoch = int(bar["time"]) + 300
+    opportunity = {"entry_opportunity_id": opportunity_id, "entry_attempt_id": hashlib.sha256(f"{opportunity_id}|attempt|1".encode()).hexdigest()[:20], "economic_position_id": position_id, "symbol": setup["symbol"], "direction": direction, "setup_id": setup["setup_id"], "fill_timestamp": decision_epoch, "fill_timestamp_iso": iso(decision_epoch), "fill_candle_number": fill_candle_number, "entry_mechanisms": mechanisms, "theoretical_entry": level, "executable_paper_entry": executable, "spread_at_fill": spread, "stop": geom["stop"], "target": geom["effective_target"], "geometry": geom, "leg_a": {"allocation_R": 0.5, "status": "OPEN"}, "leg_b": {"allocation_R": 0.5, "status": "OPEN", "runner_hypotheses": ["+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT"]}, "status": "OPEN", "mfe_price": 0.0, "mae_price": 0.0, "entry_bar": bar, "reentry_type": "INITIAL" if number == 1 else "REENTRY_BEFORE_TARGET_COMPLETION"}
     setup["opportunities"].append(opportunity); setup["status"] = "FILLED"; setup["retrace_state"] = "FILLED"; state["positions"][position_id] = opportunity; state["counters"]["opportunities"] += 1; state["counters"]["positions"] += 1
     append_event({"type": "FILLED", "source": setup["provenance"]["source"], "symbol": setup["symbol"], "setup_id": setup["setup_id"], "market_event_id": setup["market_event_id"], "entry_opportunity_id": opportunity_id, "economic_position_id": position_id, "entry": executable, "stop": geom["stop"], "target": geom["effective_target"], "entry_mechanisms": mechanisms}, state)
 
@@ -512,10 +521,13 @@ def _process_bar(state: dict[str, Any], symbol: str, bar: dict[str, Any], index:
             held = float(bar["close"]) >= level if direction == "LONG" else float(bar["close"]) <= level
             if touched and held:
                 setup["m5_start_index"] = index
+                setup["m5_start_timestamp"] = int(bar["time"])
                 _fill(state, setup, bar, index, m5, contract, quote)
                 continue
             setup["m5_start_index"] = setup.get("m5_start_index", index)
-            if index - setup["m5_start_index"] >= 12:
+            setup.setdefault("m5_start_timestamp", int(bar["time"]))
+            elapsed_candles = max(0, (int(bar["time"]) - int(setup["m5_start_timestamp"])) // 300)
+            if elapsed_candles >= 12:
                 setup["status"] = "NO_RETRACE"; setup["retrace_state"] = "NO_RETRACE"; append_event({"type": "NO_RETRACE", "source": source, "symbol": symbol, "setup_id": setup["setup_id"]}, state)
         else:
             level = float(setup["entry_level"])
@@ -567,6 +579,12 @@ def process_symbol(state: dict[str, Any], symbol: str, contract: dict[str, Any],
         append_event({"type": "FORWARD_BASELINE_INITIALIZED", "symbol": symbol, "last_completed_m5": current_m5, "last_completed_m15": current_m15, "source": "LIVE_FORWARD"}, state); return
     last_m5 = int(sym.get("last_m5") or current_m5); last_m15 = int(sym.get("last_m15") or current_m15)
     expected = 300
+    # Migrate pre-recovery pending setups away from rolling array positions.  The setup event is
+    # the only durable candle identity available in those payloads; using it as the conservative
+    # retrace start prevents a restart from resetting the twelve-candle window indefinitely.
+    for setup in state["setups"].values():
+        if setup.get("symbol") == symbol and setup.get("status") == "WAITING_FOR_RETRACE":
+            setup.setdefault("m5_start_timestamp", int(setup.get("setup_timestamp", current_m5)) + expected)
     if current_m5 - last_m5 > expected:
         missing = max(0, current_m5 // expected - last_m5 // expected - 1)
         append_event({"type": "DATA_GAP_DETECTED", "symbol": symbol, "gap_start": last_m5, "gap_end": current_m5, "missing_completed_m5_candles": missing, "reason": "UNKNOWN", "source": "GAP_RECOVERY"}, state)

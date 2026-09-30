@@ -129,13 +129,17 @@ class LiquidityLiveEvaluator:
         ))
         self._published: set[str] = set()
         self._setups: dict[str, dict[str, Any]] = {}
-        self._next_scan_index = 40
 
     def restore(self, rows: list[dict[str, Any]]) -> None:
         self._setups = {str(row["setup_id"]): dict(row) for row in rows}
         entered = [row for row in rows if row.get("entry_signal_id")]
         self._published = {str(row["entry_signal_id"]) for row in entered}
-        self._next_scan_index = max([int(row.get("scan_index", 40)) for row in rows] or [40])
+        # Old payloads stored rolling-array indexes but not candle identity.  A pending setup
+        # cannot be resumed safely from that index after the cache window moves, so expire it
+        # deterministically and require a fresh candidate scan.
+        for setup in self._setups.values():
+            if setup.get("state") == "PENDING_RETRACE" and not setup.get("displacement_timestamp"):
+                setup["state"] = "EXPIRED"
 
     def export_state(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self._setups.values()]
@@ -155,8 +159,9 @@ class LiquidityLiveEvaluator:
                 "direction": direction, "state": "PENDING_RETRACE", "sweep_index": sweep_index,
                 "sweep_time": int(candidate["sweep_time"]),
                 "displacement_index": int(candidate["displacement_index"]),
+                "displacement_timestamp": int(candidate["_m5"][int(candidate["displacement_index"])] ["time"]),
                 "entry": entry, "stop": stop, "target": target, "risk": abs(entry - stop),
-                "scan_index": sweep_index, "entry_signal_id": None,
+                "scan_index": sweep_index, "scan_timestamp": int(candidate["sweep_time"]), "entry_signal_id": None,
                 "lifecycle": ["SWEEP", "RECLAIM", "DISPLACEMENT", "MSS"]}
 
     def _signal_for_fill(self, setup: dict[str, Any], *, bar: dict[str, Any], evaluation_time: str,
@@ -203,9 +208,10 @@ class LiquidityLiveEvaluator:
             return None
         broker_symbol = snapshot.provider_symbol
         signals: list[StrategySignal] = []
-        # Scan only bars not previously inspected as sweep candidates.  A candidate is
-        # retained and advanced until its retracement window is complete.
-        for i in range(max(40, self._next_scan_index), max(40, len(m5) - 1)):
+        # Scan by the stable candle window on every snapshot.  The candidate/setup id is based on
+        # sweep time, so this is idempotent while allowing a rolling cache to advance past old
+        # array positions without silently skipping new candidates.
+        for i in range(40, max(40, len(m5) - 1)):
             candidate = self.strategy.find_candidate(m15, m5, i, quote, contract, evaluation_time)
             if not candidate:
                 continue
@@ -219,11 +225,15 @@ class LiquidityLiveEvaluator:
             candidate["sweep_time"] = int(m5[i]["time"])
             setup = self._new_setup(candidate, sweep_index=i)
             self._setups.setdefault(setup["setup_id"], setup)
-        self._next_scan_index = max(self._next_scan_index, len(m5) - 1)
         for setup in self._setups.values():
             if setup["state"] != "PENDING_RETRACE":
                 continue
-            start = int(setup["displacement_index"])
+            timestamps = {int(bar["time"]): index for index, bar in enumerate(m5)}
+            start = timestamps.get(int(setup.get("displacement_timestamp", 0)))
+            if start is None:
+                setup["state"] = "EXPIRED"
+                setup["expiry_reason"] = "DISPLACEMENT_CANDLE_OUTSIDE_CACHE"
+                continue
             last = min(len(m5), start + 1 + self.parameter_set.max_retrace_candles)
             for j in range(start + 1, last):
                 bar = m5[j]

@@ -148,6 +148,25 @@ class LiquidityLiveRuntimeTests(unittest.TestCase):
                                     evaluation_time="2026-09-26T12:01:00Z")
         self.assertIsNotNone(result)
         self.assertEqual(restarted.export_state()[0]["state"], "ENTERED")
+
+    def test_pending_setup_resolves_by_displacement_timestamp_after_window_rolls(self):
+        params = PARAMETER_SETS["liquidity-xau-base"]
+        bars = list(snapshot().M5[:40]) + [
+            {"time": 13000, "low": 101, "high": 104, "close": 102},
+            {"time": 13300, "low": 103, "high": 105, "close": 104},
+        ]
+        evaluator = LiquidityLiveEvaluator(params, strategy=IncrementalStrategy())
+        first_snapshot = replace(snapshot(), M5=tuple(bars))
+        self.assertIsNone(evaluator.evaluate(first_snapshot, evaluation_time="2026-09-26T12:00:00Z"))
+        saved = evaluator.export_state()
+        displacement_time = saved[0]["displacement_timestamp"]
+        shifted = bars[2:] + [{"time": 13600, "low": 100, "high": 103, "close": 103}]
+        restarted = LiquidityLiveEvaluator(params, strategy=IncrementalStrategy())
+        restarted.restore(saved)
+        result = restarted.evaluate(replace(first_snapshot, M5=tuple(shifted)),
+                                    evaluation_time="2026-09-26T12:01:00Z")
+        self.assertIsNotNone(result)
+        self.assertEqual(restarted.export_state()[0]["displacement_timestamp"], displacement_time)
     def test_four_variants_remain_explicit_parameter_sets(self):
         self.assertEqual(set(PARAMETER_SETS), {
             "liquidity-xau-base", "liquidity-xau33", "liquidity-btc25", "liquidity-usdjpy25",
