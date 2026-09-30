@@ -18,6 +18,7 @@ from liquidity_lifecycle import settle_filled_entry
 from liquidity_outcomes import project_liquidity_outcome
 from postgres.db import connect
 from observability.strategy_audit import audit
+from market_data_cache.reader import MarketDataUnavailable
 
 
 def active_instance_memberships(conn: Any) -> list[dict[str, str]]:
@@ -85,7 +86,13 @@ def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]
     """Monitor already-entered trades without consulting membership state."""
     terminal: list[str] = []
     for row in open_liquidity_entries(conn):
-        snapshot = snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
+        try:
+            snapshot = snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
+        except MarketDataUnavailable as exc:
+            audit("open_entry_data_unavailable", runner="liquidity-live", signal_id=row["signal_id"],
+                  canonical_instrument=row["canonical_instrument"], provider_symbol=row["provider_symbol"],
+                  reason="MARKET_DATA_STALE" if "stale" in str(exc).lower() else "MARKET_DATA_UNAVAILABLE")
+            continue
         if not isinstance(snapshot, LiveMarketSnapshot):
             raise RuntimeError("snapshot reader did not return a validated LiveMarketSnapshot")
         outcome = settle_filled_entry(direction=row["direction"], entry=row["entry"], stop=row["stop"],
@@ -109,6 +116,8 @@ class LiquidityLiveRuntime:
         self.runtime_instance_id = runtime_instance_id
         self.evaluators: dict[str, LiquidityLiveEvaluator] = {}
         self._restored: set[str] = set()
+        self.membership_consecutive_failures: dict[str, int] = {}
+        self.runner_consecutive_failures = 0
         self.setup_store = PostgresLiquiditySetupStore(conn)
 
     def heartbeat(self, *, status: str = "RUNNING") -> None:
@@ -128,6 +137,7 @@ class LiquidityLiveRuntime:
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         published: list[str] = []
+        membership_statuses: dict[str, dict[str, Any]] = {}
         audit("runner_cycle_started", runner="liquidity-live", evaluation_time=evaluation_time)
         self.heartbeat()
         terminal = monitor_open_liquidity_entries(self.conn, self.snapshot_reader)
@@ -140,41 +150,74 @@ class LiquidityLiveRuntime:
                             "provider_symbol": row["provider_symbol"]} for row in memberships])
         for row in memberships:
             instance_id = row["instance_id"]
+            membership_key = f"{instance_id}:{row['canonical_instrument']}"
             parameter_set = PARAMETER_SETS.get(instance_id)
             if parameter_set is None or row["canonical_instrument"] != parameter_set.canonical_instrument:
+                membership_statuses[membership_key] = {"status": "SKIPPED", "reason": "PARAMETER_SET_MISMATCH"}
                 continue
-            evaluator = self.evaluators.setdefault(instance_id, LiquidityLiveEvaluator(parameter_set))
-            if instance_id not in self._restored:
-                evaluator.restore(self.setup_store.load(instance_id, row["canonical_instrument"]))
-                self._restored.add(instance_id)
-            snapshot = self.snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
-            if not isinstance(snapshot, LiveMarketSnapshot):
-                audit("snapshot_rejected", runner="liquidity-live", instance_id=instance_id,
-                      canonical_instrument=row["canonical_instrument"],
-                      provider_symbol=row["provider_symbol"], reason="INVALID_LIVE_SNAPSHOT")
-                raise RuntimeError("snapshot reader did not return a validated LiveMarketSnapshot")
-            signal = evaluator.evaluate(snapshot, evaluation_time=evaluation_time)
-            audit("strategy_decision", runner="liquidity-live", strategy_id=STRATEGY_ID,
-                  instance_id=instance_id, canonical_instrument=row["canonical_instrument"],
-                  provider_symbol=row["provider_symbol"],
-                  decision=("SIGNAL" if signal else "NO_SIGNAL"),
-                  signal_id=signal.signal_id if signal else None,
-                  setup_id=signal.setup_id if signal else None)
-            for state in evaluator.export_state():
-                self.setup_store.save(state)
-            if signal is None:
+            try:
+                evaluator = self.evaluators.setdefault(instance_id, LiquidityLiveEvaluator(parameter_set))
+                if instance_id not in self._restored:
+                    evaluator.restore(self.setup_store.load(instance_id, row["canonical_instrument"]))
+                    self._restored.add(instance_id)
+                snapshot = self.snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
+                if not isinstance(snapshot, LiveMarketSnapshot):
+                    audit("snapshot_rejected", runner="liquidity-live", instance_id=instance_id,
+                          canonical_instrument=row["canonical_instrument"],
+                          provider_symbol=row["provider_symbol"], reason="INVALID_LIVE_SNAPSHOT")
+                    raise MarketDataUnavailable("invalid live market snapshot")
+                signal = evaluator.evaluate(snapshot, evaluation_time=evaluation_time)
+                self.membership_consecutive_failures[membership_key] = 0
+                membership_statuses[membership_key] = {"status": "HEALTHY",
+                                                        "decision": "SIGNAL" if signal else "NO_SIGNAL"}
+                audit("strategy_decision", runner="liquidity-live", strategy_id=STRATEGY_ID,
+                      instance_id=instance_id, canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"],
+                      decision=("SIGNAL" if signal else "NO_SIGNAL"),
+                      signal_id=signal.signal_id if signal else None,
+                      setup_id=signal.setup_id if signal else None)
+                for state in evaluator.export_state():
+                    self.setup_store.save(state)
+                if signal is None:
+                    continue
+                _, inserted = self.publisher.publish(signal)
+                audit("signal_persisted", runner="liquidity-live", strategy_id=signal.strategy_id,
+                      instance_id=signal.strategy_instance_id, signal_id=signal.signal_id,
+                      canonical_instrument=signal.canonical_symbol,
+                      provider_symbol=signal.broker_symbol_hint, inserted=inserted)
+                if inserted:
+                    published.append(signal.signal_id)
+            except MarketDataUnavailable as exc:
+                failures = self.membership_consecutive_failures.get(membership_key, 0) + 1
+                self.membership_consecutive_failures[membership_key] = failures
+                reason = "MARKET_DATA_STALE" if "stale" in str(exc).lower() else "MARKET_DATA_UNAVAILABLE"
+                membership_statuses[membership_key] = {"status": "DATA_UNAVAILABLE", "reason": reason,
+                                                        "consecutive_failures": failures}
+                audit("membership_data_unavailable", runner="liquidity-live", strategy_id=STRATEGY_ID,
+                      instance_id=instance_id, canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"], reason=reason,
+                      error_type=type(exc).__name__, error=str(exc)[:300],
+                      consecutive_failures=failures)
+                audit("strategy_decision", runner="liquidity-live", strategy_id=STRATEGY_ID,
+                      instance_id=instance_id, canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"], decision="DATA_UNAVAILABLE",
+                      terminal_reason=reason, signal_id=None, setup_id=None)
                 continue
-            _, inserted = self.publisher.publish(signal)
-            audit("signal_persisted", runner="liquidity-live", strategy_id=signal.strategy_id,
-                  instance_id=signal.strategy_instance_id, signal_id=signal.signal_id,
-                  canonical_instrument=signal.canonical_symbol,
-                  provider_symbol=signal.broker_symbol_hint, inserted=inserted)
-            if inserted:
-                published.append(signal.signal_id)
+        self.runner_consecutive_failures = 0
+        cycle_status = "DEGRADED" if any(v.get("status") == "DATA_UNAVAILABLE" for v in membership_statuses.values()) else "HEALTHY"
+        self.heartbeat(status=cycle_status)
         self.conn.commit()
         audit("runner_cycle_completed", runner="liquidity-live", memberships=len(memberships),
+              status=cycle_status, membership_statuses=membership_statuses,
+              runner_consecutive_failures=self.runner_consecutive_failures,
+              membership_consecutive_failures=dict(self.membership_consecutive_failures),
+              market_data_consecutive_failures=sum(self.membership_consecutive_failures.values()),
               published=published, terminal_outcomes=terminal, production_broker_writes=0)
         return {"memberships": len(memberships), "published": published, "terminal_outcomes": terminal,
+                "status": cycle_status, "membership_statuses": membership_statuses,
+                "runner_consecutive_failures": self.runner_consecutive_failures,
+                "membership_consecutive_failures": dict(self.membership_consecutive_failures),
+                "market_data_consecutive_failures": sum(self.membership_consecutive_failures.values()),
                 "production_broker_writes": 0}
 
 
