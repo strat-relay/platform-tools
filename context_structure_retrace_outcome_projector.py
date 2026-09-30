@@ -159,6 +159,14 @@ def project_entry_only_outcomes(
                         (signal_id,),
                     )
                     stored = cur.fetchone()
+                    # The database is authoritative for terminal outcomes. A runner
+                    # checkpoint can lag after an operator invalidation and still
+                    # report OPEN; preserve the terminal outcome instead of aborting
+                    # every subsequent projection cycle.
+                    if stored is not None and stored[1] != "OPEN" and status == "OPEN":
+                        counts["unchanged"] += 1
+                        counts["matched"] += 1
+                        continue
                     wanted = (OUTCOME_TYPE, status, realized_r, exit_at, OUTCOME_SOURCE)
                     same_realized_r = (
                         stored is not None

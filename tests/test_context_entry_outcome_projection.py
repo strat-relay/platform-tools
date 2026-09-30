@@ -152,6 +152,23 @@ class EntryOnlyProjectionTests(unittest.TestCase):
         self.assertEqual(result, {"matched": 4, "projected": 0, "unchanged": 4, "unmatched": 0})
         self.assertEqual(self.db.outcomes["SIG-TARGET"][2], Decimal("0.742819059469595"))
 
+    def test_stale_open_runner_state_does_not_overwrite_terminal_database_outcome(self):
+        state = {"positions": {"POS-STALE": {
+            "economic_position_id": "POS-STALE",
+            "entry_opportunity_id": "OPP-STALE",
+            "status": "OPEN",
+        }}}
+        self.db.signals.append(("SIG-STALE", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-STALE", "OPP-STALE", CUTOFF))
+        self.db.outcomes["SIG-STALE"] = (
+            "ENTRY_ONLY", "INVALIDATED", None,
+            datetime.fromtimestamp(1790059500, timezone.utc),
+            "CONTEXT_STRUCTURE_RETRACE_V1",
+        )
+
+        result = project_entry_only_outcomes(state, **self.kwargs)
+
+        self.assertEqual(result, {"matched": 1, "projected": 0, "unchanged": 1, "unmatched": 4})
+
     def test_entry_opportunity_mismatch_is_not_projected(self):
         state = runner_state()
         state["positions"]["POS-TARGET"]["entry_opportunity_id"] = "DIFFERENT"
