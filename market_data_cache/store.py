@@ -106,7 +106,9 @@ def unexpected_missing_times(rows: list[dict[str, Any]], timeframe: str) -> list
         dt = datetime.fromtimestamp(timestamp, timezone.utc)
         if dt.weekday() in (5, 6):
             continue
-        if dt.hour in (20, 21, 22):
+        # MT5 FX symbols also omit the 23:00-23:45 UTC daily rollover window;
+        # it is a normal session closure, not a recoverable intraday gap.
+        if dt.hour in (20, 21, 22, 23):
             continue
         unexpected.append(timestamp)
     return unexpected

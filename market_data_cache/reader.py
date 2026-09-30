@@ -28,27 +28,23 @@ def read_symbol_cached(store: MarketDataStore, symbol: str, limit: int = 320, in
     one M5 bar plus grace), so at most one closed bar can arrive late, never be skipped."""
     now = time.time() if now is None else now
     max_age = _max_age("MARKET_DATA_MAX_AGE_SECONDS", 330.0) if max_age is None else max_age
-    snapshot = store.snapshot(symbol)
-    if snapshot is None:
-        raise MarketDataUnavailable(f"market data cache has no snapshot for {symbol}")
-    age = now - float(snapshot["fetched_at"])
-    if age > max_age:
-        raise MarketDataUnavailable(f"market data cache for {symbol} is stale ({age:.0f}s > {max_age:.0f}s)")
-    need = max(limit - 1, 0)
-    bars = {}
-    for tf in TIMEFRAMES:
-        rows = store.bars(symbol, tf)
-        if len(rows) < need:
-            raise MarketDataUnavailable(f"market data cache for {symbol} {tf} has {len(rows)} bars, needs {need}")
-        bars[tf] = rows[-need:] if need else []
-    contract, quote = snapshot["symbol_info"], snapshot["quote"]
+    from .canonical import CanonicalMarketDataReader
+    canonical = CanonicalMarketDataReader(store, max_age=max_age, clock=lambda: now)
+    snapshot = canonical.get_snapshot(symbol, symbol, {tf: max(limit - 1, 0) for tf in TIMEFRAMES})
+    bars = {tf: list(snapshot.bars[tf].bars) for tf in TIMEFRAMES}
+    contract, quote = snapshot.symbol_info, snapshot.quote
     if not include_provenance:
         return contract, quote, bars
     quote_time = quote.get("time") if isinstance(quote, dict) else None
     producer = {"source_read_health": True,
                 "source_market_data_timestamp": (datetime.fromtimestamp(int(quote_time), tz=timezone.utc).isoformat()
                                                  if quote_time is not None else None),
-                "provenance_source": "MARKET_DATA_CACHE"}
+                "provenance_source": "MARKET_DATA_CACHE",
+                "canonical_source": snapshot.source,
+                "cache_age_seconds": snapshot.cache_age_seconds,
+                "continuity_status": snapshot.continuity_status,
+                "gap_status": snapshot.gap_status,
+                "recovery_status": snapshot.recovery_status}
     return contract, quote, bars, producer
 
 
