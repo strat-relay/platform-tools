@@ -203,7 +203,6 @@ class LiquidityLiveRuntime:
                       provider_symbol=row["provider_symbol"], decision="DATA_UNAVAILABLE",
                       terminal_reason=reason, signal_id=None, setup_id=None)
                 continue
-        self.conn.commit()
         self.runner_consecutive_failures = 0
         cycle_status = "DEGRADED" if any(v.get("status") == "DATA_UNAVAILABLE" for v in membership_statuses.values()) else "HEALTHY"
         self.heartbeat(status=cycle_status)
