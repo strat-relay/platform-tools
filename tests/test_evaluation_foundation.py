@@ -145,7 +145,9 @@ class EvaluationFoundationTests(unittest.TestCase):
             # unchanged; the decision fingerprint is updated in the runner and manifests.
             # Re-pinned for causal outcome attribution: pre-entry movement is excluded and
             # same-candle TP/SL collisions are no longer assigned a deterministic winner.
-            "context_structure_retrace_forward.py": "a64beaf6ffa586ec0649d1ff66cfe2886cc2e35638e22c8bec95d510c2efe7e7",
+            # Re-pinned for the cache-only live market-data boundary. The frozen decision-code
+            # fingerprint and strategy configuration remain unchanged.
+            "context_structure_retrace_forward.py": "5946d472d35f92ca409e80b22b57f74917a9e5fc5d8b0da2f8305de4b6bc4a86",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
