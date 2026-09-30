@@ -15,6 +15,8 @@ Failures never overwrite cached data; they update per-symbol state and collector
 """
 from __future__ import annotations
 
+import json
+import logging
 import time
 from typing import Any, Callable
 
@@ -22,6 +24,7 @@ from .store import TIMEFRAMES, TIMEFRAME_SECONDS, BarGap, MarketDataStore, merge
 
 M5_SECONDS = 300
 RECOVERY_STATES = frozenset({"HEALTHY", "STALE", "GAP_DETECTED", "BACKFILL_REQUIRED", "BACKFILLING", "REPLAYING", "BACKFILL_FAILED"})
+log = logging.getLogger("market_data_cache")
 
 
 class SnapshotUnhealthy(RuntimeError):
@@ -57,6 +60,7 @@ class MarketDataCollector:
         self.commands = 0                      # bridge commands issued (observability / tests)
         self._metadata_at: dict[str, float] = {}
         self._quote_at: dict[str, float] = {}
+        self._last_request: dict[str, Any] = {}
         self._health: dict[str, Any] = {"process_heartbeat_at": None, "pass_started_at": None, "last_progress_at": None,
                                         "last_completed_pass_at": None, "in_pass": False, "current_symbol": None,
                                         "symbols_completed_in_pass": 0, "symbols_total_in_pass": 0,
@@ -74,7 +78,37 @@ class MarketDataCollector:
 
     def _read(self, tool: str, arguments: dict[str, Any]) -> Any:
         self.commands += 1
+        self._last_request = {"operation": tool, **arguments}
         return self.read_tool(tool, arguments)
+
+    def _failure_telemetry(self, symbol: str, state: dict[str, Any], exc: Exception) -> None:
+        request = dict(self._last_request)
+        cached_times = []
+        for timeframe in TIMEFRAMES:
+            try:
+                cached_times.extend(int(row["time"]) for row in self.store.bars(symbol, timeframe))
+            except (KeyError, TypeError, ValueError):
+                continue
+        fetched_at = state.get("fetched_at")
+        now = self.clock()
+        payload = {
+            "event": "market_data_fetch_failed",
+            "provider_symbol": symbol,
+            "timeframe": request.get("timeframe", "ALL"),
+            "operation": request.get("operation", "mt5_symbol_snapshot"),
+            "error_type": type(exc).__name__,
+            "error_message": str(exc)[:500],
+            "bridge_status": getattr(exc, "status", None) or getattr(exc, "status_code", None),
+            "mt5_error_code": getattr(exc, "mt5_error_code", None) or getattr(exc, "last_error", None),
+            "requested_start": request.get("start_timestamp"),
+            "requested_end": request.get("end_timestamp"),
+            "requested_count": request.get("limit", request.get("page_size")),
+            "last_cached_timestamp": max(cached_times) if cached_times else None,
+            "latest_source_timestamp": None,
+            "cache_age_seconds": (now - float(fetched_at)) if fetched_at is not None else None,
+            "consecutive_symbol_failures": int(state.get("consecutive_failures", 0)),
+        }
+        log.error("%s", json.dumps(payload, sort_keys=True, default=str))
 
     # ---- 1. completed bars ------------------------------------------------------------------
     def bars_due(self, symbol: str, now: float) -> bool:
@@ -107,6 +141,7 @@ class MarketDataCollector:
             self.store.set_state(symbol, state)
             state["health_state"] = "BACKFILL_FAILED" if state.get("backfill_required") else "STALE"
             self.store.set_state(symbol, state)
+            self._failure_telemetry(symbol, state, exc)
             return {"symbol": symbol, "ok": False, "full": full, "reason": state["last_error"], "error": state["last_error"]}
 
     def _fetch(self, symbol: str, now: float, *, full: bool, previous: dict[str, Any], reason: str = "") -> dict[str, Any]:
@@ -160,6 +195,17 @@ class MarketDataCollector:
                  "depth": {tf: len(merged[tf]) for tf in TIMEFRAMES}, "recovery": recovery,
                  "backfill_required": False}
         self.store.set_state(symbol, state)
+        previous_failures = int(previous.get("consecutive_failures", 0))
+        if previous_failures:
+            missing_interval = [item for item in recovery.values() if item.get("status") == "RECOVERED"]
+            log.info("%s", json.dumps({
+                "event": "market_data_fetch_recovered",
+                "provider_symbol": symbol,
+                "previous_failure_count": previous_failures,
+                "latest_source_timestamp": forming.get("M5"),
+                "backfill_required": bool(recovery),
+                "missing_interval": missing_interval,
+            }, sort_keys=True, default=str))
         result_reason = reason
         if not result_reason and any(item.get("status") == "WINDOW_FALLBACK" for item in recovery.values()):
             result_reason = "full window does not reach cached series; used overlapping full-window fallback"
@@ -231,7 +277,8 @@ class MarketDataCollector:
                 continue
             try:
                 info = self._read("mt5_symbol_info", {"symbol": symbol})
-            except Exception:
+            except Exception as exc:
+                self._failure_telemetry(symbol, self.store.state(symbol), exc)
                 continue          # stale metadata stays, and readers apply their own max age
             if isinstance(info, dict) and info:
                 self.store.set_metadata(symbol, info, now)
@@ -247,7 +294,8 @@ class MarketDataCollector:
             self._quote_at[symbol] = now
             try:
                 quote = self._read("mt5_quote", {"symbol": symbol})
-            except Exception:
+            except Exception as exc:
+                self._failure_telemetry(symbol, self.store.state(symbol), exc)
                 continue
             if isinstance(quote, dict) and not quote.get("error"):
                 self.store.set_quote(symbol, quote, now)

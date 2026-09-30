@@ -11,6 +11,7 @@ from orchestration.liquidity_live import (
 from liquidity_market_data import LiveMarketSnapshot
 from liquidity_live_runtime import LiquidityLiveRuntime
 from liquidity_live_service import run_once
+from market_data_cache.reader import MarketDataUnavailable
 
 
 class FakeStrategy:
@@ -44,6 +45,9 @@ class RecordingCursor:
     def execute(self, query, params):
         self.calls.append((query, params))
 
+    def fetchall(self):
+        return []
+
 
 class RecordingConnection:
     def __init__(self):
@@ -51,6 +55,9 @@ class RecordingConnection:
 
     def cursor(self):
         return self.recording_cursor
+
+    def commit(self):
+        pass
 
 
 def snapshot():
@@ -68,6 +75,43 @@ def snapshot():
 
 
 class LiquidityLiveRuntimeTests(unittest.TestCase):
+    def test_stale_membership_isolated_and_later_membership_still_evaluates(self):
+        memberships = [
+            {"instance_id": "liquidity-btc25", "canonical_instrument": "BTCUSD", "provider_symbol": "BTCUSDm"},
+            {"instance_id": "liquidity-usdjpy25", "canonical_instrument": "USDJPY", "provider_symbol": "USDJPYm"},
+            {"instance_id": "liquidity-xau-base", "canonical_instrument": "XAUUSD", "provider_symbol": "XAUUSDm"},
+        ]
+
+        class FakeEvaluator:
+            def __init__(self, _params):
+                pass
+
+            def restore(self, _states):
+                pass
+
+            def evaluate(self, _snapshot, *, evaluation_time):
+                return None
+
+            def export_state(self):
+                return []
+
+        def read_snapshot(canonical, provider):
+            if canonical == "USDJPY":
+                raise MarketDataUnavailable("market data cache for USDJPYm is stale")
+            return replace(snapshot(), canonical_instrument=canonical, provider_symbol=provider)
+
+        conn = RecordingConnection()
+        runtime = LiquidityLiveRuntime(conn=conn, snapshot_reader=read_snapshot, publisher=object())
+        with patch("liquidity_live_runtime.active_instance_memberships", return_value=memberships), \
+             patch("liquidity_live_runtime.monitor_open_liquidity_entries", return_value=[]), \
+             patch("liquidity_live_runtime.LiquidityLiveEvaluator", FakeEvaluator):
+            result = runtime.tick(evaluation_time="2026-09-30T12:00:00Z")
+
+        self.assertEqual(result["status"], "DEGRADED")
+        self.assertEqual(result["membership_statuses"]["liquidity-btc25:BTCUSD"]["status"], "HEALTHY")
+        self.assertEqual(result["membership_statuses"]["liquidity-usdjpy25:USDJPY"]["reason"], "MARKET_DATA_STALE")
+        self.assertEqual(result["membership_statuses"]["liquidity-xau-base:XAUUSD"]["status"], "HEALTHY")
+
     def test_heartbeat_serializes_runtime_metadata_for_jsonb(self):
         conn = RecordingConnection()
         runtime = LiquidityLiveRuntime(conn=conn, snapshot_reader=lambda *_args: None,
