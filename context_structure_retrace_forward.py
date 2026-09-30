@@ -132,7 +132,7 @@ FROZEN_CONFIG = {
 LEGACY_FROZEN_SOURCE_HASH = "f931fe449d1bee78fde768374ad7ce88ded3f19f9afdf349e9acb47602772a0f"
 DECISION_FUNCTION_NAMES = ("_geometry", "make_setup", "_fill", "_process_bar", "process_symbol",
                            "_evaluate_open_position", "_unevaluated_open_positions")
-FROZEN_DECISION_CODE_HASH = "7490aba224d0d08b805df30978e698cacc9a90ba24a3dae95d07c14414abdaae"
+FROZEN_DECISION_CODE_HASH = "70dba71d28fe8a5c09f9033b80eeb4c27a733c6c342537e03c631f41e2a1cdda"
 # Earlier decision-code identities, kept so historical signals (which carry their fingerprint in
 # source_strategy_fingerprint) stay attributable. Trading rules/config are unchanged across them.
 PRIOR_DECISION_CODE_HASHES = {
@@ -462,7 +462,11 @@ def _fill(state: dict[str, Any], setup: dict[str, Any], bar: dict[str, Any], ind
     mechanisms = _m5_mechanisms(m5[:index + 1], direction, setup["symbol"])
     start_time = int(setup.get("m5_start_timestamp", bar["time"]))
     fill_candle_number = max(0, (int(bar["time"]) - start_time) // 300)
-    opportunity = {"entry_opportunity_id": opportunity_id, "entry_attempt_id": hashlib.sha256(f"{opportunity_id}|attempt|1".encode()).hexdigest()[:20], "economic_position_id": position_id, "symbol": setup["symbol"], "direction": direction, "setup_id": setup["setup_id"], "fill_timestamp": int(bar["time"]), "fill_timestamp_iso": iso(int(bar["time"])), "fill_candle_number": fill_candle_number, "entry_mechanisms": mechanisms, "theoretical_entry": level, "executable_paper_entry": executable, "spread_at_fill": spread, "stop": geom["stop"], "target": geom["effective_target"], "geometry": geom, "leg_a": {"allocation_R": 0.5, "status": "OPEN"}, "leg_b": {"allocation_R": 0.5, "status": "OPEN", "runner_hypotheses": ["+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT"]}, "status": "OPEN", "mfe_price": 0.0, "mae_price": 0.0, "entry_bar": bar, "reentry_type": "INITIAL" if number == 1 else "REENTRY_BEFORE_TARGET_COMPLETION"}
+    # A completed M5 bar becomes actionable at its close. Recording the bar
+    # opening time made the published signal appear five minutes old and let
+    # paper outcomes include movement that happened before broker dispatch.
+    decision_epoch = int(bar["time"]) + 300
+    opportunity = {"entry_opportunity_id": opportunity_id, "entry_attempt_id": hashlib.sha256(f"{opportunity_id}|attempt|1".encode()).hexdigest()[:20], "economic_position_id": position_id, "symbol": setup["symbol"], "direction": direction, "setup_id": setup["setup_id"], "fill_timestamp": decision_epoch, "fill_timestamp_iso": iso(decision_epoch), "fill_candle_number": fill_candle_number, "entry_mechanisms": mechanisms, "theoretical_entry": level, "executable_paper_entry": executable, "spread_at_fill": spread, "stop": geom["stop"], "target": geom["effective_target"], "geometry": geom, "leg_a": {"allocation_R": 0.5, "status": "OPEN"}, "leg_b": {"allocation_R": 0.5, "status": "OPEN", "runner_hypotheses": ["+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT"]}, "status": "OPEN", "mfe_price": 0.0, "mae_price": 0.0, "entry_bar": bar, "reentry_type": "INITIAL" if number == 1 else "REENTRY_BEFORE_TARGET_COMPLETION"}
     setup["opportunities"].append(opportunity); setup["status"] = "FILLED"; setup["retrace_state"] = "FILLED"; state["positions"][position_id] = opportunity; state["counters"]["opportunities"] += 1; state["counters"]["positions"] += 1
     append_event({"type": "FILLED", "source": setup["provenance"]["source"], "symbol": setup["symbol"], "setup_id": setup["setup_id"], "market_event_id": setup["market_event_id"], "entry_opportunity_id": opportunity_id, "economic_position_id": position_id, "entry": executable, "stop": geom["stop"], "target": geom["effective_target"], "entry_mechanisms": mechanisms}, state)
 
