@@ -38,7 +38,8 @@ class Cursor:
                                               "strategy_id": strategy_id, "outcome_type": outcome_type})
         elif "FROM strategy.entry_signals" in normalized:
             strategy_id, cutoff_id = params
-            self.rows = [(row[0], row[2], row[3]) for row in self.db.signals
+            self.rows = [(row[0], row[2], row[3], row[5] if len(row) > 5 else None,
+                          row[6] if len(row) > 6 else NOW) for row in self.db.signals
                          if row[1] == strategy_id and row[4] == cutoff_id]
         elif normalized.startswith("INSERT INTO strategy.entry_signal_outcomes"):
             signal_id, outcome_type, status, realized_r, exit_at, source, updated_at = params
@@ -92,12 +93,12 @@ class Connection:
 class FakeDB:
     def __init__(self):
         self.signals = [
-            ("SIG-TARGET", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-TARGET", "OP-TARGET", CUTOFF),
-            ("SIG-STOP", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-STOP", "OP-STOP", CUTOFF),
-            ("SIG-OPEN", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OPEN", "OP-OPEN", CUTOFF),
-            ("SIG-INVALIDATED", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-INVALIDATED", "OP-INVALIDATED", CUTOFF),
+            ("SIG-TARGET", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-TARGET", "OP-TARGET", CUTOFF, None, NOW),
+            ("SIG-STOP", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-STOP", "OP-STOP", CUTOFF, None, NOW),
+            ("SIG-OPEN", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OPEN", "OP-OPEN", CUTOFF, None, NOW),
+            ("SIG-INVALIDATED", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-INVALIDATED", "OP-INVALIDATED", CUTOFF, None, NOW),
             # A canonical row from a different cutoff must not enter this projection.
-            ("SIG-OLD", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OLD", "OP-OLD", "other-cutoff"),
+            ("SIG-OLD", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OLD", "OP-OLD", "other-cutoff", None, NOW),
         ]
         self.metadata = {}
         self.outcomes = {}
@@ -168,7 +169,7 @@ class EntryOnlyProjectionTests(unittest.TestCase):
             "entry_opportunity_id": "OPP-STALE",
             "status": "OPEN",
         }}}
-        self.db.signals.append(("SIG-STALE", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-STALE", "OPP-STALE", CUTOFF))
+        self.db.signals.append(("SIG-STALE", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-STALE", "OPP-STALE", CUTOFF, None, NOW))
         self.db.outcomes["SIG-STALE"] = (
             "ENTRY_ONLY", "INVALIDATED", None,
             datetime.fromtimestamp(1790059500, timezone.utc),

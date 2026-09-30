@@ -13,13 +13,14 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from postgres.db import connect
+from outcome_attribution import broker_authoritative, validate_temporal_order
 
 STRATEGY_ID = "CONTEXT_STRUCTURE_RETRACE_V1"
 OUTCOME_TYPE = "ENTRY_ONLY"
 OUTCOME_SOURCE = STRATEGY_ID
 METADATA_KEY = "context.entry_only_outcome_cutoff"
 OUTCOME_SCHEMA_VERSION = "015"
-ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED", "INVALIDATED"}
+ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED", "INVALIDATED", "AMBIGUOUS_INTRABAR"}
 
 
 class OutcomeProjectionError(RuntimeError):
@@ -53,6 +54,13 @@ def _exit_timestamp(value: Any) -> datetime | None:
         return datetime.fromtimestamp(float(value), tz=timezone.utc)
     except (TypeError, ValueError, OverflowError) as exc:
         raise OutcomeProjectionError("runner exit_timestamp must be a UTC epoch") from exc
+
+
+def _broker_status(value: Any) -> str | None:
+    value = str(value or "").upper()
+    return {"STOP_LOSS": "STOPPED", "SL": "STOPPED", "STOPPED": "STOPPED",
+            "TAKE_PROFIT": "TARGET_HIT", "TP": "TARGET_HIT", "TARGET_HIT": "TARGET_HIT",
+            "TIME_EXIT": "TIME_EXIT"}.get(value)
 
 
 def project_entry_only_outcomes(
@@ -107,14 +115,15 @@ def project_entry_only_outcomes(
                 raise OutcomeProjectionError("stored outcome cutoff does not match configured canonical cutoff")
 
             cur.execute(
-                """SELECT signal_id, economic_position_id, entry_opportunity_id
+                """SELECT signal_id, economic_position_id, entry_opportunity_id,
+                                  signal_emitted_at, decision_time
                    FROM strategy.entry_signals
                    WHERE strategy_id = %s AND cutoff_id = %s
                    ORDER BY signal_id""",
                 (STRATEGY_ID, cutoff_id),
             )
             signals = cur.fetchall()
-            for signal_id, position_id, opportunity_id in signals:
+            for signal_id, position_id, opportunity_id, signal_emitted_at, decision_time in signals:
                 position = positions.get(str(position_id)) if position_id else None
                 if not position or (opportunity_id and
                                     str(position.get("entry_opportunity_id")) != str(opportunity_id)):
@@ -125,6 +134,36 @@ def project_entry_only_outcomes(
                     raise OutcomeProjectionError(f"unsupported ENTRY_ONLY status {status!r} for {signal_id}")
                 realized_r = position.get("realized_R")
                 exit_at = _exit_timestamp(position.get("exit_timestamp"))
+                temporal_error = validate_temporal_order(
+                    signal_emitted_at=signal_emitted_at,
+                    outcome_exit_time=exit_at,
+                    historical_replay=bool(position.get("historical_replay")),
+                )
+                if temporal_error:
+                    raise OutcomeProjectionError(f"{temporal_error}: {signal_id}")
+                strategy_status, strategy_realized_r, strategy_exit_at = status, realized_r, exit_at
+                broker_status = _broker_status(position.get("broker_exit_reason") or position.get("broker_outcome"))
+                if broker_status:
+                    broker_exit_at = _exit_timestamp(position.get("broker_exit_timestamp"))
+                    broker_error = validate_temporal_order(
+                        signal_emitted_at=signal_emitted_at,
+                        broker_fill_time=position.get("broker_fill_timestamp"),
+                        broker_exit_time=broker_exit_at,
+                        outcome_exit_time=broker_exit_at,
+                        historical_replay=bool(position.get("historical_replay")),
+                    )
+                    if broker_error:
+                        raise OutcomeProjectionError(f"{broker_error}: {signal_id}")
+                    authoritative = broker_authoritative(
+                        strategy_outcome=status, strategy_realized_r=realized_r,
+                        broker_outcome=broker_status,
+                        broker_realized_r=position.get("broker_realized_r"),
+                        signal_emitted_at=signal_emitted_at,
+                        broker_fill_time=position.get("broker_fill_timestamp"),
+                        broker_exit_time=broker_exit_at,
+                    )
+                    status, realized_r, exit_at = (authoritative["status"],
+                                                   authoritative["realized_r"], broker_exit_at)
                 if status == "OPEN" and (realized_r is not None or exit_at is not None):
                     raise OutcomeProjectionError(f"OPEN position {signal_id} unexpectedly has exit data")
                 if status not in {"OPEN", "INVALIDATED"} and (realized_r is None or exit_at is None):
@@ -183,5 +222,20 @@ def project_entry_only_outcomes(
                         raise OutcomeProjectionError(f"outcome projection did not converge for {signal_id}")
                     counts["unchanged"] += 1
                 counts["matched"] += 1
+                if broker_status:
+                    cur.execute(
+                        """UPDATE strategy.entry_signal_outcomes
+                           SET strategy_outcome = %s, strategy_realized_r = %s,
+                               strategy_exit_timestamp = %s, execution_outcome = %s,
+                               broker_realized_r = %s, broker_fill_timestamp = %s,
+                               broker_exit_timestamp = %s, broker_exit_reason = %s,
+                               attribution_status = 'BROKER_AUTHORITATIVE', attribution_error = NULL,
+                               updated_at = %s WHERE signal_id = %s""",
+                        (strategy_status, strategy_realized_r, strategy_exit_at,
+                         status, position.get("broker_realized_r"),
+                         position.get("broker_fill_timestamp"), exit_at,
+                         position.get("broker_exit_reason") or position.get("broker_outcome"),
+                         now(), signal_id),
+                    )
         conn.commit()
     return counts
