@@ -21,10 +21,12 @@ closed on missing or stale data instead of reading the bridge themselves.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 TIMEFRAMES = ("M5", "M15", "H1", "H4")
 KEEP_BARS = 400            # >= the runner's 320-row window (319 completed) with headroom
+TIMEFRAME_SECONDS = {"M5": 300, "M15": 900, "H1": 3600, "H4": 14400}
 
 
 class BarGap(Exception):
@@ -58,6 +60,56 @@ def merge_completed(cached: list[dict[str, Any]], fresh: list[dict[str, Any]], *
     added = [r for r in fresh if _row_time(r) > last]
     merged = (cached + added)[-keep:]
     return merged, len(added)
+
+
+def merge_by_time(*series: list[dict[str, Any]], keep: int = KEEP_BARS) -> list[dict[str, Any]]:
+    """Merge completed bar series by candle identity, newest rows winning.
+
+    Range recovery is deliberately idempotent: retrying a page or replaying a page after a
+    process restart cannot duplicate candles.  Revisions are retained from the last supplied
+    series because the collector has already validated the broker response for that page.
+    """
+    by_time: dict[int, dict[str, Any]] = {}
+    for rows in series:
+        for row in rows:
+            by_time[_row_time(row)] = row
+    return [by_time[t] for t in sorted(by_time)][-keep:]
+
+
+def internal_missing_times(rows: list[dict[str, Any]], timeframe: str) -> list[int]:
+    """Return bounded candle slots absent from a completed series.
+
+    Only holes between the first and last returned candle are reported.  Session closures at the
+    edges of a range are therefore not misclassified as a broker outage, while a missing interval
+    surrounded by candles remains visible to recovery health and tests.
+    """
+    if len(rows) < 2:
+        return []
+    step = TIMEFRAME_SECONDS[timeframe]
+    present = {_row_time(row) for row in rows}
+    start, end = _row_time(rows[0]), _row_time(rows[-1])
+    return [t for t in range(start + step, end, step) if t not in present]
+
+
+def unexpected_missing_times(rows: list[dict[str, Any]], timeframe: str) -> list[int]:
+    """Filter normal exchange/session closures from bounded continuity holes.
+
+    The MT5 source legitimately omits closed-market candles (including the weekend and the
+    recurring XAU maintenance window around 21:00 UTC).  Recovery must target a hole surrounded
+    by live-session candles, not manufacture bars for a closed market.
+    """
+    missing = internal_missing_times(rows, timeframe)
+    if not missing or timeframe not in TIMEFRAME_SECONDS:
+        return missing
+    unexpected = []
+    for timestamp in missing:
+        dt = datetime.fromtimestamp(timestamp, timezone.utc)
+        if dt.weekday() in (5, 6):
+            continue
+        if dt.hour in (20, 21, 22):
+            continue
+        unexpected.append(timestamp)
+    return unexpected
 
 
 class MarketDataStore:

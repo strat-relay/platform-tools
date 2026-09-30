@@ -141,7 +141,9 @@ class EvaluationFoundationTests(unittest.TestCase):
             # (market_data_cache/). Data source only, default BRIDGE unchanged; decision fingerprint
             # unchanged (asserted in tests/test_market_data_cache.py) and cached reads are proven
             # identical to fresh bridge snapshots there.
-            "context_structure_retrace_forward.py": "7aad5c215eb75b893b56498f7e6062c09e15682d4cd072c4e34b426838de0d0e",
+            # Re-pinned for timestamp-based retrace recovery.  The strategy config hash is
+            # unchanged; the decision fingerprint is updated in the runner and manifests.
+            "context_structure_retrace_forward.py": "4df5da2ca7cf72d65c6467586d735ce6db9e3199be65a91935b1a19fff3783b9",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
