@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-TERMINAL_POSITION_STATUSES = {"TARGET_HIT", "STOPPED", "CLOSED", "EXPIRED"}
+TERMINAL_POSITION_STATUSES = {"TARGET_HIT", "STOPPED", "AMBIGUOUS_INTRABAR", "CLOSED", "EXPIRED"}
 TERMINAL_SETUP_STATUSES = {"INVALIDATED_NO_REENTRY", "NO_RETRACE", "EXPIRED", "CLOSED"}
 
 

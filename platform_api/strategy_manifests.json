@@ -1,7 +1,7 @@
 [
   {
     "manifest": {
-      "code_fingerprint": "0660e8a6003a07638c1256706517c5854e794f106fd87c75a1ad0be9f4d2c189",
+      "code_fingerprint": "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc",
       "edit_policy": {
         "config_reload": "RESTART_REQUIRED",
         "instance_parameters": "NEW_PARAMETER_SET_REQUIRED",

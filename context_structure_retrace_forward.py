@@ -19,6 +19,8 @@ import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from outcome_attribution import resolve_candle
 from urllib.request import Request, urlopen
 
 from context_structure_retrace.config import ResearchTimeframes
@@ -132,10 +134,11 @@ FROZEN_CONFIG = {
 LEGACY_FROZEN_SOURCE_HASH = "f931fe449d1bee78fde768374ad7ce88ded3f19f9afdf349e9acb47602772a0f"
 DECISION_FUNCTION_NAMES = ("_geometry", "make_setup", "_fill", "_process_bar", "process_symbol",
                            "_evaluate_open_position", "_unevaluated_open_positions")
-FROZEN_DECISION_CODE_HASH = "0660e8a6003a07638c1256706517c5854e794f106fd87c75a1ad0be9f4d2c189"
+FROZEN_DECISION_CODE_HASH = "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc"
 # Earlier decision-code identities, kept so historical signals (which carry their fingerprint in
 # source_strategy_fingerprint) stay attributable. Trading rules/config are unchanged across them.
 PRIOR_DECISION_CODE_HASHES = {
+    "0660e8a6003a07638c1256706517c5854e794f106fd87c75a1ad0be9f4d2c189": "V1 decision code with stop precedence for same-candle TP/SL collisions before causal attribution fix",
     "7490aba224d0d08b805df30978e698cacc9a90ba24a3dae95d07c14414abdaae": "V1 decision code with timestamp identity recovery before rebasing onto the current main runtime",
     "0a990dd5b3418bd065a702a3a50ffcebcf20dd26565fd432326b1f32ef3aeacf": "V1 decision code with rolling-index retrace bookkeeping before timestamp identity recovery",
     "d080d8fd6ae1fbad889d646898a933aea475ac1d01448d047b8eac2a9efc3357": "V1 decision code with timestamp identity recovery before legacy-state migration guard",
@@ -201,7 +204,7 @@ def _event_identity(event: dict[str, Any]) -> str | None:
     # Lifecycle transitions are state facts, not append-count facts.  A
     # replay after an interrupted checkpoint must not emit a second terminal
     # transition for the same domain entity.
-    if event_type in {"SETUP_DETECTED", "FORWARD_BASELINE_INITIALIZED", "FILLED", "TARGET_HIT", "STOPPED", "SETUP_INVALIDATED_BEFORE_ENTRY",
+    if event_type in {"SETUP_DETECTED", "FORWARD_BASELINE_INITIALIZED", "FILLED", "TARGET_HIT", "STOPPED", "AMBIGUOUS_INTRABAR", "SETUP_INVALIDATED_BEFORE_ENTRY",
                       "INVALIDATED_NO_REENTRY", "NO_RETRACE", "RETURN_AFTER_SETUP_TARGET_COMPLETED"}:
         return f"{event_type}|{entity}"
     return None
@@ -473,19 +476,26 @@ def _fill(state: dict[str, Any], setup: dict[str, Any], bar: dict[str, Any], ind
 
 
 def _evaluate_open_position(state: dict[str, Any], symbol: str, setup: dict[str, Any] | None, position: dict[str, Any], direction: str, bar: dict[str, Any], source: str) -> None:
-    # V1 exit rule, unchanged: bar high/low against the frozen stop/target, stop takes
-    # precedence when both are touched in the same bar, realized R = -1 or target_R.
+    # V1 geometry is unchanged.  Attribution is causal: the source candle must be
+    # after the eligible entry time, and an OHLC collision is never awarded as a
+    # target without finer-grained ordering evidence.
     low, high = float(bar["low"]), float(bar["high"])
     entry = float(position["executable_paper_entry"]); stop = float(position["stop"]); target = float(position["target"])
     adverse = (entry - low) if direction == "LONG" else (high - entry); favorable = (high - entry) if direction == "LONG" else (entry - low)
     position["mfe_price"] = max(float(position.get("mfe_price", 0)), favorable); position["mae_price"] = max(float(position.get("mae_price", 0)), adverse)
-    hit_stop = low <= stop if direction == "LONG" else high >= stop
-    hit_target = high >= target if direction == "LONG" else low <= target
-    if hit_stop or hit_target:
-        reason = "STOPPED" if hit_stop else "TARGET_HIT"
-        position["status"] = reason; position["exit_timestamp"] = int(bar["time"]); position["exit_reason"] = reason; position["realized_R"] = -1.0 if hit_stop else float(position["geometry"]["target_R"]); position["leg_a"]["status"] = reason; position.setdefault("leg_b", {})["breakeven_activated"] = bool(hit_target)
-        if hit_target and setup is not None: setup["target_completed"] = True
-        append_event({"type": reason, "source": source, "symbol": symbol, "setup_id": setup["setup_id"] if setup is not None else position.get("setup_id"), "economic_position_id": position["economic_position_id"], "realized_R": position["realized_R"], "mfe": position["mfe_price"], "mae": position["mae_price"]}, state)
+    result = resolve_candle(direction, bar, stop=stop, target=target,
+                            entry_time=position["fill_timestamp"],
+                            target_r=float(position["geometry"].get("target_R") or 0.0))
+    if result["status"] in {"STOPPED", "TARGET_HIT", "AMBIGUOUS_INTRABAR"}:
+        reason = result["status"]
+        position["status"] = reason
+        position["exit_timestamp"] = int(result["exit_timestamp"])
+        position["exit_reason"] = result["reason"]
+        position["realized_R"] = result["realized_r"]
+        position["leg_a"]["status"] = reason
+        position.setdefault("leg_b", {})["breakeven_activated"] = reason == "TARGET_HIT"
+        if reason == "TARGET_HIT" and setup is not None: setup["target_completed"] = True
+        append_event({"type": reason, "source": source, "symbol": symbol, "setup_id": setup["setup_id"] if setup is not None else position.get("setup_id"), "economic_position_id": position["economic_position_id"], "realized_R": position["realized_R"], "mfe": position["mfe_price"], "mae": position["mae_price"], "attribution_reason": result["reason"]}, state)
 
 
 def _unevaluated_open_positions(state: dict[str, Any], symbol: str) -> list[tuple[dict[str, Any] | None, dict[str, Any]]]:
@@ -729,7 +739,7 @@ def poll(state: dict[str, Any], symbols: tuple[str, ...], mcp_url: str, limit: i
 
 def summary(state: dict[str, Any]) -> str:
     positions = [p for p in state.get("positions", {}).values()]
-    closed = [p for p in positions if p.get("status") in ("STOPPED", "TARGET_HIT")]
+    closed = [p for p in positions if p.get("status") in ("STOPPED", "TARGET_HIT", "AMBIGUOUS_INTRABAR")]
     rs = [float(p["realized_R"]) for p in closed if p.get("realized_R") is not None]
     return "\n".join([f"# {VERSION} — PAPER ONLY", f"Runner: {state.get('runner_status')}", f"Prospective boundary: {state.get('prospective_boundary')}", f"Setups: {state['counters']['setups']}", f"Entry opportunities: {state['counters']['opportunities']}", f"Closed Leg-A outcomes: {len(closed)}", f"Cumulative realized R: {sum(rs):.4f}", f"Open simulated positions: {sum(p.get('status') == 'OPEN' for p in positions)}", f"Commission: UNKNOWN_UNRESOLVED", "Broker order submission: DISABLED"])
 
@@ -857,10 +867,11 @@ def report_data(symbol: str | None = None, recent: int | None = None) -> dict[st
             position.setdefault("pattern", setup.get("pattern"))
             if _position_is_prospective(position, boundary) and (symbol is None or setup.get("symbol") == symbol):
                 positions.append(position)
-    closed = [p for p in positions if p.get("status") in ("STOPPED", "TARGET_HIT")]
+    closed = [p for p in positions if p.get("status") in ("STOPPED", "TARGET_HIT", "AMBIGUOUS_INTRABAR")]
     open_positions = [p for p in positions if p.get("status") == "OPEN"]
     target_hits = [p for p in closed if p.get("status") == "TARGET_HIT"]
     losses = [p for p in closed if p.get("status") == "STOPPED"]
+    ambiguous = [p for p in closed if p.get("status") == "AMBIGUOUS_INTRABAR"]
     rs = [float(p["realized_R"]) for p in closed if p.get("realized_R") is not None]
     wins = [r for r in rs if r > 0]; loss_rs = [r for r in rs if r < 0]; breakeven = [r for r in rs if r == 0]
     geometry = [p.get("geometry", {}) for p in positions if p.get("geometry")]
@@ -880,7 +891,7 @@ def report_data(symbol: str | None = None, recent: int | None = None) -> dict[st
         sid = {x.get("setup_id") for x in setups if x.get("symbol") == name}
         ps = [p for p in positions if p.get("symbol") == name or p.get("setup_id") in sid]
         vals = [float(p["realized_R"]) for p in ps if p.get("realized_R") is not None]
-        by_symbol[name] = {"setups": sum(1 for x in setups if x.get("symbol") == name), "opportunities": len(ps), "positions": len(ps), "open": sum(p.get("status") == "OPEN" for p in ps), "closed": sum(p.get("status") in ("STOPPED", "TARGET_HIT") for p in ps), "realized_R": sum(vals)}
+        by_symbol[name] = {"setups": sum(1 for x in setups if x.get("symbol") == name), "opportunities": len(ps), "positions": len(ps), "open": sum(p.get("status") == "OPEN" for p in ps), "closed": sum(p.get("status") in ("STOPPED", "TARGET_HIT", "AMBIGUOUS_INTRABAR") for p in ps), "realized_R": sum(vals)}
     shadow = {"registered_hypotheses": {name: 0 for name in ("+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT")}, "favorable_thresholds_reached": {name: 0 for name in SHADOW_FAVORABLE_THRESHOLDS}, "R_at_time": {f"R@{minutes}m": [] for minutes in (30, 60, 90, 120, 180)}, "scope": "V1_POSITION_MFE_MAE_UNTIL_V1_EXIT", "post_exit_continuation": "UNAVAILABLE_NOT_TRACKED", "position_observations": []}
     for p in positions:
         for name in p.get("leg_b", {}).get("runner_hypotheses", []): shadow["registered_hypotheses"][name] += 1
@@ -893,9 +904,9 @@ def report_data(symbol: str | None = None, recent: int | None = None) -> dict[st
     shadow["runner_hypotheses"] = shadow.pop("registered_hypotheses")
     mfe_values = [x["mfe_R"] for x in shadow["position_observations"] if x["mfe_R"] is not None]
     mae_values = [x["mae_R"] for x in shadow["position_observations"] if x["mae_R"] is not None]
-    shadow["summary"] = {"N": len(shadow["position_observations"]), "closed_N": sum(x["status"] in ("STOPPED", "TARGET_HIT") for x in shadow["position_observations"]), "open_N": sum(x["status"] == "OPEN" for x in shadow["position_observations"]), "median_MFE_R": sorted(mfe_values)[len(mfe_values)//2] if mfe_values else None, "median_MAE_R": sorted(mae_values)[len(mae_values)//2] if mae_values else None, "maximum_MFE_R": max(mfe_values) if mfe_values else None, "maximum_MAE_R": max(mae_values) if mae_values else None}
+    shadow["summary"] = {"N": len(shadow["position_observations"]), "closed_N": sum(x["status"] in ("STOPPED", "TARGET_HIT", "AMBIGUOUS_INTRABAR") for x in shadow["position_observations"]), "open_N": sum(x["status"] == "OPEN" for x in shadow["position_observations"]), "median_MFE_R": sorted(mfe_values)[len(mfe_values)//2] if mfe_values else None, "median_MAE_R": sorted(mae_values)[len(mae_values)//2] if mae_values else None, "maximum_MFE_R": max(mfe_values) if mfe_values else None, "maximum_MAE_R": max(mae_values) if mae_values else None}
     meaningful = [x for x in events if x.get("type") not in ("READ_ERROR",)]
-    return {"manifest": manifest, "boundary": boundary, "runner_status": state.get("runner_status"), "heartbeat": json.loads(HEARTBEAT.read_text()) if HEARTBEAT.exists() else {}, "event_counts": event_counts, "setups": setups, "positions": positions, "closed": closed, "open": open_positions, "outcomes": {"N": len(closed), "target_hits": len(target_hits), "losses": len(losses), "breakevens": len(breakeven), "open": len(open_positions), "target_hit_rate": _percent(len(target_hits), len(closed)), "profitable_close_rate": _percent(len(wins), len(closed)), "loss_rate": _percent(len(losses), len(closed)), "breakeven_rate": _percent(len(breakeven), len(closed)), "realized_R": sum(rs), "expectancy_R": sum(rs) / len(rs) if rs else None, "profit_factor": sum(wins) / abs(sum(loss_rs)) if loss_rs else None, "max_drawdown_R": _max_drawdown(rs)}, "target_geometry": {"N": len(target_r), "buckets": buckets, "median_target_R": sorted(target_r)[len(target_r)//2] if target_r else None, "median_spread_target_ratio": sorted(float(g["spread_target_ratio"]) for g in geometry if g.get("spread_target_ratio") is not None)[len([g for g in geometry if g.get("spread_target_ratio") is not None])//2] if any(g.get("spread_target_ratio") is not None for g in geometry) else None, "TARGET_NEAR_SPREAD_SCALE": sum("TARGET_NEAR_SPREAD_SCALE" in g.get("flags", []) for g in geometry), "OPPOSING_STRUCTURE_VERY_CLOSE": sum("OPPOSING_STRUCTURE_VERY_CLOSE" in g.get("flags", []) for g in geometry)}, "mechanisms": mechanisms, "reasons": reasons, "by_symbol": by_symbol, "recent_events": meaningful[-10:], "shadow": shadow}
+    return {"manifest": manifest, "boundary": boundary, "runner_status": state.get("runner_status"), "heartbeat": json.loads(HEARTBEAT.read_text()) if HEARTBEAT.exists() else {}, "event_counts": event_counts, "setups": setups, "positions": positions, "closed": closed, "open": open_positions, "outcomes": {"N": len(closed), "target_hits": len(target_hits), "losses": len(losses), "ambiguous": len(ambiguous), "breakevens": len(breakeven), "open": len(open_positions), "target_hit_rate": _percent(len(target_hits), len(closed)), "profitable_close_rate": _percent(len(wins), len(closed)), "loss_rate": _percent(len(losses), len(closed)), "breakeven_rate": _percent(len(breakeven), len(closed)), "realized_R": sum(rs), "expectancy_R": sum(rs) / len(rs) if rs else None, "profit_factor": sum(wins) / abs(sum(loss_rs)) if loss_rs else None, "max_drawdown_R": _max_drawdown(rs)}, "target_geometry": {"N": len(target_r), "buckets": buckets, "median_target_R": sorted(target_r)[len(target_r)//2] if target_r else None, "median_spread_target_ratio": sorted(float(g["spread_target_ratio"]) for g in geometry if g.get("spread_target_ratio") is not None)[len([g for g in geometry if g.get("spread_target_ratio") is not None])//2] if any(g.get("spread_target_ratio") is not None for g in geometry) else None, "TARGET_NEAR_SPREAD_SCALE": sum("TARGET_NEAR_SPREAD_SCALE" in g.get("flags", []) for g in geometry), "OPPOSING_STRUCTURE_VERY_CLOSE": sum("OPPOSING_STRUCTURE_VERY_CLOSE" in g.get("flags", []) for g in geometry)}, "mechanisms": mechanisms, "reasons": reasons, "by_symbol": by_symbol, "recent_events": meaningful[-10:], "shadow": shadow}
 
 
 def _age_seconds(iso_ts: Any, now: datetime) -> float | None:

@@ -40,6 +40,8 @@ POSITION_FIELDS = (
     "spread_at_fill", "stop", "target", "status", "mfe_price", "mae_price",
     "reentry_type", "exit_timestamp", "exit_reason", "realized_R",
     "symbol", "direction", "setup_id", "pattern", "provenance",
+    "historical_replay", "broker_outcome", "broker_exit_reason",
+    "broker_realized_r", "broker_fill_timestamp", "broker_exit_timestamp",
 )
 
 

@@ -129,7 +129,7 @@ class PositionLifecycleTests(RunnerSandbox):
         pos = setup["opportunities"][0]
         self.assertEqual((pos["status"], pos["realized_R"]), ("TARGET_HIT", TARGET_R))
 
-    def test_same_bar_stop_and_target_keeps_stop_precedence(self):  # 6
+    def test_same_bar_stop_and_target_is_ambiguous_without_finer_data(self):  # 6
         for invalidated in (False, True):
             with self.subTest(invalidated=invalidated):
                 state = state_with_filled_setup()
@@ -137,7 +137,7 @@ class PositionLifecycleTests(RunnerSandbox):
                     self.invalidate_without_stop(state)
                 self.process(state, bar(FILL + 900, 1.0990, 1.1035, 1.1010))
                 pos = state["setups"]["SETUP1"]["opportunities"][0]
-                self.assertEqual((pos["status"], pos["realized_R"]), ("STOPPED", -1.0))
+                self.assertEqual((pos["status"], pos["realized_R"]), ("AMBIGUOUS_INTRABAR", 0.0))
 
     def test_invalidation_still_prevents_reentry(self):  # 7
         state = state_with_filled_setup()
