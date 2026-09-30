@@ -316,37 +316,13 @@ def _completed(rates: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def read_symbol(symbol: str, mcp_url: str, limit: int = 320, include_provenance: bool = False) -> tuple[Any, ...]:
-    if os.getenv("MARKET_DATA_SOURCE", "BRIDGE").strip().upper() == "REDIS":
-        # Same (contract, quote, bars) shape from the market-data cache (market_data_cache/),
-        # which one collector keeps current; no bridge call here. Missing/stale data raises,
-        # exactly like a failed bridge read. Not part of the frozen decision code.
-        from market_data_cache.reader import default_store, read_symbol_cached
-        return read_symbol_cached(default_store(), symbol, limit, include_provenance)
-    # One bounded, read-only per-symbol snapshot replaces the six serialized
-    # reads previously needed for one strategy evaluation.  The EA builds the
-    # snapshot from the same QuoteJson/RatesJson/SymbolInfoJson primitives;
-    # this function only adapts the response back to the frozen strategy shape.
-    snapshot = bridge_read("mt5_symbol_snapshot", {
-        "symbol": symbol, "timeframes": ["M5", "M15", "H1", "H4"], "limit": limit,
-    }, mcp_url)
-    if not snapshot.get("healthy") or snapshot.get("source_read_health") is not True:
-        raise RuntimeError("symbol snapshot unhealthy: " + json.dumps(snapshot.get("components", {}), sort_keys=True))
-    contract = snapshot.get("symbol_info")
-    quote = snapshot.get("quote")
-    raw_rates = snapshot.get("rates") or {}
-    required = ("M5", "M15", "H1", "H4")
-    if not isinstance(contract, dict) or not isinstance(quote, dict) or any(tf not in raw_rates for tf in required):
-        raise RuntimeError("symbol snapshot missing required component")
-    bars = {tf: _completed(raw_rates[tf]) for tf in required}
-    if not include_provenance:
-        return contract, quote, bars
-    quote_time = quote.get("time") if isinstance(quote, dict) else None
-    producer = {
-        "source_read_health": snapshot.get("source_read_health"),
-        "source_market_data_timestamp": iso(int(quote_time)) if quote_time is not None else None,
-        "provenance_source": "PHASE6_SUCCESSFUL_SNAPSHOT",
-    }
-    return contract, quote, bars, producer
+    # The live strategy boundary is deliberately cache-only. The collector and
+    # diagnostic tools retain the direct MCP read boundary, but a strategy must
+    # never create a second market-data truth by falling back to it here.
+    if os.getenv("MARKET_DATA_SOURCE", "").strip().upper() != "REDIS":
+        raise RuntimeError("Context live market data requires MARKET_DATA_SOURCE=REDIS")
+    from market_data_cache.reader import default_store, read_symbol_cached
+    return read_symbol_cached(default_store(), symbol, limit, include_provenance)
 
 
 def _spread(bar: dict[str, Any], contract: dict[str, Any], quote: dict[str, Any]) -> float:

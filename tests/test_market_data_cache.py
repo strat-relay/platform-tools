@@ -224,14 +224,14 @@ class IntegrationTests(unittest.TestCase):
         cache.assert_called_once_with("store", "EURUSDm", 320, False)
         self.assertEqual(runner.decision_code_hash(), runner.FROZEN_DECISION_CODE_HASH)
 
-    def test_bridge_remains_the_default_source_everywhere(self):
+    def test_context_requires_canonical_redis_source_and_never_falls_back_to_bridge(self):
         import context_structure_retrace_forward as runner
         env = {k: v for k, v in os.environ.items() if k not in ("MARKET_DATA_SOURCE", "TM_MARKET_DATA_SOURCE")}
         with mock.patch.dict(os.environ, env, clear=True), \
-                mock.patch.object(runner, "bridge_read", side_effect=RuntimeError("bridge")) as bridge:
-            with self.assertRaises(RuntimeError):
+                mock.patch.object(runner, "bridge_read", side_effect=AssertionError("bridge fallback")) as bridge:
+            with self.assertRaisesRegex(RuntimeError, "requires MARKET_DATA_SOURCE=REDIS"):
                 runner.read_symbol("EURUSDm", "http://x/mcp")
-        bridge.assert_called_once()
+        bridge.assert_not_called()
 
     def test_trade_manager_switch_wraps_quotes_only(self):
         from market_data_cache.reader import CachedQuoteClient

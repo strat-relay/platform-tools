@@ -25,6 +25,7 @@ class LiveMarketSnapshot:
     source_market_data_timestamp: str
     source_kind: str = "LIVE_MARKET"
     validated_by: str = "mt5-read-22347"
+    data_health: dict[str, Any] | None = None
 
 
 def _rows(value: Any) -> list[dict[str, Any]]:
@@ -87,20 +88,20 @@ class CachedLiquidityMarketData:
 
     def snapshot(self, canonical_instrument: str, provider_symbol: str | None = None) -> LiveMarketSnapshot:
         from market_data_cache.reader import MarketDataUnavailable
+        from market_data_cache.canonical import CanonicalMarketDataReader
         symbol = provider_symbol or resolve_broker_symbol(canonical_instrument)
-        cached = self.store.snapshot(symbol)
-        if cached is None:
-            raise MarketDataUnavailable(f"market data cache has no snapshot for {symbol}")
-        if self.clock() - float(cached["fetched_at"]) > self.max_age:
-            raise MarketDataUnavailable(f"market data cache for {symbol} is stale")
-        m5, m15 = self.store.bars(symbol, "M5"), self.store.bars(symbol, "M15")
-        if len(m5) < M5_COMPLETED or len(m15) < M15_COMPLETED:
-            raise MarketDataUnavailable(f"market data cache for {symbol} is not deep enough yet")
-        quote, contract = cached["quote"], cached["symbol_info"]
-        m5, m15 = m5[-M5_COMPLETED:], m15[-M15_COMPLETED:]
+        canonical = CanonicalMarketDataReader(self.store, max_age=self.max_age, clock=self.clock)
+        cached = canonical.get_snapshot(canonical_instrument, symbol,
+                                        {"M5": M5_COMPLETED, "M15": M15_COMPLETED})
+        m5, m15 = cached.bars["M5"].bars, cached.bars["M15"].bars
+        quote, contract = cached.quote, cached.symbol_info
         source_timestamp = quote.get("timestamp") or quote.get("time") or m5[-1].get("time")
         return LiveMarketSnapshot(tuple(m5), tuple(m15), quote, contract, canonical_instrument, symbol,
-                                  _timestamp(source_timestamp), validated_by="market-data-cache")
+                                  _timestamp(source_timestamp), validated_by="market-data-cache",
+                                  data_health={"source": cached.source, "cache_age_seconds": cached.cache_age_seconds,
+                                               "continuity_status": cached.continuity_status,
+                                               "gap_status": cached.gap_status,
+                                               "recovery_status": cached.recovery_status})
 
 
 def build_liquidity_market_data(mcp_url: str) -> ReadOnlyLiquidityMarketData | CachedLiquidityMarketData:
