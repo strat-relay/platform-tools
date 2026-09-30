@@ -105,7 +105,7 @@ def atomic(path: Path, value: Any) -> None:
 def identity() -> dict[str, Any]:
     state = json.loads((ROOT / "context_structure_retrace_forward_manifest.json").read_text())
     return {"phase6_source": state.get("code_hash"), "phase6_config": state.get("configuration_hash"),
-            "phase6_decision_fingerprint": "7490aba224d0d08b805df30978e698cacc9a90ba24a3dae95d07c14414abdaae",
+            "phase6_decision_fingerprint": "0660e8a6003a07638c1256706517c5854e794f106fd87c75a1ad0be9f4d2c189",
             "phase2_hash": state.get("phase2_representation_hash"),
             "phase7_manifest": str(ROOT / "context_structure_retrace_phase7_manifest.json")}
 

@@ -132,10 +132,11 @@ FROZEN_CONFIG = {
 LEGACY_FROZEN_SOURCE_HASH = "f931fe449d1bee78fde768374ad7ce88ded3f19f9afdf349e9acb47602772a0f"
 DECISION_FUNCTION_NAMES = ("_geometry", "make_setup", "_fill", "_process_bar", "process_symbol",
                            "_evaluate_open_position", "_unevaluated_open_positions")
-FROZEN_DECISION_CODE_HASH = "70dba71d28fe8a5c09f9033b80eeb4c27a733c6c342537e03c631f41e2a1cdda"
+FROZEN_DECISION_CODE_HASH = "0660e8a6003a07638c1256706517c5854e794f106fd87c75a1ad0be9f4d2c189"
 # Earlier decision-code identities, kept so historical signals (which carry their fingerprint in
 # source_strategy_fingerprint) stay attributable. Trading rules/config are unchanged across them.
 PRIOR_DECISION_CODE_HASHES = {
+    "7490aba224d0d08b805df30978e698cacc9a90ba24a3dae95d07c14414abdaae": "V1 decision code with timestamp identity recovery before rebasing onto the current main runtime",
     "0a990dd5b3418bd065a702a3a50ffcebcf20dd26565fd432326b1f32ef3aeacf": "V1 decision code with rolling-index retrace bookkeeping before timestamp identity recovery",
     "d080d8fd6ae1fbad889d646898a933aea475ac1d01448d047b8eac2a9efc3357": "V1 decision code with timestamp identity recovery before legacy-state migration guard",
     "70dba71d28fe8a5c09f9033b80eeb4c27a733c6c342537e03c631f41e2a1cdda": "V1 decision code through 2026-09-26: OPEN positions stopped receiving exit "

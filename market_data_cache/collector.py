@@ -107,7 +107,7 @@ class MarketDataCollector:
             self.store.set_state(symbol, state)
             state["health_state"] = "BACKFILL_FAILED" if state.get("backfill_required") else "STALE"
             self.store.set_state(symbol, state)
-            return {"symbol": symbol, "ok": False, "error": state["last_error"]}
+            return {"symbol": symbol, "ok": False, "full": full, "reason": state["last_error"], "error": state["last_error"]}
 
     def _fetch(self, symbol: str, now: float, *, full: bool, previous: dict[str, Any], reason: str = "") -> dict[str, Any]:
         limit = self.full_limit if full else self.incremental_limit
@@ -131,7 +131,11 @@ class MarketDataCollector:
             else:
                 try:
                     merged[tf], added[tf] = merge_completed(self.store.bars(symbol, tf), fresh)
-                except BarGap:
+                except BarGap as gap:
+                    if "differs" in str(gap):
+                        # A revision is not a range gap: force a full snapshot so the broker's
+                        # corrected overlap replaces the cached candle safely.
+                        raise
                     cached = self.store.bars(symbol, tf)
                     merged[tf], recovery[tf] = self._recover_range(symbol, tf, cached, fresh, previous)
                     added[tf] = max(0, len(merged[tf]) - len(cached))
@@ -156,7 +160,10 @@ class MarketDataCollector:
                  "depth": {tf: len(merged[tf]) for tf in TIMEFRAMES}, "recovery": recovery,
                  "backfill_required": False}
         self.store.set_state(symbol, state)
-        return {"symbol": symbol, "ok": True, "full": full, "added": added, "reason": reason}
+        result_reason = reason
+        if not result_reason and any(item.get("status") == "WINDOW_FALLBACK" for item in recovery.values()):
+            result_reason = "full window does not reach cached series; used overlapping full-window fallback"
+        return {"symbol": symbol, "ok": True, "full": full, "added": added, "reason": result_reason}
 
     def _recover_range(self, symbol: str, timeframe: str, cached: list[dict[str, Any]],
                        fresh: list[dict[str, Any]], previous: dict[str, Any],
@@ -186,15 +193,20 @@ class MarketDataCollector:
                 result = self._read("mt5_rates_range", {"symbol": symbol, "timeframe": timeframe,
                                                           "start_timestamp": cursor, "end_timestamp": page_end,
                                                           "page_size": 500, "completed_only": True})
-            except Exception:
+            except Exception as exc:
                 # A bounded full snapshot remains a safe compatibility fallback only when it
                 # overlaps the persisted series; it cannot hide a gap larger than that window.
                 if start_override is None and int(fresh[0]["time"]) <= int(cached[-1]["time"]):
                     combined = merge_by_time(cached, fresh)
-                    if not [t for t in unexpected_missing_times(combined, timeframe) if start <= t < int(fresh[-1]["time"])]:
+                    cached_by_time = {int(row["time"]): row for row in cached}
+                    overlap_revisions = [row for row in fresh
+                                         if int(row["time"]) <= int(cached[-1]["time"])
+                                         and cached_by_time.get(int(row["time"])) != row]
+                    if not overlap_revisions and not [t for t in unexpected_missing_times(combined, timeframe)
+                                                      if start <= t < int(fresh[-1]["time"])]:
                         return combined, {"status": "WINDOW_FALLBACK", "start": start, "end": end,
                                           "requested": expected, "received": len(fresh), "holes": []}
-                raise
+                raise BarGap(f"{timeframe} range recovery unavailable; full window does not reach cached series") from exc
             rows = result.get("rates", []) if isinstance(result, dict) else result if isinstance(result, list) else []
             rows = sorted((dict(row) for row in rows if isinstance(row, dict)), key=lambda row: int(row["time"]))
             recovered.extend(rows)

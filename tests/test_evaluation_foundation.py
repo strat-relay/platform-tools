@@ -143,7 +143,7 @@ class EvaluationFoundationTests(unittest.TestCase):
             # identical to fresh bridge snapshots there.
             # Re-pinned for timestamp-based retrace recovery.  The strategy config hash is
             # unchanged; the decision fingerprint is updated in the runner and manifests.
-            "context_structure_retrace_forward.py": "4df5da2ca7cf72d65c6467586d735ce6db9e3199be65a91935b1a19fff3783b9",
+            "context_structure_retrace_forward.py": "d6940dea4607d2cf811ffb3e4226fc8678b0403b48fd002493bf9351c0872a07",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
