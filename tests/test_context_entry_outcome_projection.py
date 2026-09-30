@@ -85,6 +85,7 @@ class FakeDB:
             ("SIG-TARGET", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-TARGET", "OP-TARGET", CUTOFF),
             ("SIG-STOP", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-STOP", "OP-STOP", CUTOFF),
             ("SIG-OPEN", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OPEN", "OP-OPEN", CUTOFF),
+            ("SIG-INVALIDATED", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-INVALIDATED", "OP-INVALIDATED", CUTOFF),
             # A canonical row from a different cutoff must not enter this projection.
             ("SIG-OLD", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-OLD", "OP-OLD", "other-cutoff"),
         ]
@@ -105,6 +106,8 @@ def runner_state():
                      "status": "STOPPED", "realized_R": -1.0, "exit_timestamp": 1790059200},
         "POS-OPEN": {"economic_position_id": "POS-OPEN", "entry_opportunity_id": "OP-OPEN",
                      "status": "OPEN", "realized_R": None, "exit_timestamp": None},
+        "POS-INVALIDATED": {"economic_position_id": "POS-INVALIDATED", "entry_opportunity_id": "OP-INVALIDATED",
+                             "status": "INVALIDATED", "realized_R": None, "exit_timestamp": 1790059500},
         "POS-OLD": {"economic_position_id": "POS-OLD", "entry_opportunity_id": "OP-OLD",
                     "status": "TARGET_HIT", "realized_R": 99.0, "exit_timestamp": 1790058900},
     }}
@@ -117,23 +120,25 @@ class EntryOnlyProjectionTests(unittest.TestCase):
                        "environ": {"ENTRY_OUTCOME_SIGNAL_CUTOFF_ID": CUTOFF},
                        "clock": lambda: NOW}
 
-    def test_projects_target_stop_and_open_without_importing_other_cutoffs(self):
+    def test_projects_target_stop_open_and_invalidated_without_importing_other_cutoffs(self):
         result = project_entry_only_outcomes(runner_state(), **self.kwargs)
-        self.assertEqual(result, {"matched": 3, "projected": 3, "unchanged": 0, "unmatched": 0})
+        self.assertEqual(result, {"matched": 4, "projected": 4, "unchanged": 0, "unmatched": 0})
         target = self.db.outcomes["SIG-TARGET"]
         self.assertEqual(target[:3], ("ENTRY_ONLY", "TARGET_HIT", 0.7428190594695953))
         self.assertEqual(target[3], datetime.fromtimestamp(1790058900, timezone.utc))
         self.assertEqual(self.db.outcomes["SIG-STOP"][1:3], ("STOPPED", -1.0))
         self.assertEqual(self.db.outcomes["SIG-OPEN"][1:4], ("OPEN", None, None))
+        self.assertEqual(self.db.outcomes["SIG-INVALIDATED"][1:4],
+                         ("INVALIDATED", None, datetime.fromtimestamp(1790059500, timezone.utc)))
         self.assertNotIn("SIG-OLD", self.db.outcomes)
         self.assertEqual(self.db.metadata["context.entry_only_outcome_cutoff"]["signal_cutoff_id"], CUTOFF)
 
     def test_repeated_projection_is_idempotent(self):
         first = project_entry_only_outcomes(runner_state(), **self.kwargs)
         second = project_entry_only_outcomes(runner_state(), **self.kwargs)
-        self.assertEqual(first["projected"], 3)
-        self.assertEqual(second, {"matched": 3, "projected": 0, "unchanged": 3, "unmatched": 0})
-        self.assertEqual(len(self.db.outcomes), 3)
+        self.assertEqual(first["projected"], 4)
+        self.assertEqual(second, {"matched": 4, "projected": 0, "unchanged": 4, "unmatched": 0})
+        self.assertEqual(len(self.db.outcomes), 4)
 
     def test_numeric_round_trip_does_not_conflict_on_float_representation(self):
         project_entry_only_outcomes(runner_state(), **self.kwargs)
@@ -144,7 +149,7 @@ class EntryOnlyProjectionTests(unittest.TestCase):
 
         result = project_entry_only_outcomes(runner_state(), **self.kwargs)
 
-        self.assertEqual(result, {"matched": 3, "projected": 0, "unchanged": 3, "unmatched": 0})
+        self.assertEqual(result, {"matched": 4, "projected": 0, "unchanged": 4, "unmatched": 0})
         self.assertEqual(self.db.outcomes["SIG-TARGET"][2], Decimal("0.742819059469595"))
 
     def test_entry_opportunity_mismatch_is_not_projected(self):

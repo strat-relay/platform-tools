@@ -441,13 +441,14 @@ class StrategyInstanceTests(unittest.TestCase):
             self.assertEqual((suspended["enabled"], suspended["revision"]), (False, 3))
         self.assertTrue(all(i["runtime"]["effective"] is False for i in suspended["instances"]))
 
-    def test_strategy_suspend_is_refused_where_not_enforced_and_on_stale_revision(self):
-        from platform_api.strategy_catalog import InstanceRevisionConflict, LifecycleNotEnforced
-        with self._unchanged("platform.strategy_definition"):
-            with self.assertRaises(LifecycleNotEnforced):
-                self.repo.set_strategy_lifecycle(CONTEXT, "SUSPENDED", expected_revision=1, updated_by="t")
-            with self.assertRaises(InstanceRevisionConflict):
-                self.repo.set_strategy_lifecycle(LIQUIDITY, "ACTIVE", expected_revision=9, updated_by="t")
+    def test_strategy_suspend_is_supported_for_all_strategies_and_checks_revision(self):
+        from platform_api.strategy_catalog import InstanceRevisionConflict
+        context = self.repo.set_strategy_lifecycle(CONTEXT, "SUSPENDED", expected_revision=1, updated_by="t")
+        self.assertEqual((context["enabled"], context["revision"]), (False, 2))
+        context = self.repo.set_strategy_lifecycle(CONTEXT, "ACTIVE", expected_revision=2, updated_by="t")
+        self.assertEqual((context["enabled"], context["revision"]), (True, 3))
+        with self.assertRaises(InstanceRevisionConflict):
+            self.repo.set_strategy_lifecycle(LIQUIDITY, "ACTIVE", expected_revision=9, updated_by="t")
 
     def test_metadata_edit_changes_only_presentation(self):
         with self._unchanged("platform.strategy_instance", *self.EXECUTION_TABLES[:-1]):
@@ -509,7 +510,7 @@ class StrategyInstanceTests(unittest.TestCase):
         self.assertEqual(api.execute("GET", path + "/lifecycle")[0], 405)
         status, body = api.execute("POST", f"/api/v1/strategies/{CONTEXT}/lifecycle",
                                    json.dumps({"state": "SUSPENDED", "expectedRevision": 1}).encode())
-        self.assertEqual((status, body["error"]), (409, "LIFECYCLE_NOT_ENFORCED"))
+        self.assertEqual((status, body["data"]["enabled"], body["data"]["revision"]), (200, False, 2))
         status, body = api.execute("POST", f"/api/v1/strategies/{LIQUIDITY}/metadata",
                                    json.dumps({"displayName": "Liquidity V1", "expectedRevision": 1}).encode())
         self.assertEqual((status, body["data"]["display_name"]), (200, "Liquidity V1"))
