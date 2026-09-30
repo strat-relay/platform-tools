@@ -143,7 +143,9 @@ class EvaluationFoundationTests(unittest.TestCase):
             # identical to fresh bridge snapshots there.
             # Re-pinned for timestamp-based retrace recovery.  The strategy config hash is
             # unchanged; the decision fingerprint is updated in the runner and manifests.
-            "context_structure_retrace_forward.py": "d6940dea4607d2cf811ffb3e4226fc8678b0403b48fd002493bf9351c0872a07",
+            # Re-pinned for causal outcome attribution: pre-entry movement is excluded and
+            # same-candle TP/SL collisions are no longer assigned a deterministic winner.
+            "context_structure_retrace_forward.py": "a64beaf6ffa586ec0649d1ff66cfe2886cc2e35638e22c8bec95d510c2efe7e7",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
