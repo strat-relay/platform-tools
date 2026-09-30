@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import math
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -46,7 +47,16 @@ class Cursor:
             if existing is None:
                 self.db.outcomes[signal_id] = proposed
                 self.rows = [(signal_id,)]
-            elif existing[1] == "OPEN" and existing[1:4] != proposed[1:4]:
+            elif existing != proposed:
+                same_numeric = ((existing[2] is None and proposed[2] is None) or
+                                (existing[2] is not None and proposed[2] is not None and
+                                 math.isclose(float(existing[2]), float(proposed[2]),
+                                              rel_tol=1e-12, abs_tol=1e-12)))
+                same_projection = (existing[0] == proposed[0] and existing[1] == proposed[1]
+                                   and same_numeric and existing[3] == proposed[3]
+                                   and existing[4] == proposed[4])
+                if same_projection:
+                    return
                 self.db.outcomes[signal_id] = proposed
                 self.rows = [(signal_id,)]
         elif normalized.startswith("SELECT outcome_type, status, realized_r"):
@@ -152,7 +162,7 @@ class EntryOnlyProjectionTests(unittest.TestCase):
         self.assertEqual(result, {"matched": 4, "projected": 0, "unchanged": 4, "unmatched": 0})
         self.assertEqual(self.db.outcomes["SIG-TARGET"][2], Decimal("0.742819059469595"))
 
-    def test_stale_open_runner_state_does_not_overwrite_terminal_database_outcome(self):
+    def test_runner_state_overwrites_a_stale_terminal_database_outcome(self):
         state = {"positions": {"POS-STALE": {
             "economic_position_id": "POS-STALE",
             "entry_opportunity_id": "OPP-STALE",
@@ -167,7 +177,8 @@ class EntryOnlyProjectionTests(unittest.TestCase):
 
         result = project_entry_only_outcomes(state, **self.kwargs)
 
-        self.assertEqual(result, {"matched": 1, "projected": 0, "unchanged": 1, "unmatched": 4})
+        self.assertEqual(result, {"matched": 1, "projected": 1, "unchanged": 0, "unmatched": 4})
+        self.assertEqual(self.db.outcomes["SIG-STALE"][1], "OPEN")
 
     def test_entry_opportunity_mismatch_is_not_projected(self):
         state = runner_state()
