@@ -16,7 +16,7 @@ import signal
 from typing import Any
 
 from postgres.db import connect
-from trade_management.binding import DefaultTmNoneResolver
+from trade_management.binding import ChainedResolver, DefaultTmNoneResolver, LegacyStaticResolver
 from trade_management.market_data import MarketDataProvider
 from trade_management.versions import TM_NONE_1_MANIFEST
 
@@ -76,7 +76,12 @@ async def bootstrap(ctx: RuntimeContext) -> dict[str, Any]:
 async def run(ctx: RuntimeContext, stop: asyncio.Event) -> None:
     await bootstrap(ctx)
 
-    resolver = DefaultTmNoneResolver(tm_version_id=TM_NONE_1_VERSION_ID)
+    # Resolve configured strategy bindings at ManagedTrade creation time. TM-NONE remains
+    # the fail-closed fallback for strategies without an explicit binding.
+    resolver = ChainedResolver([
+        LegacyStaticResolver(),
+        DefaultTmNoneResolver(tm_version_id=TM_NONE_1_VERSION_ID),
+    ])
     open_consumer = make_open_consumer(lambda: ctx.conn, resolver, consumer_name=OPEN_CONSUMER_NAME)
     await subscribe_open_consumer(ctx.js, open_consumer, consumer_name=OPEN_CONSUMER_NAME)
     ctx.health.mark_ready("open_consumer")
