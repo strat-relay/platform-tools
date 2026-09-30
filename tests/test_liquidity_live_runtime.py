@@ -101,6 +101,16 @@ class LiquidityLiveRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "disabled"):
                 run_once()
 
+    def test_redis_mode_does_not_require_a_bridge_url(self):
+        from liquidity_live_service import check_configuration
+        with patch.dict("os.environ", {
+            "LIQUIDITY_LIVE_RUNTIME_ENABLED": "true",
+            "MARKET_DATA_SOURCE": "REDIS",
+            "SIGNAL_CUTOFF_ID": "cutoff",
+            "SIGNAL_CUTOFF_UTC": "2026-09-29T00:00:00Z",
+        }, clear=True):
+            check_configuration()
+
     def test_ordinary_forged_snapshot_cannot_cross_live_boundary(self):
         evaluator = LiquidityLiveEvaluator(PARAMETER_SETS["liquidity-xau-base"], strategy=FakeStrategy())
         with self.assertRaises(PaperStateRejected):
