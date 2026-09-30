@@ -37,6 +37,8 @@ class FakeBridge:
         if self.down:
             raise ConnectionError("read bridge unreachable")
         symbol = args.get("symbol")
+        if tool == "mt5_terminal_info":
+            return {"connected": True}
         if tool == "mt5_symbol_info":
             return {"symbol": symbol, "tick_size": 0.00001, "digits": 5}
         if tool == "mt5_quote":
@@ -113,9 +115,13 @@ class CompletedBarTests(MarketDataCacheTest):
             self.collector.tick()
         self.assertFalse(self.store.state("EURUSDm")["healthy"])
         self.bridge.down = False
-        self.now["t"] = START + 3 * 3600 + 3
+        self.now["t"] = START + 3 * 3600 + 30   # past the bounded probe backoff
         result = self.collector.tick()
-        self.assertTrue(all(r["full"] and "does not reach" in r["reason"] for r in result["bars"]))
+        self.assertEqual(len(result["bars"]), 1)   # gradual recovery releases one snapshot first
+        self.assertTrue(result["bars"][0]["full"] and "does not reach" in result["bars"][0]["reason"])
+        for _ in range(len(self.SYMBOLS) + 1):
+            self.now["t"] += 1
+            self.collector.tick()
         for symbol in self.SYMBOLS:
             self.assert_parity(symbol)
 
