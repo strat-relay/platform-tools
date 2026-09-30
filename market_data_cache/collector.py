@@ -15,12 +15,17 @@ Failures never overwrite cached data; they update per-symbol state and collector
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import time
 from typing import Any, Callable
 
 from .store import TIMEFRAMES, TIMEFRAME_SECONDS, BarGap, MarketDataStore, merge_by_time, merge_completed, unexpected_missing_times
+from .session_calendar import classify_missing, gap_payload
+from .bridge_guard import (BridgeCircuitBreaker, BridgeCircuitOpen, BridgeRequestGate,
+                           classify_bridge_failure)
 
 M5_SECONDS = 300
 RECOVERY_STATES = frozenset({"HEALTHY", "STALE", "GAP_DETECTED", "BACKFILL_REQUIRED", "BACKFILLING", "REPLAYING", "BACKFILL_FAILED"})
@@ -50,13 +55,24 @@ class MarketDataCollector:
                  full_limit: int = 321, incremental_limit: int = 8, boundary_grace: float = 2.0,
                  retry_seconds: float = 5.0, max_retries: int = 3,
                  metadata_interval: float = 300.0, quote_interval: float = 2.0, max_quotes_per_pass: int = 10,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time,
+                 bridge_breaker: BridgeCircuitBreaker | None = None,
+                 bridge_max_inflight: int | None = None):
         self.store, self.read_tool = store, read_tool
         self.bar_symbols, self.metadata_symbols, self.quote_symbols = bar_symbols, metadata_symbols, quote_symbols
         self.full_limit, self.incremental_limit = full_limit, incremental_limit
         self.boundary_grace, self.retry_seconds, self.max_retries = boundary_grace, retry_seconds, max_retries
         self.metadata_interval, self.quote_interval, self.max_quotes_per_pass = metadata_interval, quote_interval, max_quotes_per_pass
         self.clock = clock
+        self.bridge_breaker = bridge_breaker or BridgeCircuitBreaker(
+            failure_threshold=int(os.getenv("MARKET_DATA_BRIDGE_CB_FAILURE_THRESHOLD", "3")),
+            initial_backoff=float(os.getenv("MARKET_DATA_BRIDGE_CB_INITIAL_BACKOFF_SECONDS", "5")),
+            max_backoff=float(os.getenv("MARKET_DATA_BRIDGE_CB_MAX_BACKOFF_SECONDS", "60")),
+            half_open_probes=int(os.getenv("MARKET_DATA_BRIDGE_CB_HALF_OPEN_PROBES", "1")), clock=clock)
+        self.bridge_gate = BridgeRequestGate(
+            read_tool, self.bridge_breaker,
+            max_inflight=bridge_max_inflight or int(os.getenv("MARKET_DATA_BRIDGE_MAX_INFLIGHT", "4")), clock=clock)
+        self._recovery_snapshot_budget = 0
         self.commands = 0                      # bridge commands issued (observability / tests)
         self._metadata_at: dict[str, float] = {}
         self._quote_at: dict[str, float] = {}
@@ -70,7 +86,11 @@ class MarketDataCollector:
         """Write md:health. Every write is a heartbeat: it is issued between bridge calls, so its age
         is bounded by one bridge call however long a (catch-up) pass takes."""
         now = self.clock()
-        self._health.update(changes, process_heartbeat_at=now, updated_at=now,
+        self._health.update(changes, **self.bridge_breaker.snapshot(),
+                            bridge_requests_coalesced_total=self.bridge_gate.requests_coalesced_total,
+                            bridge_inflight=self.bridge_gate.inflight_count,
+                            bridge_max_inflight=self.bridge_gate.max_inflight,
+                            process_heartbeat_at=now, updated_at=now,
                             bridge_commands_total=self.commands)
         started = self._health["pass_started_at"]
         self._health["current_pass_duration"] = now - started if self._health["in_pass"] and started else None
@@ -79,7 +99,20 @@ class MarketDataCollector:
     def _read(self, tool: str, arguments: dict[str, Any]) -> Any:
         self.commands += 1
         self._last_request = {"operation": tool, **arguments}
-        return self.read_tool(tool, arguments)
+        return self.bridge_gate.call(tool, arguments)
+
+    def _probe_bridge(self) -> bool:
+        started = time.perf_counter()
+        try:
+            self._read("mt5_terminal_info", {})
+            log.info("%s", json.dumps({"event": "bridge_health_probe", "success": True,
+                                        "latency_ms": (time.perf_counter() - started) * 1000}, sort_keys=True))
+            return True
+        except Exception as exc:
+            log.warning("%s", json.dumps({"event": "bridge_health_probe", "success": False,
+                                           "latency_ms": (time.perf_counter() - started) * 1000,
+                                           "error": str(exc)[:300]}, sort_keys=True))
+            return False
 
     def _failure_telemetry(self, symbol: str, state: dict[str, Any], exc: Exception) -> None:
         request = dict(self._last_request)
@@ -113,6 +146,9 @@ class MarketDataCollector:
     # ---- 1. completed bars ------------------------------------------------------------------
     def bars_due(self, symbol: str, now: float) -> bool:
         state = self.store.state(symbol)
+        retry_at = state.get("recovery_next_attempt_at")
+        if retry_at is not None and now < float(retry_at):
+            return False
         fetched_at = state.get("fetched_at")
         if fetched_at is None or state.get("needs_full"):
             return True
@@ -132,9 +168,26 @@ class MarketDataCollector:
             except BarGap as gap:
                 return self._fetch(symbol, now, full=True, previous=state, reason=str(gap))
         except Exception as exc:
+            global_failure = classify_bridge_failure(exc)
+            if global_failure or isinstance(exc, BridgeCircuitOpen):
+                state = self.store.state(symbol)
+                state.update(healthy=False, health_state="BRIDGE_UNAVAILABLE",
+                             last_attempt_at=now, last_error=f"{global_failure or 'BRIDGE_CIRCUIT_OPEN'}: {exc}"[:300])
+                self.store.set_state(symbol, state)
+                return {"symbol": symbol, "ok": False, "global_failure": True,
+                        "classification": global_failure or "BRIDGE_CIRCUIT_OPEN",
+                        "reason": str(exc), "error": str(exc)}
             # Cached bars are left exactly as they were; a gap that could not be refilled is
             # remembered so the next attempt is a full window.
-            failures = int(state.get("consecutive_failures", 0)) + 1
+            current = self.store.state(symbol)
+            failures = int(current.get("consecutive_failures", state.get("consecutive_failures", 0))) + 1
+            state = {**current, **state}
+            if isinstance(exc, BarGap):
+                retry_count = int(current.get("recovery_retry_count", 0)) + 1
+                backoff = min(300.0, 5.0 * (2 ** min(retry_count - 1, 6)))
+                state.update(recovery_retry_count=retry_count,
+                             recovery_next_attempt_at=now + backoff,
+                             recovery_last_error=str(exc)[:300])
             state.update(last_attempt_at=now, consecutive_failures=failures, healthy=False,
                          last_error=f"{type(exc).__name__}: {exc}"[:300],
                          needs_full=bool(state.get("needs_full")) or isinstance(exc, BarGap))
@@ -193,7 +246,9 @@ class MarketDataCollector:
                  "last_full_at": now if full else previous.get("last_full_at"),
                  "last_full_reason": reason or (previous.get("last_full_reason") if not full else "COLD_START"),
                  "depth": {tf: len(merged[tf]) for tf in TIMEFRAMES}, "recovery": recovery,
-                 "backfill_required": False}
+                 "backfill_required": False, "recovery_retry_count": 0,
+                 "recovery_next_attempt_at": None, "recovery_last_error": None,
+                 "recovery_fingerprint": None}
         self.store.set_state(symbol, state)
         previous_failures = int(previous.get("consecutive_failures", 0))
         if previous_failures:
@@ -221,13 +276,20 @@ class MarketDataCollector:
         start = int(start_override if start_override is not None else cached[-1]["time"] + step)
         end = int(fresh[-1]["time"]) + step
         expected = max(0, (end - start) // step)
+        source_watermark = int(fresh[-1]["time"])
+        fingerprint = hashlib.sha256(json.dumps({
+            "provider": "MT5", "provider_symbol": symbol, "timeframe": timeframe,
+            "gap_start": start, "gap_end": end, "source_watermark": source_watermark,
+        }, sort_keys=True).encode()).hexdigest()
+        recovery_state = {**previous, "recovery_fingerprint": fingerprint,
+                          "healthy": False, "health_state": "GAP_DETECTED",
+                          "backfill_required": True, "gap_start": start, "gap_end": end,
+                          "missing_candle_count": expected}
         self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "GAP_DETECTED",
                                        "backfill_required": True, "gap_start": start, "gap_end": end,
-                                       "missing_candle_count": expected})
-        self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "BACKFILL_REQUIRED",
-                                       "backfill_required": True, "gap_start": start, "gap_end": end,
-                                       "missing_candle_count": expected})
-        self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "BACKFILLING",
+                                       "missing_candle_count": expected, "recovery_fingerprint": fingerprint})
+        self.store.set_state(symbol, {**recovery_state, "health_state": "BACKFILL_REQUIRED"})
+        self.store.set_state(symbol, {**recovery_state, "health_state": "BACKFILLING",
                                        "backfill_required": True, "gap_start": start, "gap_end": end,
                                        "missing_candle_count": expected, "backfill_cursor": start})
         recovered: list[dict[str, Any]] = []
@@ -240,6 +302,13 @@ class MarketDataCollector:
                                                           "start_timestamp": cursor, "end_timestamp": page_end,
                                                           "page_size": 500, "completed_only": True})
             except Exception as exc:
+                log.error("%s", json.dumps({"event": "market_data_gap_detected",
+                                             "provider_symbol": symbol, "timeframe": timeframe,
+                                             "gap_start": start, "gap_end": end,
+                                             "classification": "SOURCE_UNAVAILABLE",
+                                             "severity": "ERROR", "session_source": "MT5_RESEARCH_SESSION_CALENDAR",
+                                             "source_watermark": source_watermark,
+                                             "error": str(exc)[:300]}, sort_keys=True, default=str))
                 # A bounded full snapshot remains a safe compatibility fallback only when it
                 # overlaps the persisted series; it cannot hide a gap larger than that window.
                 if start_override is None and int(fresh[0]["time"]) <= int(cached[-1]["time"]):
@@ -257,16 +326,31 @@ class MarketDataCollector:
             rows = sorted((dict(row) for row in rows if isinstance(row, dict)), key=lambda row: int(row["time"]))
             recovered.extend(rows)
             cursor = page_end
-            self.store.set_state(symbol, {**previous, "healthy": False, "health_state": "BACKFILLING",
+            self.store.set_state(symbol, {**recovery_state, "health_state": "BACKFILLING",
                                            "backfill_required": True, "gap_start": start, "gap_end": end,
-                                           "missing_candle_count": expected, "backfill_cursor": cursor})
+                                           "missing_candle_count": expected, "backfill_cursor": cursor,
+                                           "recovery_fingerprint": fingerprint})
         combined = merge_by_time(cached, recovered, fresh)
-        holes = unexpected_missing_times(combined, timeframe)
+        expected_gaps, true_gaps = classify_missing(combined, timeframe, provider="MT5", provider_symbol=symbol)
+        if expected_gaps:
+            log.info("%s", json.dumps({"event": "market_data_gap_detected", "provider_symbol": symbol,
+                                       "timeframe": timeframe, "classification": "EXPECTED_SESSION_CLOSURE",
+                                       "severity": "INFO", "session_source": "MT5_RESEARCH_SESSION_CALENDAR",
+                                       "gaps": [gap_payload(gap, timeframe) for gap in expected_gaps]}, sort_keys=True))
+        if true_gaps:
+            log.error("%s", json.dumps({"event": "market_data_gap_detected", "provider_symbol": symbol,
+                                        "timeframe": timeframe, "classification": "TRUE_BAR_GAP",
+                                        "severity": "ERROR", "session_source": "MT5_RESEARCH_SESSION_CALENDAR",
+                                        "gaps": [gap_payload(gap, timeframe) for gap in true_gaps]}, sort_keys=True))
+        holes = [gap.start for gap in true_gaps]
         bounded_holes = [t for t in holes if start <= t < int(fresh[-1]["time"])]
         if int(combined[-1]["time"]) < int(fresh[-1]["time"]) or bounded_holes:
             raise BarGap(f"{timeframe} range recovery left {len(bounded_holes)} internal holes")
         return combined, {"status": "RECOVERED", "start": start, "end": end,
-                          "requested": expected, "received": len(recovered), "holes": bounded_holes}
+                          "requested": expected, "received": len(recovered), "holes": bounded_holes,
+                          "continuity_status": "HEALTHY", "expected_session_closures":
+                          [gap_payload(gap, timeframe) for gap in expected_gaps],
+                          "recovery_fingerprint": fingerprint}
 
     # ---- 2. metadata -------------------------------------------------------------------------
     def refresh_metadata(self, now: float) -> list[str]:
@@ -306,7 +390,21 @@ class MarketDataCollector:
     def tick(self) -> dict[str, Any]:
         """One pass: due bar snapshots first (strategy inputs), then quotes, then metadata."""
         now = self.clock()
+        if self.bridge_breaker.state != BridgeCircuitBreaker.CLOSED:
+            if not self.bridge_breaker.probe_due():
+                self._publish(in_pass=False, status="degraded", bridge_health_state="BRIDGE_UNAVAILABLE",
+                              unhealthy_symbols=sorted(s for s in self.bar_symbols()
+                                                       if not self.store.state(s).get("healthy")))
+                return {"bars": [], "quotes": [], "metadata": [], "failing": [], "bridge_unavailable": True}
+            if not self._probe_bridge():
+                self._publish(in_pass=False, status="degraded", bridge_health_state="BRIDGE_UNAVAILABLE",
+                              unhealthy_symbols=sorted(s for s in self.bar_symbols()
+                                                       if not self.store.state(s).get("healthy")))
+                return {"bars": [], "quotes": [], "metadata": [], "failing": [], "bridge_unavailable": True}
+            self._recovery_snapshot_budget = 1
         due = [s for s in self.bar_symbols() if self.bars_due(s, now)]
+        if self._recovery_snapshot_budget:
+            due = due[:self._recovery_snapshot_budget]
         self._publish(pass_started_at=now, in_pass=True, current_symbol=None,
                       symbols_completed_in_pass=0, symbols_total_in_pass=len(due))
         results = []
@@ -314,14 +412,21 @@ class MarketDataCollector:
             self._publish(current_symbol=symbol)
             result = self.fetch_bars(symbol)
             results.append(result)
+            if self.bridge_breaker.state != BridgeCircuitBreaker.CLOSED:
+                break
             progress = {"last_progress_at": self.clock()} if result["ok"] else {}
             self._publish(current_symbol=None, symbols_completed_in_pass=index + 1, **progress)
-        quotes = self.refresh_quotes(now)
-        metadata = self.refresh_metadata(now)
+        if self.bridge_breaker.state != BridgeCircuitBreaker.CLOSED:
+            quotes, metadata = [], []
+        else:
+            quotes = self.refresh_quotes(now)
+            metadata = self.refresh_metadata(now)
         failing = [r["symbol"] for r in results if not r["ok"]]
         states = {s: self.store.state(s) for s in self.bar_symbols()}
         unhealthy = sorted(s for s, st in states.items() if not st.get("healthy"))
         progress = {"last_progress_at": self.clock()} if quotes or metadata else {}
+        self._recovery_snapshot_budget = max(0, self._recovery_snapshot_budget - 1)
         self._publish(in_pass=False, current_symbol=None, last_completed_pass_at=self.clock(),
-                      status="healthy" if not unhealthy else "degraded", unhealthy_symbols=unhealthy, **progress)
+                      status="healthy" if not unhealthy and self.bridge_breaker.state == BridgeCircuitBreaker.CLOSED else "degraded",
+                      unhealthy_symbols=unhealthy, **progress)
         return {"bars": results, "quotes": quotes, "metadata": metadata, "failing": failing}

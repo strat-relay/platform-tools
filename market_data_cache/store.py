@@ -21,7 +21,6 @@ closed on missing or stale data instead of reading the bridge themselves.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 TIMEFRAMES = ("M5", "M15", "H1", "H4")
@@ -95,23 +94,14 @@ def unexpected_missing_times(rows: list[dict[str, Any]], timeframe: str) -> list
     """Filter normal exchange/session closures from bounded continuity holes.
 
     The MT5 source legitimately omits closed-market candles (including the weekend and the
-    recurring XAU maintenance window around 21:00 UTC).  Recovery must target a hole surrounded
+    recurring MT5 rollover window around 23:00 UTC).  Recovery must target a hole surrounded
     by live-session candles, not manufacture bars for a closed market.
     """
-    missing = internal_missing_times(rows, timeframe)
-    if not missing or timeframe not in TIMEFRAME_SECONDS:
-        return missing
-    unexpected = []
-    for timestamp in missing:
-        dt = datetime.fromtimestamp(timestamp, timezone.utc)
-        if dt.weekday() in (5, 6):
-            continue
-        # MT5 FX symbols also omit the 23:00-23:45 UTC daily rollover window;
-        # it is a normal session closure, not a recoverable intraday gap.
-        if dt.hour in (20, 21, 22, 23):
-            continue
-        unexpected.append(timestamp)
-    return unexpected
+    if timeframe not in TIMEFRAME_SECONDS:
+        return internal_missing_times(rows, timeframe)
+    from .session_calendar import classify_missing
+    _, true_gaps = classify_missing(rows, timeframe)
+    return [gap.start for gap in true_gaps]
 
 
 class MarketDataStore:

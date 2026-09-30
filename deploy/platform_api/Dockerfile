@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir --disable-pip-version-check \
 
 COPY postgres ./postgres
 COPY platform_api ./platform_api
+# Signals expose the theoretical-outcome disclaimer at import time.
+COPY outcome_attribution.py ./outcome_attribution.py
 # Redis-first broker reads (BROKER_VIEW_REDIS_URL); populated by broker_view.service.
 COPY broker_view ./broker_view
 # PlatformControlApi exposes Trade Manager mode as part of the unified API
