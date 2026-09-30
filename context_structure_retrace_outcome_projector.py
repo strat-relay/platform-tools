@@ -2,7 +2,8 @@
 
 This module is called only after the runner has finished a poll and checkpointed
 its state. It does not calculate outcomes and is deliberately not imported by
-the frozen bar-decision path.
+the frozen bar-decision path. The runner is authoritative for every matched
+signal: the database row is a projection, not an operator-owned terminal record.
 """
 from __future__ import annotations
 
@@ -140,12 +141,14 @@ def project_entry_only_outcomes(
                            realized_r = EXCLUDED.realized_r,
                            exit_timestamp = EXCLUDED.exit_timestamp,
                            updated_at = %s
-                       WHERE strategy.entry_signal_outcomes.status = 'OPEN'
-                         AND (strategy.entry_signal_outcomes.status,
+                       WHERE (strategy.entry_signal_outcomes.status,
                               strategy.entry_signal_outcomes.realized_r,
-                              strategy.entry_signal_outcomes.exit_timestamp)
+                              strategy.entry_signal_outcomes.exit_timestamp,
+                              strategy.entry_signal_outcomes.outcome_type,
+                              strategy.entry_signal_outcomes.source)
                              IS DISTINCT FROM
-                             (EXCLUDED.status, EXCLUDED.realized_r, EXCLUDED.exit_timestamp)
+                             (EXCLUDED.status, EXCLUDED.realized_r, EXCLUDED.exit_timestamp,
+                              EXCLUDED.outcome_type, EXCLUDED.source)
                        RETURNING signal_id""",
                     (signal_id, OUTCOME_TYPE, status, realized_r, exit_at, OUTCOME_SOURCE, now()),
                 )
@@ -159,14 +162,6 @@ def project_entry_only_outcomes(
                         (signal_id,),
                     )
                     stored = cur.fetchone()
-                    # The database is authoritative for terminal outcomes. A runner
-                    # checkpoint can lag after an operator invalidation and still
-                    # report OPEN; preserve the terminal outcome instead of aborting
-                    # every subsequent projection cycle.
-                    if stored is not None and stored[1] != "OPEN" and status == "OPEN":
-                        counts["unchanged"] += 1
-                        counts["matched"] += 1
-                        continue
                     wanted = (OUTCOME_TYPE, status, realized_r, exit_at, OUTCOME_SOURCE)
                     same_realized_r = (
                         stored is not None
@@ -185,7 +180,7 @@ def project_entry_only_outcomes(
                                and stored[1] == wanted[1] and same_realized_r
                                and same_exit_time and stored[4] == wanted[4])
                     if not matches:
-                        raise OutcomeProjectionError(f"immutable terminal outcome conflict for {signal_id}")
+                        raise OutcomeProjectionError(f"outcome projection did not converge for {signal_id}")
                     counts["unchanged"] += 1
                 counts["matched"] += 1
         conn.commit()

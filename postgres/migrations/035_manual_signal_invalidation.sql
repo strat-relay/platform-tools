@@ -1,9 +1,8 @@
 -- Operator invalidation of stale strategy signals (additive).
 --
 -- An operator may mark a signal's canonical outcome INVALIDATED (no realized R, an exit time,
--- excluded from win rate/expectancy). The strategy outcome writers only ever update OPEN rows, so
--- an INVALIDATED outcome is terminal and is never overwritten by a runner. Each invalidation is
--- recorded here, append-only, with who, when, why and the previous status.
+-- excluded from win rate/expectancy). The override remains an append-only audit record; the
+-- Context runner is authoritative for the projected outcome row and may reconcile it later.
 CREATE TABLE IF NOT EXISTS strategy.entry_signal_outcome_override (
     override_id text PRIMARY KEY,
     signal_id text NOT NULL REFERENCES strategy.entry_signals(signal_id),
