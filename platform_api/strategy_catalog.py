@@ -111,10 +111,14 @@ LEFT JOIN LATERAL (
 ORDER BY i.strategy_id, i.instance_id"""
 
 # Runtimes that read platform.strategy_instance.enabled before producing new signals. ONLINE/OFFLINE
-# is only offered where it is enforced; elsewhere the control is refused rather than faked.
+# remains instance-scoped and is only offered where that child-runtime gate is enforced.
 LIFECYCLE_ENFORCEMENT: dict[str, str] = {
     "LIQUIDITY_DISPLACEMENT_SCALP_V1": "Signal orchestrator and Liquidity live runtime evaluate only ONLINE instances",
 }
+# Parent strategy lifecycle is enforced centrally by signal_orchestrator: it refreshes
+# platform.strategy_definition.enabled every cycle and loads no adapter for a suspended parent.
+# This applies to every strategy, including Context, regardless of child-instance support.
+STRATEGY_LIFECYCLE_ENFORCEMENT = "Signal orchestrator refreshes parent strategy enablement every cycle"
 LIFECYCLE_NOT_ENFORCED_REASON = ("The runtime for this strategy does not read instance enablement yet; "
                                  "ONLINE/OFFLINE would not change what it evaluates")
 
@@ -216,6 +220,7 @@ def _summary(row: dict[str, Any]) -> dict[str, Any]:
         "strategy_id": row["strategy_id"], "strategy_version": row["strategy_version"],
         "display_name": row["display_name"], "description": row["description"], "adapter": row["adapter"],
         "enabled": bool(row["enabled"]), "routes": row["routes"] or {},
+        "lifecycle_control": {"enforced": True, "detail": STRATEGY_LIFECYCLE_ENFORCEMENT},
         "default_instance_id": row["default_instance_id"], "revision": int(row["revision"]),
         "created_at": row["created_at"], "updated_at": row["updated_at"],
         # Active instrument membership of the default instance; falls back to nothing, never to a
@@ -653,14 +658,10 @@ class StrategyCatalogRepository:
         if state not in ("ACTIVE", "SUSPENDED"):
             raise ValueError("state must be ACTIVE or SUSPENDED")
 
-        def precheck() -> None:
-            if strategy_id not in LIFECYCLE_ENFORCEMENT:
-                raise LifecycleNotEnforced(LIFECYCLE_NOT_ENFORCED_REASON)
-
         def change(cur: Any, _row: Any) -> None:
             cur.execute("UPDATE platform.strategy_definition SET enabled = %s WHERE strategy_id = %s",
                         (state == "ACTIVE", strategy_id))
-        return self._write_definition(strategy_id, expected_revision, updated_by, change, precheck)
+        return self._write_definition(strategy_id, expected_revision, updated_by, change)
 
     def set_strategy_metadata(self, strategy_id: str, *, display_name: Any, description: Any,
                               expected_revision: Any, updated_by: str) -> dict[str, Any]:
@@ -719,4 +720,3 @@ class StrategyCatalogRepository:
         except Exception as exc:
             raise CanonicalSourceUnavailable(f"canonical PostgreSQL manifest write unavailable: {exc}") from exc
         return {**self.list_strategy(strategy_id), "publish_report": report}
-

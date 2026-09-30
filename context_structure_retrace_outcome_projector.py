@@ -18,7 +18,7 @@ OUTCOME_TYPE = "ENTRY_ONLY"
 OUTCOME_SOURCE = STRATEGY_ID
 METADATA_KEY = "context.entry_only_outcome_cutoff"
 OUTCOME_SCHEMA_VERSION = "015"
-ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED"}
+ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED", "INVALIDATED"}
 
 
 class OutcomeProjectionError(RuntimeError):
@@ -126,8 +126,10 @@ def project_entry_only_outcomes(
                 exit_at = _exit_timestamp(position.get("exit_timestamp"))
                 if status == "OPEN" and (realized_r is not None or exit_at is not None):
                     raise OutcomeProjectionError(f"OPEN position {signal_id} unexpectedly has exit data")
-                if status != "OPEN" and (realized_r is None or exit_at is None):
+                if status not in {"OPEN", "INVALIDATED"} and (realized_r is None or exit_at is None):
                     raise OutcomeProjectionError(f"closed position {signal_id} is missing exit data")
+                if status == "INVALIDATED" and exit_at is None:
+                    raise OutcomeProjectionError(f"invalidated position {signal_id} is missing exit data")
 
                 cur.execute(
                     """INSERT INTO strategy.entry_signal_outcomes
