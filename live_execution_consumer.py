@@ -37,6 +37,8 @@ from platform_runtime import require_trading_platform_runtime, trading_platform_
 from contracts.mt5_bridge.canonical_request import (canonical_request_fingerprint,
                                                      canonical_request_text,
                                                      wire_request as _wire_request)
+from execution_v2.pricing import (ExecutionPricingError, broker_protection_levels,
+                                  REFERENCE_PRICE_SIDE)
 
 ROOT = Path(__file__).resolve().parent
 PLATFORM_RUNTIME = trading_platform_runtime_dir(root=ROOT)
@@ -831,7 +833,14 @@ def process_intents(store: ExecutionStore, cfg: dict[str, Any], adapter=None) ->
                                     "reference_entry_price": intent["strategy_entry_price"],
                                     "execution_price": final_sized["execution_price"],
                                     "final_sizing": final_sized})
-                    candidate = market_execution_candidate(intent, final_quote, final_sized["rounded_volume"])
+                    candidate = market_execution_candidate(intent, final_quote, final_sized["rounded_volume"],
+                                                           final_metadata)
+                    details.update({"canonical_stop_price": candidate["canonical_stop_price"],
+                                    "canonical_target_price": candidate["canonical_target_price"],
+                                    "broker_stop_price": candidate["broker_stop_price"],
+                                    "broker_target_price": candidate["broker_target_price"],
+                                    "reference_price_side": candidate["reference_price_side"],
+                                    "execution_pricing": candidate["execution_pricing"]})
                     side = candidate["side"]
                     canonical_request = canonical_market_request(candidate, final_metadata)
                     canonical_text = canonical_request_text(canonical_request)
@@ -891,6 +900,11 @@ def process_intents(store: ExecutionStore, cfg: dict[str, Any], adapter=None) ->
                                                  "slippage_from_reference": ((broker_result.get("price") - intent["strategy_entry_price"]) if broker_result.get("price") is not None else None),
                                                  "slippage_from_request": ((broker_result.get("price") - canonical_request["price"]) if broker_result.get("price") is not None else None),
                                                  "SL": intent["strategy_stop_price"], "TP": intent["strategy_target_price"],
+                                                 "canonical_stop_price": candidate["canonical_stop_price"],
+                                                 "canonical_target_price": candidate["canonical_target_price"],
+                                                 "broker_stop_price": candidate["broker_stop_price"],
+                                                 "broker_target_price": candidate["broker_target_price"],
+                                                 "execution_pricing": candidate["execution_pricing"],
                                                  "broker_result": broker_result}, sort_keys=True, default=str) + "\n")
                         decision, reason = ("REAL_SUBMITTED", "REAL_ORDER_SUBMITTED") if cfg.get("mode") == "REAL_EXECUTION" else ("DEMO_SUBMITTED", "DEMO_ORDER_SUBMITTED")
                 except Exception as exc:
@@ -1376,8 +1390,8 @@ def canonical_market_request(candidate: dict[str, Any], metadata: dict[str, Any]
         "symbol": candidate["symbol"],
         "volume": float(candidate["volume"]),
         "price": float(candidate["ask"] if side == "BUY" else candidate["bid"]),
-        "sl": float(candidate["stop"]),
-        "tp": float(candidate["target"]),
+        "sl": float(candidate.get("broker_stop_price", candidate["stop"])),
+        "tp": float(candidate.get("broker_target_price", candidate["target"])),
         "deviation": 50,
         "type": 0 if side == "BUY" else 1,
         "type_filling": filling,
@@ -1388,7 +1402,8 @@ def canonical_market_request(candidate: dict[str, Any], metadata: dict[str, Any]
     return request
 
 
-def market_execution_candidate(intent: dict[str, Any], quote: dict[str, Any], volume: float) -> dict[str, Any]:
+def market_execution_candidate(intent: dict[str, Any], quote: dict[str, Any], volume: float,
+                               metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build the MARKET request candidate from the current executable quote.
 
     ``strategy_entry_price`` is retained only as the paper/reference entry.
@@ -1396,14 +1411,34 @@ def market_execution_candidate(intent: dict[str, Any], quote: dict[str, Any], vo
     side of the fresh quote.
     """
     side = "BUY" if intent["direction"] == "LONG" else "SELL"
+    canonical_stop = float(intent["strategy_stop_price"])
+    canonical_target = float(intent["strategy_target_price"])
+    pricing = None
+    broker_stop, broker_target = canonical_stop, canonical_target
+    if metadata is not None:
+        try:
+            protection = broker_protection_levels(
+                direction=intent["direction"], canonical_stop_price=canonical_stop,
+                canonical_target_price=canonical_target, broker_symbol=intent["broker_symbol"],
+                bid=float(quote["bid"]), ask=float(quote["ask"]), metadata=metadata)
+        except ExecutionPricingError:
+            raise
+        broker_stop, broker_target = protection.broker_stop_price, protection.broker_target_price
+        pricing = protection.to_dict()
     return {
         "symbol": intent["broker_symbol"],
         "side": side,
         "volume": float(volume),
         "bid": float(quote["bid"]),
         "ask": float(quote["ask"]),
-        "stop": float(intent["strategy_stop_price"]),
-        "target": float(intent["strategy_target_price"]),
+        "stop": canonical_stop,
+        "target": canonical_target,
+        "canonical_stop_price": canonical_stop,
+        "canonical_target_price": canonical_target,
+        "broker_stop_price": broker_stop,
+        "broker_target_price": broker_target,
+        "reference_price_side": REFERENCE_PRICE_SIDE,
+        "execution_pricing": pricing,
         "reference_entry_price": float(intent["strategy_entry_price"]),
         "comment": f"CTXV1:{intent['execution_intent_id'][:24]}",
     }
