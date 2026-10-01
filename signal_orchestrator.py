@@ -51,7 +51,7 @@ LIVE_OUTPUT_VERSION = "SIGNAL_ORCHESTRATOR_LIVE_OUTPUT_V1"
 SCHEMA = "signal-orchestration-v1"
 # Real account binding is deployment configuration, never source data.
 REAL_CONTEXT = os.environ.get("REAL_ACCOUNT_CONTEXT")
-EXECUTION_ENDPOINT = "http://127.0.0.1:22348/mcp"
+EXECUTION_ENDPOINT = "http://10.10.10.100:22348/mcp"
 
 
 def now() -> str:

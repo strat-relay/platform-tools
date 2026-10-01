@@ -70,7 +70,7 @@ class MigrationChainTests(unittest.TestCase):
             with db.connect() as conn:
                 applied = apply_migrations(conn)
             numbers = [name[:3] for name in applied]
-            self.assertEqual(numbers[-6:], ["024", "025", "026", "027", "028", "029"])
+            self.assertEqual(numbers[-6:], ["030", "031", "032", "033", "034", "035"])
             self.assertEqual(len(numbers), len(set(numbers)))
         finally:
             db.drop()
@@ -93,18 +93,20 @@ class MigrationChainTests(unittest.TestCase):
                                     or "trade_manager_mode" in str(raised.exception))
             with db.connect() as conn:
                 upgraded = apply_migrations(conn)
-                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026", "027", "028", "029"])
+                self.assertEqual([name[:3] for name in upgraded], ["024", "025", "026", "027", "028", "029",
+                                                                    "030", "031", "032", "033", "034", "035"])
                 self.assertEqual(current_mode(conn), "SHADOW")                     # 024 seed
                 with conn.cursor() as cur:
                     cur.execute("""SELECT canonical_instrument FROM strategy.instrument_membership
                                   WHERE strategy_instance_id='phase6' AND state='ACTIVE' ORDER BY 1""")
-                    self.assertEqual([r[0] for r in cur.fetchall()], ["BTCUSD", "EURUSD", "USDJPY", "XAUUSD"])  # 025 seed
+                    self.assertEqual([r[0] for r in cur.fetchall()], ["BTCUSD", "ETHBTC", "EURUSD", "USDJPY", "XAUUSD"])  # 025/035 seed
                     cur.execute("SELECT to_regclass('trade_management.managed_trade_lifecycle_event')")
                     self.assertIsNotNone(cur.fetchone()[0])                         # 026
                     cur.execute("""SELECT canonical_instrument, provider_symbol FROM platform.instrument_provider_mapping
                                   WHERE provider='MT5' AND state='ACTIVE' ORDER BY 1""")
-                    self.assertEqual(cur.fetchall(), [("BTCUSD", "BTCUSDm"), ("EURUSD", "EURUSDm"),
-                                                      ("USDJPY", "USDJPYm"), ("XAUUSD", "XAUUSDm")])  # 027 seed
+                    self.assertEqual(cur.fetchall(), [("BTCUSD", "BTCUSDm"), ("ETHBTC", "ETHBTCm"),
+                                                      ("EURUSD", "EURUSDm"), ("USDJPY", "USDJPYm"),
+                                                      ("XAUUSD", "XAUUSDm")])  # 027/035 seed
                 self.assertEqual(apply_migrations(conn), [])                        # idempotent
         finally:
             db.drop()

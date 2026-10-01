@@ -92,7 +92,7 @@ class StrategyPageModelTests(unittest.TestCase):
         self.assertAlmostEqual(out["win_rate"], 0.6)
         self.assertAlmostEqual(out["realized_r_total"], 60 * 0.5 - 40)
         self.assertAlmostEqual(out["expectancy_r"], (60 * 0.5 - 40) / 100)
-        self.assertEqual(row["symbols"], ["BTCUSD", "EURUSD", "USDJPY", "XAUUSD"])   # 025 seeded membership
+        self.assertEqual(row["symbols"], ["BTCUSD", "ETHBTC", "EURUSD", "USDJPY", "XAUUSD"])   # 025/035 seeded membership
         self.assertEqual(row["last_event_at"], T0 + timedelta(hours=129, minutes=5))
         self.assertEqual(row["stats_scope"], "FULL_CANONICAL_HISTORY")
 

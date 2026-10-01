@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": "orchestration-platform-v1",
     "execution_mode": "SHADOW",
-    "mcp_url": "http://127.0.0.1:22347/mcp",
+    "mcp_url": "http://10.10.10.100:22347/mcp",
     "sizing_scenarios": [0.0025, 0.005, 0.01, 0.02],
     "accounts": [{"account_id": "exness-shadow-1", "broker": "Exness", "broker_environment": "DEMO",
                    "broker_account_reference": "REDACTED", "currency": "USD", "enabled": True,
