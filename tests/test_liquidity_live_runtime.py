@@ -122,7 +122,19 @@ class LiquidityLiveRuntimeTests(unittest.TestCase):
         query, params = conn.recording_cursor.calls[0]
         self.assertIn("metadata", query)
         self.assertIn("%s", query)
-        self.assertEqual(params[2], '{"broker_writes": 0, "source": "LIVE_MARKET"}')
+        self.assertEqual(params[1], "RUNNING")
+        self.assertEqual(params[2], '{"broker_writes": 0, "source": "LIVE_MARKET", "health_status": "RUNNING"}')
+
+    def test_degraded_health_does_not_violate_runtime_lifecycle_constraint(self):
+        conn = RecordingConnection()
+        runtime = LiquidityLiveRuntime(conn=conn, snapshot_reader=lambda *_args: None,
+                                       publisher=object())
+
+        runtime.heartbeat(status="DEGRADED")
+
+        _query, params = conn.recording_cursor.calls[0]
+        self.assertEqual(params[1], "RUNNING")
+        self.assertEqual(json.loads(params[2])["health_status"], "DEGRADED")
 
     def test_setup_state_serializes_payload_for_jsonb(self):
         conn = RecordingConnection()
