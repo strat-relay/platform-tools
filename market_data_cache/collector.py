@@ -33,7 +33,9 @@ log = logging.getLogger("market_data_cache")
 
 
 class SnapshotUnhealthy(RuntimeError):
-    pass
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.details = details or {}
 
 
 def _completed(rates: Any) -> list[dict[str, Any]]:
@@ -141,6 +143,9 @@ class MarketDataCollector:
             "cache_age_seconds": (now - float(fetched_at)) if fetched_at is not None else None,
             "consecutive_symbol_failures": int(state.get("consecutive_failures", 0)),
         }
+        if isinstance(exc, SnapshotUnhealthy) and exc.details:
+            payload["snapshot_error"] = exc.details.get("error")
+            payload["snapshot_components"] = exc.details.get("components")
         log.error("%s", json.dumps(payload, sort_keys=True, default=str))
 
     # ---- 1. completed bars ------------------------------------------------------------------
@@ -165,6 +170,16 @@ class MarketDataCollector:
         try:
             try:
                 return self._fetch(symbol, now, full=full, previous=state)
+            except SnapshotUnhealthy:
+                # A cold start still requires the atomic full window. Once a
+                # cache exists, however, a large snapshot can fail transiently
+                # while a small overlapping snapshot succeeds. Use that small
+                # window to drive bounded range recovery; never replace a
+                # cached series with the shallow response itself.
+                if full and state.get("fetched_at") is not None:
+                    return self._fetch(symbol, now, full=False, previous=state,
+                                       reason="FULL_SNAPSHOT_UNHEALTHY_FALLBACK")
+                raise
             except BarGap as gap:
                 return self._fetch(symbol, now, full=True, previous=state, reason=str(gap))
         except Exception as exc:
@@ -201,10 +216,10 @@ class MarketDataCollector:
         limit = self.full_limit if full else self.incremental_limit
         snapshot = self._read("mt5_symbol_snapshot", {"symbol": symbol, "timeframes": list(TIMEFRAMES), "limit": limit})
         if not isinstance(snapshot, dict) or not snapshot.get("healthy") or snapshot.get("source_read_health") is not True:
-            raise SnapshotUnhealthy("symbol snapshot unhealthy")
+            raise SnapshotUnhealthy("symbol snapshot unhealthy", snapshot if isinstance(snapshot, dict) else None)
         rates, info, quote = snapshot.get("rates") or {}, snapshot.get("symbol_info"), snapshot.get("quote")
         if not isinstance(info, dict) or not isinstance(quote, dict) or any(tf not in rates for tf in TIMEFRAMES):
-            raise SnapshotUnhealthy("symbol snapshot missing required component")
+            raise SnapshotUnhealthy("symbol snapshot missing required component", snapshot)
         merged, added = {}, {}
         recovery = {}
         for tf in TIMEFRAMES:
