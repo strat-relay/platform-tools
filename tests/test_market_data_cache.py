@@ -31,6 +31,7 @@ class FakeBridge:
 
     def __init__(self, clock):
         self.clock, self.calls, self.revised, self.down, self.frozen_forming = clock, [], {}, False, None
+        self.reject_full_snapshot = False
 
     def __call__(self, tool, args):
         self.calls.append((tool, args.get("symbol"), args.get("limit")))
@@ -44,6 +45,10 @@ class FakeBridge:
         if tool == "mt5_quote":
             return {"symbol": symbol, "bid": 1.1, "ask": 1.1002, "time": int(self.clock())}
         assert tool == "mt5_symbol_snapshot", tool
+        if self.reject_full_snapshot and args["limit"] == 321:
+            return {"healthy": False, "source_read_health": False,
+                    "error": "temporary snapshot window failure",
+                    "components": {"quote": True, "M5": False, "M15": True, "H1": True, "H4": True}}
         now = int(self.frozen_forming or self.clock())
         rates = {}
         for tf in args["timeframes"]:
@@ -156,6 +161,20 @@ class CompletedBarTests(MarketDataCacheTest):
         self.assertEqual(self.store.bars("EURUSDm", "M5"), before)
         self.assertEqual(self.store.health()["status"], "degraded")
         self.read("EURUSDm")                                  # 300 s old: still within 330 s
+
+    def test_unhealthy_full_snapshot_falls_back_to_recovery_window(self):
+        self.collector.tick()
+        self.now["t"] = START + 303
+        for symbol in self.SYMBOLS:
+            state = self.store.state(symbol)
+            self.store.set_state(symbol, {**state, "needs_full": True})
+        self.bridge.reject_full_snapshot = True
+        result = {r["symbol"]: r for r in self.collector.tick()["bars"]}
+        self.assertTrue(result["EURUSDm"]["ok"])
+        self.assertEqual(result["EURUSDm"]["reason"], "FULL_SNAPSHOT_UNHEALTHY_FALLBACK")
+        self.assertTrue(any(c[0] == "mt5_symbol_snapshot" and c[2] == 8
+                            for c in self.bridge.calls[3:]))
+        self.assertGreaterEqual(len(self.store.bars("EURUSDm", "M5")), 300)
 
     def test_stale_missing_or_shallow_cache_fails_closed(self):
         from market_data_cache.reader import MarketDataUnavailable
