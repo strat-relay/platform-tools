@@ -122,6 +122,7 @@ class LiquidityLiveRuntime:
 
     def heartbeat(self, *, status: str = "RUNNING") -> None:
         """Persist workload liveness in the canonical runtime registry."""
+        lifecycle_status = status if status in {"STARTING", "RUNNING", "STOPPING", "STOPPED", "FAILED"} else "RUNNING"
         audit("runner_heartbeat", runner="liquidity-live", status=status,
               runtime_instance_id=self.runtime_instance_id, broker_writes=0)
         with self.conn.cursor() as cur:
@@ -131,8 +132,9 @@ class LiquidityLiveRuntime:
                     ON CONFLICT (instance_id) DO UPDATE SET
                     component = EXCLUDED.component, status = EXCLUDED.status,
                     last_heartbeat_at = now(), metadata = EXCLUDED.metadata,
-                    stopped_at = NULL""", (self.runtime_instance_id, status,
-                                             json.dumps({"broker_writes": 0, "source": "LIVE_MARKET"})))
+                    stopped_at = NULL""", (self.runtime_instance_id, lifecycle_status,
+                                             json.dumps({"broker_writes": 0, "source": "LIVE_MARKET",
+                                                         "health_status": status})))
 
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
