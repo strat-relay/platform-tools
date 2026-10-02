@@ -901,8 +901,28 @@ class PlatformControlApi:
                                        status="INACTIVE" if self._authority(self.environ)["execution_authority_mode"] == "DISABLED" else "ACTIVE")
             if path == "/api/v1/connections":
                 self._database(include_event_counts=False)   # reachability only
-                return 200, self._body({"data_channel": {"status": "UNAVAILABLE", "source": "mt5_bridge_read_only"},
-                                        "execution_channel": {"status": "INACTIVE", "reason": "execution authority disabled"}}, source="platform_and_bridge", status="DEGRADED")
+                execution = self._execution_state()
+                exec_mode = execution["execution_authority_mode"]
+                # Execution channel: port 22348 (execution_bridge.py) — status from runtime.
+                exec_bridge = execution.get("execution_bridge") or {}
+                exec_bridge_status = exec_bridge.get("status", "UNKNOWN")
+                if exec_mode == "ENABLED":
+                    exec_channel = {"status": exec_bridge_status, "source": "execution_bridge",
+                                    "mode": exec_mode}
+                else:
+                    exec_channel = {"status": "INACTIVE", "reason": "execution authority disabled",
+                                    "mode": exec_mode}
+                # Data channel: port 22347 (bridge.py) — endpoint lives in bridge_reader.
+                # RedisFirstBridgeReader wraps the raw ReadOnlyBridgeReader as .fallback.
+                raw_reader = getattr(self.bridge_reader, "fallback", self.bridge_reader)
+                data_endpoint = getattr(raw_reader, "endpoint", None)
+                data_status = "UP" if data_endpoint else "UNAVAILABLE"
+                data_channel = {"status": data_status, "source": "mt5_bridge_read_only",
+                                "endpoint": data_endpoint}
+                healthy = {"UP", "HEALTHY", "ACTIVE"}
+                overall = "ACTIVE" if data_status in healthy and exec_bridge_status in healthy else "DEGRADED"
+                return 200, self._body({"data_channel": data_channel, "execution_channel": exec_channel},
+                                       source="platform_and_bridge", status=overall)
             if path == "/api/v1/trade-manager/summary":
                 return 200, self._body(self.repository.trade_manager_summary(), source="canonical_postgres")
             if path == "/api/v1/trade-manager/live":
