@@ -50,10 +50,14 @@ class MarketDataSessionGapTests(unittest.TestCase):
         self.assertEqual(unexpected_missing_times(self.rows(start, end, [missing]), "M15"), [missing])
 
     def test_expected_closure_plus_true_gap_is_invalid(self):
-        start = int(datetime.datetime(2026, 9, 25, 22, 0, tzinfo=datetime.timezone.utc).timestamp())
+        # Window spans a mid-session true gap at 14:30 UTC (active London/NY hours)
+        # and the broker's daily session-close window at 21:00-23:00 UTC.
+        # 22:30 UTC is after Exness market close (17:00 ET = 21:00 UTC EDT) so it
+        # is now an expected closure, not a true gap — use 14:30 UTC instead.
+        start = int(datetime.datetime(2026, 9, 25, 14, 0, tzinfo=datetime.timezone.utc).timestamp())
         end = int(datetime.datetime(2026, 9, 26, 1, 0, tzinfo=datetime.timezone.utc).timestamp())
-        true_gap = int(datetime.datetime(2026, 9, 25, 22, 30, tzinfo=datetime.timezone.utc).timestamp())
-        omitted = [true_gap] + list(range(int(datetime.datetime(2026, 9, 25, 23, 0,
+        true_gap = int(datetime.datetime(2026, 9, 25, 14, 30, tzinfo=datetime.timezone.utc).timestamp())
+        omitted = [true_gap] + list(range(int(datetime.datetime(2026, 9, 25, 21, 0,
                                                                tzinfo=datetime.timezone.utc).timestamp()),
                                           int(datetime.datetime(2026, 9, 26, 0, 0,
                                                                tzinfo=datetime.timezone.utc).timestamp()), 900))
