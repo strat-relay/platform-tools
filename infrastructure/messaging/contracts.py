@@ -36,7 +36,7 @@ SUBJECTS = frozenset({
     "trade.decision.made.v1",
     # Execution authority state transitions published by authority_store.py; consumed by
     # the realtime API and any subscriber that needs to react to authority changes.
-    "system.status_changed",
+    "system.status_changed.v1",
 })
 
 STREAMS = {

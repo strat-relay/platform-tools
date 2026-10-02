@@ -54,7 +54,7 @@ EVENT_TYPES = (
     "trade_observation.created",   # real NATS event: trade.observation.recorded.v1
     "trade_manager_decision.created",   # bounded refresh - no canonical event exists
     "publication_decision.created",     # bounded refresh - no canonical event exists
-    "system.status_changed",       # bounded refresh over /api/v1/system's own components
+    "system.status_changed.v1",    # bounded refresh over /api/v1/system's own components
 )
 
 

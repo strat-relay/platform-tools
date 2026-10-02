@@ -313,7 +313,7 @@ class BoundedChangePoller:
         running = int(rows[0]["orchestrator_running"])
         if self._orchestrator_running is not None and running != self._orchestrator_running:
             self.hub.publish(RealtimeEvent(
-                type="system.status_changed", occurred_at=_iso_now(),
+                type="system.status_changed.v1", occurred_at=_iso_now(),
                 resource=RESOURCE_SYSTEM, resource_id="orchestrator",
                 payload={"component": "orchestrator", "running": running > 0}))
         self._orchestrator_running = running
