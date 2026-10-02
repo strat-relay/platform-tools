@@ -40,9 +40,14 @@ class SessionCalendar:
 
 
 # This is deliberately provider-scoped.  The current MT5 research bridge exposes
-# no symbol/session metadata, while the observed shared rollover is 23:00-00:00 UTC.
-# A future provider can register a different calendar without changing strategies.
-MT5_RESEARCH_CALENDAR = SessionCalendar("MT5", frozenset({23}))
+# no symbol/session metadata.  Known non-tradable windows for Exness MT5 forex:
+#   21:00 UTC = 17:00 New York (EDT, UTC-4) — daily NY session close (summer)
+#   23:00 UTC — observed broker daily maintenance/rollover window
+# When US DST ends (typically first Sunday of November), the NY close shifts to
+# 22:00 UTC; add 22 to this set at that point.
+# Crypto pairs (BTCUSDm etc.) trade 24/7 but share this calendar; gaps in crypto
+# at these hours should be investigated rather than silently accepted.
+MT5_RESEARCH_CALENDAR = SessionCalendar("MT5", frozenset({21, 23}))
 
 
 def is_expected_closure(provider: str, provider_symbol: str, timestamp: int) -> bool:
