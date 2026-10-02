@@ -135,7 +135,11 @@ def project_entry_only_outcomes(
                 realized_r = position.get("realized_R")
                 exit_at = _exit_timestamp(position.get("exit_timestamp"))
                 temporal_error = validate_temporal_order(
-                    signal_emitted_at=signal_emitted_at,
+                    # Entry-only outcomes are resolved against market-data
+                    # decision/candle time.  A signal can be persisted after
+                    # that candle closes, so signal_emitted_at is not the
+                    # causal start of the theoretical outcome window.
+                    signal_emitted_at=decision_time or signal_emitted_at,
                     outcome_exit_time=exit_at,
                     historical_replay=bool(position.get("historical_replay")),
                 )
