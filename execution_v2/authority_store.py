@@ -59,7 +59,7 @@ def set_authority(state: str, *, expected_revision: int, changed_by: str | None,
                         changed_by, __import__('json').dumps(preflight or {})))
             cur.execute("""INSERT INTO platform.outbox_events
                 (event_id,event_type,aggregate_type,aggregate_id,aggregate_version,schema_version,payload,occurred_at)
-                VALUES (%s,'system.status_changed','execution_authority','current',%s,'event-envelope.v1',%s::jsonb,now())""",
+                VALUES (%s,'system.status_changed.v1','execution_authority','current',%s,'event-envelope.v1',%s::jsonb,now())""",
                        (str(uuid.uuid4()), revision, __import__('json').dumps({
                            "authority": state, "revision": revision, "source": SOURCE_POSTGRES})))
     return {"state": state, "revision": revision, "source": SOURCE_POSTGRES,

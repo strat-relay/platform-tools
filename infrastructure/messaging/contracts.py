@@ -34,6 +34,9 @@ SUBJECTS = frozenset({
     "trade.opened.v1",
     "trade.observation.recorded.v1",
     "trade.decision.made.v1",
+    # Execution authority state transitions published by authority_store.py; consumed by
+    # the realtime API and any subscriber that needs to react to authority changes.
+    "system.status_changed.v1",
 })
 
 STREAMS = {
@@ -42,7 +45,7 @@ STREAMS = {
     "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal."))
                                                     or x in {"trade.opened.v1", "trade.decision.made.v1"})),
                      "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
-    "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.")))),
+    "EXECUTION": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("execution.", "broker.", "ownership.", "system.")))),
                    "storage": "file", "retention": "limits", "max_age": 30 * 24 * 60 * 60},
     # Real-time hot path only. Retention is deliberately short: durable
     # acceptance for delivery, not long-term audit (PostgreSQL, via the

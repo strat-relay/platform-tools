@@ -184,7 +184,7 @@ class SystemStatusPollerTests(unittest.IsolatedAsyncioTestCase):
         await poller.tick()
         replay = hub.replay_since(RESOURCE_SYSTEM, 0)
         self.assertEqual(len(replay), 1)
-        self.assertEqual(replay[0]["type"], "system.status_changed")
+        self.assertEqual(replay[0]["type"], "system.status_changed.v1")
         self.assertEqual(replay[0]["payload"]["running"], False)
 
     async def test_no_change_between_ticks_emits_nothing(self):

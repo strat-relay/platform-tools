@@ -51,15 +51,16 @@ async def serve(*, idle_seconds: float = 1.0, once: bool = False) -> None:
         if stop.is_set():
             return
         js = nc.jetstream()
-        # Reconcile only the existing core stream's explicit subject set.  This preserves every
-        # current subject and adds the two canonical P4 management subjects without creating or
-        # broadening any stream wildcard.  P4-owned TRADING_OBSERVATION remains owned by the P4
-        # runtime and is not created or modified by this relay.
-        core_info = await js.stream_info("TRADING_CORE")
-        current_subjects = set(core_info.config.subjects)
-        required_subjects = set(STREAMS["TRADING_CORE"]["subjects"])
-        if not required_subjects.issubset(current_subjects):
-            await js.update_stream(core_info.config.evolve(subjects=sorted(current_subjects | required_subjects)))
+        # Reconcile the subject sets of the two streams this relay publishes to.  Adding a
+        # subject to contracts.SUBJECTS (and its stream's prefix set) is enough — the relay
+        # propagates the addition to NATS on next startup without manual stream edits.
+        # TRADING_OBSERVATION is P4-runtime-owned and is never touched here.
+        for stream_name in ("TRADING_CORE", "EXECUTION"):
+            info = await js.stream_info(stream_name)
+            current = set(info.config.subjects)
+            required = set(STREAMS[stream_name]["subjects"])
+            if not required.issubset(current):
+                await js.update_stream(info.config.evolve(subjects=sorted(current | required)))
         relay = OutboxRelay(conn, JetStreamPublisher(js), owner=os.getenv("SIGNAL_OUTBOX_OWNER", "signal-outbox-relay"))
         if once:
             print(await relay.publish_batch())
