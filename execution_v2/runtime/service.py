@@ -243,6 +243,7 @@ async def main_async() -> None:
     fence_authority = FenceAuthority(keys={config.fence_key_id: config.fence_signing_key}, active_key_id=config.fence_key_id)
     bridge = HttpBridgeFenceClient(base_url=config.bridge_fence_url,
                                    read_base_url=config.read_bridge_url,
+                                   timeout_s=config.bridge_timeout_seconds,
                                    execution_mode=f"{config.bridge_mode.upper()}_EXECUTION")
     # PostgreSQL is the sole runtime policy authority. The file path remains a legacy/bootstrap
     # reference for migration tooling, but is never consulted by the running evaluator.

@@ -13,6 +13,7 @@ JetStream event.
 from __future__ import annotations
 
 import hashlib
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -30,9 +31,12 @@ from .intent import EntrySignalRecordMissing, IntentResult, create_execution_int
 from .risk import RiskPolicy, RiskPolicyError
 from .symbols import (canonical_request_fingerprint, canonical_request_text, correlation_comment,
                       resolve_broker_symbol)
+from .trace import elapsed_ms, emit as trace_emit
 
 TOOL = "mt5_canonical_order_send"
 RESULT_EVENT_TYPE = "execution.result.recorded.v1"
+MAX_SIGNAL_TO_BROKER_SECONDS = 60.0
+MAX_INTENT_TO_ATTEMPT_MS = 500.0
 
 _TERMINAL_ATTEMPT_STATES = frozenset({"CONFIRMED", "REJECTED", "FAILED", "FENCED", "CANCELLED", "NOT_SENT"})
 _NON_REPLAYABLE_ATTEMPT_STATES = frozenset({"CLAIMED", "SENDING", "UNCERTAIN"})
@@ -97,18 +101,29 @@ class ExecutionWorker:
         self.resource = f"execution:{mode}:{account_id}"
 
     def _read_generation(self) -> int:
+        started = time.perf_counter()
         with self.conn.cursor() as cur:
             cur.execute("SELECT generation FROM platform.ownership_leases WHERE lease_key=%s", (self.resource,))
             row = cur.fetchone()
-        return row[0] if row else 0
+        generation = row[0] if row else 0
+        trace_emit("GENERATION_READ_COMPLETED", resource=self.resource, generation=generation,
+                   step_ms=round((time.perf_counter() - started) * 1000, 3))
+        return generation
 
     def _acquire_generation(self) -> int:
+        started = time.perf_counter()
         expected = self._read_generation()
+        transaction_started = time.perf_counter()
         with transaction(self.conn):
             with self.conn.cursor() as cur:
                 cur.execute("SELECT platform.acquire_ownership(%s,%s,%s)",
                            (self.resource, self.holder_instance_id, expected))
-                return cur.fetchone()[0]
+                generation = cur.fetchone()[0]
+        trace_emit("OWNERSHIP_TRANSACTION_COMPLETED", resource=self.resource, generation=generation,
+                   expected_generation=expected,
+                   transaction_ms=round((time.perf_counter() - transaction_started) * 1000, 3),
+                   step_ms=round((time.perf_counter() - started) * 1000, 3))
+        return generation
 
     def _load_attempt(self, execution_intent_id: str) -> dict[str, Any] | None:
         with self.conn.cursor() as cur:
@@ -134,6 +149,8 @@ class ExecutionWorker:
                             canonical_bytes({"original_state": state, "source": "execution_worker"}).decode("utf-8")))
 
     def _claim_attempt(self, *, execution_intent_id: str, attempt_id: str, generation: int) -> dict[str, Any]:
+        started = time.perf_counter()
+        insert_started = time.perf_counter()
         with transaction(self.conn):
             with self.conn.cursor() as cur:
                 cur.execute("""INSERT INTO execution_v2.execution_attempt
@@ -141,8 +158,14 @@ class ExecutionWorker:
                     VALUES (%s,%s,%s,%s,%s,'CLAIMED')
                     ON CONFLICT (execution_intent_id) DO NOTHING""",
                            (attempt_id, execution_intent_id, self.account_id, self.resource, generation))
+        trace_emit("ATTEMPT_INSERT_COMMITTED", intent_id=execution_intent_id, attempt_id=attempt_id,
+                   generation=generation, step_ms=round((time.perf_counter() - insert_started) * 1000, 3))
+        confirmation_started = time.perf_counter()
         existing = self._load_attempt(execution_intent_id)
         assert existing is not None
+        trace_emit("ATTEMPT_CONFIRMATION_READ", intent_id=execution_intent_id, attempt_id=attempt_id,
+                   state=existing.get("state"), step_ms=round((time.perf_counter() - confirmation_started) * 1000, 3),
+                   total_ms=round((time.perf_counter() - started) * 1000, 3))
         return existing
 
     def _set_attempt_state(self, attempt_id: str, state: str, *, sending: bool = False, terminal: bool = False) -> None:
@@ -192,7 +215,7 @@ class ExecutionWorker:
                             attempt_id, 1, "event-envelope.v1", canonical_bytes(payload).decode("utf-8"),
                             now, execution_intent_id, None))
 
-    def _load_intent(self, execution_intent_id: str) -> dict[str, Any]:
+    def _load_intent(self, execution_intent_id: str, signal_id: str | None = None) -> dict[str, Any]:
         with self.conn.cursor() as cur:
             cur.execute("""SELECT instrument, direction, approved_volume, stop_price, target_price,
                                  requested_entry_price
@@ -200,7 +223,26 @@ class ExecutionWorker:
                        (execution_intent_id,))
             row = cur.fetchone()
         keys = ("instrument", "direction", "approved_volume", "stop_price", "target_price", "requested_entry_price")
-        return dict(zip(keys, row))
+        intent = dict(zip(keys, row))
+        intent["signal_id"] = signal_id
+        intent["signal_emitted_at"] = None
+        if signal_id:
+            try:
+                with self.conn.cursor() as cur:
+                    cur.execute("SELECT signal_emitted_at FROM strategy.entry_signals WHERE signal_id=%s", (signal_id,))
+                    signal_row = cur.fetchone()
+                if signal_row:
+                    intent["signal_emitted_at"] = signal_row[0]
+            except Exception:
+                # Test/fake stores and pre-cutover databases may not expose the signal table.
+                # The normal eligibility gate still protects those paths.
+                pass
+        return intent
+
+    @staticmethod
+    def _signal_too_old(intent: dict[str, Any]) -> bool:
+        age = elapsed_ms(intent.get("signal_emitted_at"))
+        return age is not None and age > MAX_SIGNAL_TO_BROKER_SECONDS * 1000
 
     def _reservation(self, action: str, intent_id: str, reason: str = "") -> bool:
         """Move this intent's risk reservation with the execution outcome. Only `submit` gates the
@@ -237,6 +279,7 @@ class ExecutionWorker:
         # every test and the production runtime consumer alike - must say explicitly what
         # "the broker" means for this call.
         now_utc = now_utc or datetime.now(timezone.utc)
+        trace_emit("EXECUTION_RECEIVED", signal_id=signal_id, authority_enabled=execution_authority_enabled)
         if self.risk_policy_provider is not None:
             try:
                 self.risk_policy = self.risk_policy_provider()
@@ -266,14 +309,42 @@ class ExecutionWorker:
             return ExecutionOutcome("BLOCKED", intent_result, None, None, intent_result.reason)
 
         execution_intent_id = intent_result.execution_intent_id
-        intent = self._load_intent(execution_intent_id)
+        # Monotonic timing starts immediately after the intent transaction returns.  This is the
+        # actionable worker-side definition of intent->attempt; wall-clock trace timestamps remain
+        # available for joining against PostgreSQL and Kubernetes logs.
+        intent_clock = time.perf_counter()
+
+        def phase(stage: str, phase_clock: float, **fields: Any) -> None:
+            trace_emit(stage, signal_id=signal_id, intent_id=execution_intent_id,
+                       signal_emitted_at=intent.get("signal_emitted_at"),
+                       intent_to_stage_ms=round((time.perf_counter() - intent_clock) * 1000, 3),
+                       step_ms=round((time.perf_counter() - phase_clock) * 1000, 3), **fields)
+
+        phase_clock = time.perf_counter()
+        intent = self._load_intent(execution_intent_id, signal_id=signal_id)
+        trace_emit("INTENT_CREATED", signal_id=signal_id, intent_id=execution_intent_id,
+                   signal_emitted_at=intent.get("signal_emitted_at"), outcome=intent_result.status)
+        phase("INTENT_ROW_LOADED", phase_clock)
+        if self._signal_too_old(intent):
+            detail = "signal exceeded 60-second signal-to-broker SLO before attempt claim"
+            trace_emit("STALE_BEFORE_SUBMISSION", signal_id=signal_id, intent_id=execution_intent_id,
+                       signal_emitted_at=intent.get("signal_emitted_at"), outcome="BLOCKED", error=detail)
+            with transaction(self.conn):
+                with self.conn.cursor() as cur:
+                    cur.execute("UPDATE execution_v2.execution_intent SET status='BLOCKED', block_reason=%s WHERE execution_intent_id=%s",
+                                ("SIGNAL_TO_BROKER_SLO_EXCEEDED", execution_intent_id))
+            return ExecutionOutcome("BLOCKED", intent_result, None, "BLOCKED", detail)
         att_id = _attempt_id(execution_intent_id=execution_intent_id)
 
         # Historical SENDING rows have no provable external outcome. The quarantine relation is
         # separate from the attempt state so the original evidence remains intact. This check is
         # before ownership, fencing, canary reservation, or bridge submission and therefore also
         # blocks redelivery, worker restart, and a later authority transition to ENABLED.
+        phase_clock = time.perf_counter()
         existing_attempt = self._load_attempt(execution_intent_id)
+        phase("PRIOR_ATTEMPT_CHECKED", phase_clock,
+              prior_attempt_state=existing_attempt.get("state") if existing_attempt else None,
+              prior_attempt_quarantined=existing_attempt.get("quarantined") if existing_attempt else False)
         if existing_attempt is not None and existing_attempt.get("quarantined"):
             return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id, "HISTORICAL_AMBIGUOUS_EXECUTION",
                                     "historical attempt is quarantined; reconciliation required before any action")
@@ -282,8 +353,10 @@ class ExecutionWorker:
         # account-specific broker mapping is a deterministic configuration block, never a
         # partially claimed attempt or a guessed suffix.
         try:
+            phase_clock = time.perf_counter()
             broker_symbol = resolve_broker_symbol(intent["instrument"], account_id=self.account_id, mode=self.mode,
                                                   catalog_lookup=self.broker_symbol_lookup)
+            phase("SYMBOL_RESOLVED", phase_clock, broker_symbol=broker_symbol)
         except Exception:
             self._reservation("release", execution_intent_id, "SYMBOL_MAPPING_FAILED")
             raise
@@ -313,18 +386,31 @@ class ExecutionWorker:
                                     "prior attempt is non-replayable and requires reconciliation")
 
         try:
+            phase_clock = time.perf_counter()
             generation = self._acquire_generation()
+            phase("OWNERSHIP_ACQUIRED", phase_clock, generation=generation)
         except Exception as exc:
             self._reservation("release", execution_intent_id, "OWNERSHIP_ACQUISITION_FAILED")
             return ExecutionOutcome("FENCED_OUT", intent_result, None, None, f"ownership acquisition failed: {exc}")
 
-        if self.authority_provider is not None and self.authority_provider() != "ENABLED":
+        phase_clock = time.perf_counter()
+        authority_enabled = self.authority_provider is None or self.authority_provider() == "ENABLED"
+        phase("AUTHORITY_CHECKED", phase_clock, authority_enabled=authority_enabled)
+        if not authority_enabled:
             self._reservation("release", execution_intent_id, "AUTHORITY_DISABLED_BEFORE_FENCING")
             return ExecutionOutcome("FENCED_OUT", intent_result, None, None,
-                                    "execution authority was disabled before fencing")
+                "execution authority was disabled before fencing")
 
+        phase_clock = time.perf_counter()
         attempt = self._claim_attempt(execution_intent_id=execution_intent_id, attempt_id=att_id, generation=generation)
         att_id = attempt["attempt_id"]
+        intent_to_attempt_ms = round((time.perf_counter() - intent_clock) * 1000, 3)
+        trace_emit("ATTEMPT_CLAIMED", signal_id=signal_id, intent_id=execution_intent_id,
+                   attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
+                   intent_to_attempt_ms=intent_to_attempt_ms,
+                   intent_to_attempt_slo_ms=MAX_INTENT_TO_ATTEMPT_MS,
+                   intent_to_attempt_slo="PASS" if intent_to_attempt_ms <= MAX_INTENT_TO_ATTEMPT_MS else "EXCEEDED",
+                   step_ms=round((time.perf_counter() - phase_clock) * 1000, 3))
 
         try:
             grant = self.fence_authority.mint_grant(resource=self.resource, generation=generation,
@@ -334,6 +420,9 @@ class ExecutionWorker:
             with transaction(self.conn):
                 self._set_attempt_state(att_id, "FENCED", terminal=True)
             self._reservation("release", execution_intent_id, "FENCE_ADVANCE_REJECTED")
+            trace_emit("FENCE_REJECTED", signal_id=signal_id, intent_id=execution_intent_id,
+                       attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
+                       outcome="FENCED", error=f"{type(exc).__name__}: {exc}")
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None, f"fence advance rejected: {exc}")
 
         # The reservation must move RESERVED -> SUBMITTED before the attempt can reach SENDING: an
@@ -347,6 +436,8 @@ class ExecutionWorker:
             with self.conn.cursor() as cur:
                 cur.execute("SELECT platform.assert_generation(%s,%s)", (self.resource, generation))
             self._set_attempt_state(att_id, "SENDING", sending=True)
+        trace_emit("SENDING", signal_id=signal_id, intent_id=execution_intent_id,
+                   attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"))
 
         # The authorization must bind the exact canonical wire request sent to the bridge.  The
         # old path signed a separate intent-level fingerprint while `order_args` carried the
@@ -364,9 +455,22 @@ class ExecutionWorker:
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None,
                                     "execution authority was disabled before broker submission")
 
+        if self._signal_too_old(intent):
+            detail = "signal exceeded 60-second signal-to-broker SLO before bridge submission"
+            self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
+                                 outcome="BLOCKED", attempt_terminal_state="NOT_SENT",
+                                 broker_response={"reason": "SIGNAL_TO_BROKER_SLO_EXCEEDED"})
+            trace_emit("BROKER_SUBMISSION_BLOCKED", signal_id=signal_id, intent_id=execution_intent_id,
+                       attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
+                       outcome="BLOCKED", error=detail)
+            return ExecutionOutcome("BLOCKED", intent_result, att_id, "BLOCKED", detail)
+
         try:
             submit_result = self.bridge.submit(authorization=authorization, request_fingerprint=fingerprint,
                                                broker_call=broker_call, request_args=order_args)
+            trace_emit("BRIDGE_RESPONSE", signal_id=signal_id, intent_id=execution_intent_id,
+                       attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
+                       outcome=submit_result.state)
         except (WrongAccount, InvalidSignature, RequestFingerprintMismatch) as exc:
             self._reservation("release_not_dispatched", execution_intent_id, "BRIDGE_REJECTED_BEFORE_DISPATCH")
             # The bridge's own independent verification rejected the request outright (never
@@ -376,11 +480,26 @@ class ExecutionWorker:
             # attempt as terminally FENCED, matching the advance_fence-rejection path above.
             with transaction(self.conn):
                 self._set_attempt_state(att_id, "FENCED", terminal=True)
+            trace_emit("BRIDGE_REJECTED_BEFORE_DISPATCH", signal_id=signal_id, intent_id=execution_intent_id,
+                       attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
+                       outcome="FENCED", error=f"{type(exc).__name__}: {exc}")
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None, f"bridge rejected submission: {exc}")
-        except Exception:
-            # Transport failure mid-submission: the broker effect is unknown, so capacity stays held.
+        except Exception as exc:
+            # Transport failure mid-submission: the broker effect is unknown. Persist the
+            # ambiguity so the attempt is never silently stranded in SENDING.
+            # The consumer's defense-in-depth sentinel is intentionally allowed to escape in
+            # tests; production HttpBridgeFenceClient never invokes broker_call locally.
+            if type(exc).__name__ == "RealBridgeNotWired":
+                raise
             self._reservation("unknown", execution_intent_id, "SUBMISSION_OUTCOME_UNKNOWN")
-            raise
+            self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
+                                 outcome="UNKNOWN_RECONCILIATION_REQUIRED", attempt_terminal_state="UNCERTAIN",
+                                 broker_response={"error": f"{type(exc).__name__}: {exc}"[:500]})
+            trace_emit("BRIDGE_EXCEPTION", signal_id=signal_id, intent_id=execution_intent_id,
+                       attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
+                       outcome="UNKNOWN_RECONCILIATION_REQUIRED", error=f"{type(exc).__name__}: {exc}")
+            return ExecutionOutcome("RECONCILIATION_REQUIRED", intent_result, att_id,
+                                    "UNKNOWN_RECONCILIATION_REQUIRED", str(exc))
 
         if submit_result.state == "DISPATCHED":
             broker_response = submit_result.broker_response or {}
@@ -402,6 +521,10 @@ class ExecutionWorker:
             self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                  outcome=outcome, attempt_terminal_state="CONFIRMED", broker_response=broker_response)
             self._reservation("confirm", execution_intent_id)
+            trace_emit("BROKER_CONFIRMED", signal_id=signal_id, intent_id=execution_intent_id,
+                       attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
+                       outcome=outcome, broker_order_id=broker_response.get("broker_order_id") or broker_response.get("order"),
+                       broker_deal_id=broker_response.get("broker_deal_id") or broker_response.get("deal"))
             return ExecutionOutcome("RESULT_RECORDED", intent_result, att_id, outcome, None)
 
         if submit_result.state in ("CANCELLED_FENCED", "EXPIRED_BEFORE_DISPATCH"):

@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import time
 from typing import Any
 
 from core.strategies.evaluation import canonical_bytes
@@ -28,6 +29,7 @@ from postgres.db import transaction
 from .ids import execution_intent_id as _execution_intent_id
 from .risk import RiskPolicy, evaluate_candidate
 from .risk_policy_store import policy_fingerprint
+from .trace import emit as trace_emit
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
 
@@ -134,10 +136,15 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                             risk_context_provider: Any | None = None,
                             blocked_reason: str | None = None,
                             risk_gate: Any | None = None) -> IntentResult:
+    started = time.perf_counter()
+    trace_emit("INTENT_CREATION_STARTED", signal_id=signal_id, account_id=account_id)
     with transaction(conn):
         record = _load_entry_signal(conn, signal_id)
         if record is None:
             raise EntrySignalRecordMissing(signal_id)
+        trace_emit("INTENT_SIGNAL_LOADED", signal_id=signal_id,
+                   signal_emitted_at=record.get("signal_emitted_at"),
+                   step_ms=round((time.perf_counter() - started) * 1000, 3))
         if claimed_entry_signal_hash is not None and claimed_entry_signal_hash != record["entry_signal_hash"]:
             with conn.cursor() as cur:
                 cur.execute("""INSERT INTO execution_v2.reconciliation_finding
@@ -195,6 +202,11 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
         elif eligibility.eligible:
             volume = _compute_volume(record, risk_policy)
 
+        trace_emit("INTENT_ELIGIBILITY_COMPLETED", signal_id=signal_id, outcome=status,
+                   reason=eligibility.reason,
+                   risk_gate_enabled=risk_gate is not None,
+                   step_ms=round((time.perf_counter() - started) * 1000, 3))
+
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO execution_v2.execution_intent
                 (execution_intent_id, entry_signal_id, entry_signal_hash, strategy_id, strategy_version,
@@ -220,6 +232,10 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                         risk_policy.version,
                         account_id, intent_id, status, eligibility.reason))
             inserted = cur.fetchone()
+
+        trace_emit("INTENT_ROW_INSERTED", signal_id=signal_id, intent_id=intent_id,
+                   inserted=inserted is not None, outcome=status,
+                   step_ms=round((time.perf_counter() - started) * 1000, 3))
 
         if inserted is None:
             if reserved_here:

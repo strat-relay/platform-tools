@@ -63,7 +63,18 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertIs(config.execution_authority_mode, ExecutionAuthorityMode.DISABLED)
         self.assertEqual(config.bridge_mode, "demo")
         self.assertEqual(config.bridge_fence_url, REQUIRED_ENV["V2_BRIDGE_FENCE_URL"])
+        self.assertEqual(config.bridge_timeout_seconds, 10.0)
         self.assertTrue(config.risk_policy_path.endswith("v2_execution_risk_policy.json"))
+
+    def test_bridge_timeout_cannot_reach_or_exceed_the_signal_slo(self):
+        for value in ("0", "21", "not-a-number"):
+            with self.subTest(value=value), mock.patch.dict(os.environ, dict(REQUIRED_ENV, V2_BRIDGE_TIMEOUT_SECONDS=value)):
+                with self.assertRaises(RuntimeConfigError):
+                    RuntimeConfig.from_env()
+
+    def test_bridge_timeout_is_configurable_within_slo_budget(self):
+        with mock.patch.dict(os.environ, dict(REQUIRED_ENV, V2_BRIDGE_TIMEOUT_SECONDS="7.5")):
+            self.assertEqual(RuntimeConfig.from_env().bridge_timeout_seconds, 7.5)
 
     def test_fails_closed_without_a_postgres_target(self):
         env = {k: v for k, v in REQUIRED_ENV.items() if k not in ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD")}
