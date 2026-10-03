@@ -16,6 +16,7 @@ from migration.flags import ExecutionAuthorityMode
 
 from ..intent import EntrySignalRecordMissing
 from ..worker import ExecutionOutcome, ExecutionWorker
+from ..trace import emit as trace_emit
 
 
 class RealBridgeNotWired(RuntimeError):
@@ -46,13 +47,18 @@ class ExecutionSignalConsumer:
 
     def handle_envelope(self, envelope: EventEnvelope) -> ExecutionOutcome:
         signal_id = str(envelope.payload.get("signal_id") or envelope.aggregate_id)
+        trace_emit("EXECUTION_EVENT_RECEIVED", signal_id=signal_id, event_id=envelope.event_id,
+                   signal_emitted_at=envelope.payload.get("signal_emitted_at"))
         # The ONLY place this boolean is computed - read once from the config-derived mode
         # captured at construction time, never re-derived per message, never inferred from the
         # envelope itself (mission section 2: an EntrySignal's existence never implies permission).
         mode = self.authority_provider() if self.authority_provider is not None else self.execution_authority_mode.value
         authority_enabled = mode == ExecutionAuthorityMode.ENABLED.value
-        return self.worker.process_signal(signal_id, execution_authority_enabled=authority_enabled,
-                                          broker_call=_real_bridge_not_wired, now_utc=self.clock())
+        outcome = self.worker.process_signal(signal_id, execution_authority_enabled=authority_enabled,
+                                             broker_call=_real_bridge_not_wired, now_utc=self.clock())
+        trace_emit("EXECUTION_EVENT_COMPLETED", signal_id=signal_id, event_id=envelope.event_id,
+                   outcome=outcome.result_outcome or outcome.status)
+        return outcome
 
     def handle_payload(self, payload: bytes) -> ExecutionOutcome:
         envelope = EventEnvelope(**json.loads(payload.decode("utf-8")))

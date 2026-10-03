@@ -43,6 +43,8 @@ class RuntimeConfig:
     # REDIS: cached RiskSnapshot + atomic reservation (execution_v2/risk_state); requires RISK_REDIS_URL.
     risk_context_source: str = "BRIDGE"
     risk_redis_url: str | None = None
+    # Keep synchronous bridge calls bounded well below the 60-second signal-to-broker SLO.
+    bridge_timeout_seconds: float = 10.0
     # V2_RISK_SIZING_BASIS: EQUITY (default) or FREE_MARGIN - the capital risk_per_trade applies to
     # on the bridge risk path.
     risk_sizing_basis: str = "EQUITY"
@@ -118,6 +120,14 @@ class RuntimeConfig:
         risk_redis_url = (os.getenv("RISK_REDIS_URL") or "").strip() or None
         if risk_context_source == "REDIS" and risk_redis_url is None:
             raise RuntimeConfigError("RISK_CONTEXT_SOURCE=REDIS requires RISK_REDIS_URL")
+
+        timeout_raw = os.getenv("V2_BRIDGE_TIMEOUT_SECONDS", "10")
+        try:
+            bridge_timeout_seconds = float(timeout_raw)
+        except ValueError as exc:
+            raise RuntimeConfigError("V2_BRIDGE_TIMEOUT_SECONDS must be numeric") from exc
+        if not 0 < bridge_timeout_seconds <= 20:
+            raise RuntimeConfigError("V2_BRIDGE_TIMEOUT_SECONDS must be > 0 and <= 20")
         risk_sizing_basis = os.getenv("V2_RISK_SIZING_BASIS", "EQUITY").strip().upper() or "EQUITY"
         if risk_sizing_basis not in ("EQUITY", "FREE_MARGIN"):
             raise RuntimeConfigError("V2_RISK_SIZING_BASIS must be EQUITY or FREE_MARGIN")
@@ -129,5 +139,6 @@ class RuntimeConfig:
                    bridge_fence_url=bridge_fence_url, read_bridge_url=read_bridge_url,
                    fence_signing_key=key_bytes, fence_key_id=key_id, risk_policy_path=risk_policy_path,
                    health_port=health_port, holder_instance_id=holder_instance_id.strip(),
-                   risk_context_source=risk_context_source, risk_redis_url=risk_redis_url,
-                   risk_sizing_basis=risk_sizing_basis)
+                        risk_context_source=risk_context_source, risk_redis_url=risk_redis_url,
+                        bridge_timeout_seconds=bridge_timeout_seconds,
+                        risk_sizing_basis=risk_sizing_basis)

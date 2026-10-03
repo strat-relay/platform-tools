@@ -7,6 +7,7 @@ from typing import Any
 from migration.signal import CanonicalSignal, canonical_signal, ingest_signal
 from orchestration.models import StrategySignal
 from postgres.foundation import DATABASE_SCHEMA_VERSION
+from execution_v2.trace import emit as trace_emit
 
 
 class CanonicalSignalPublisher:
@@ -84,4 +85,8 @@ class CanonicalSignalPublisher:
             stage_id="orchestrator_acceptance",
             primitive_id="orchestrator.strategy_signal")
         inserted = ingest_signal(self.conn, canonical, occurred_at=canonical.fields["signal_emitted_at"])
+        trace_emit("SIGNAL_INGESTED", signal_id=canonical.signal_id,
+                   signal_emitted_at=canonical.fields.get("signal_emitted_at"),
+                   strategy_id=canonical.fields.get("strategy_id"),
+                   source_id=self.source_id, outcome="INSERTED" if inserted else "DUPLICATE")
         return canonical, inserted
