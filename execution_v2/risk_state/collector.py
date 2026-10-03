@@ -17,6 +17,7 @@ when PostgreSQL (the durable execution record) shows a definite attempt outcome.
 """
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -30,6 +31,7 @@ MAX_SOURCE_ERRORS = 20
 # PostgreSQL attempt states that prove an order was / was not executed (worker.py semantics).
 CONFIRMED_ATTEMPT_STATES = frozenset({"CONFIRMED"})
 NOT_EXECUTED_ATTEMPT_STATES = frozenset({"REJECTED", "FENCED", "NOT_SENT", "CANCELLED", "FAILED"})
+_LOG = logging.getLogger(__name__)
 
 
 class RiskStateCollector:
@@ -139,14 +141,30 @@ class RiskStateCollector:
             snapshot = self.store.read_snapshot()
             symbols = set(self.reference_symbols())
             symbols |= {p.provider_symbol for p in (snapshot.open_positions if snapshot else [])}
-            for symbol in sorted(symbols):
-                self.store.write_reference(symbol, normalize_reference(
-                    self.read_tool("mt5_symbol_info", {"symbol": symbol}), symbol))
+            ordered_symbols = sorted(symbols)
+            _LOG.info("risk_reference_batch_started symbol_count=%d symbols=%s",
+                      len(ordered_symbols), ordered_symbols)
+            for index, symbol in enumerate(ordered_symbols, start=1):
+                started = time.monotonic()
+                _LOG.info("risk_reference_symbol_started index=%d/%d symbol=%s",
+                          index, len(ordered_symbols), symbol)
+                try:
+                    payload = self.read_tool("mt5_symbol_info", {"symbol": symbol})
+                    reference = normalize_reference(payload, symbol)
+                    self.store.write_reference(symbol, reference)
+                except Exception:
+                    _LOG.exception("risk_reference_symbol_failed index=%d/%d symbol=%s elapsed_ms=%.1f",
+                                   index, len(ordered_symbols), symbol, (time.monotonic() - started) * 1000)
+                    raise
+                _LOG.info("risk_reference_symbol_succeeded index=%d/%d symbol=%s elapsed_ms=%.1f",
+                          index, len(ordered_symbols), symbol, (time.monotonic() - started) * 1000)
 
             def apply(snap):
                 snap.source_health["reference"] = HEALTHY
                 return snap
             self.store.write_snapshot(apply)
+            _LOG.info("risk_reference_batch_succeeded symbol_count=%d elapsed_ms=%.1f",
+                      len(ordered_symbols), (time.monotonic() - at) * 1000)
         return self._run("reference", collect)
 
     def tick(self) -> dict[str, bool]:
