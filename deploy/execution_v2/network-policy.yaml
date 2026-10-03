@@ -58,6 +58,63 @@ spec:
       ports:
         - {port: 22348, protocol: TCP}
         - {port: 22347, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-redis
+      ports:
+        - {port: 6379, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: execution-v2-risk-state-network
+  namespace: trading
+  labels:
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: execution-v2-risk-state
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-postgres
+      ports:
+        - {port: 5432, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trading
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-redis
+      ports:
+        - {port: 6379, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.166/32
+      ports:
+        - {port: 22347, protocol: TCP}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -114,8 +171,35 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: execution-v2-migrations
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: execution-v2-risk-state
       ports:
         - {port: 5432, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: execution-v2-redis-ingress
+  namespace: trading
+  labels:
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: trading-redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: execution-v2-runtime
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: execution-v2-risk-state
+      ports:
+        - {port: 6379, protocol: TCP}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
