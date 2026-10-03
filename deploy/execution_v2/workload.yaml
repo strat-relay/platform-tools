@@ -65,6 +65,13 @@ spec:
             - {name: V2_BROKER_SYMBOL_MAP_JSON, value: '{"real:188428665":{"XAUUSD":"XAUUSDm","BTCUSD":"BTCUSDm","EURUSD":"EURUSDm","USDJPY":"USDJPYm"}}'}
             - {name: V2_READ_BRIDGE_URL, value: "http://192.168.1.166:22347/mcp"}
             - {name: V2_BRIDGE_TIMEOUT_SECONDS, value: "10"}
+            - {name: RISK_CONTEXT_SOURCE, value: "REDIS"}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-redis-auth
+                  key: password
+            - {name: RISK_REDIS_URL, value: "redis://:$(REDIS_PASSWORD)@trading-redis.trading.svc:6379/0"}
             - {name: V2_EXECUTION_RISK_POLICY_PATH, value: "/app/orchestration/config/v2_execution_risk_policy.json"}
             - {name: V2_EXECUTION_HEALTH_PORT, value: "8082"}
             - name: POD_NAME

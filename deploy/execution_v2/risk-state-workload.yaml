@@ -1,0 +1,54 @@
+# Redis risk-state collector. It is the only component allowed to poll the read bridge for
+# account/position/order/history risk facts. execution-v2-runtime reads only the Redis snapshot.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: execution-v2-risk-state
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: execution-v2-risk-state
+    app.kubernetes.io/component: v2-risk-state
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: execution-v2-risk-state
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: execution-v2-risk-state
+        app.kubernetes.io/component: v2-risk-state
+        app.kubernetes.io/part-of: trading-platform
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: localhost:5001/trading-platform-runtime@sha256:39a9bf69988ed4fbcc099478a2d4818b2c0763e57c25a0de11e9f58c86b266c0
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, execution_v2.risk_state.collector_service]
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+          env:
+            - {name: V2_EXECUTION_ACCOUNT_ID, value: "188428665"}
+            - {name: V2_EXECUTION_BRIDGE_MODE, value: "real"}
+            - {name: V2_READ_BRIDGE_URL, value: "http://192.168.1.166:22347/mcp"}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-redis-auth
+                  key: password
+            - {name: RISK_REDIS_URL, value: "redis://:$(REDIS_PASSWORD)@trading-redis.trading.svc:6379/0"}
+            - {name: RISK_FAST_REFRESH_SECONDS, value: "10"}
+            - {name: RISK_HISTORY_REFRESH_SECONDS, value: "30"}
+            - {name: RISK_REFERENCE_REFRESH_SECONDS, value: "300"}
+      terminationGracePeriodSeconds: 10

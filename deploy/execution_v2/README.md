@@ -10,6 +10,7 @@ in this directory has been run against the live cluster.
 |---|---|
 | `migration-job.yaml` | One-off `python -m postgres.migrate` Job; applies `postgres/migrations/016_execution_v2_foundation.sql` (additive only, renumbered from 015 after reconciling with production's `015_entry_signal_outcomes.sql`) along with any other pending migration. |
 | `workload.yaml` | The platform-side runtime `Deployment` + `Service`. **`replicas: 0` by default.** |
+| `risk-state-workload.yaml` | The single Redis risk-state collector `Deployment`; reads the broker read bridge and writes the account-scoped Redis snapshot. |
 | `network-policy.yaml` | Ingress/egress allow-list. No rule permits egress to the MT5 bridge host, or to any bridge fence endpoint, at all - see below. |
 | `resource-quota-patch.README.md` | Explains why no fabricated `ResourceQuota` numbers are included (no live-cluster read has been performed). |
 
@@ -35,6 +36,8 @@ value is missing or invalid:
 | `V2_FENCE_SIGNING_KEY` | yes, ≥32 bytes | The HMAC key shared with the bridge's independent fence verification. **Never commit this to Git.** Supply via a dedicated `execution-v2-fence-signing-key` Secret (referenced but not created by `workload.yaml`). The same key material must also be provisioned to the real bridge process out-of-band (never over the platform's own request path) once it exists. Rotate by minting a new key, adding it under a new `V2_FENCE_KEY_ID`, and only removing the old key once no outstanding grant/authorization can still reference it. |
 | `V2_FENCE_KEY_ID` | no (default `v2-fence-key-1`) | Must match whatever key id the bridge-side verifier expects. |
 | `EXECUTION_AUTHORITY_MODE` | no (default `DISABLED`) | **Deliberately absent from `workload.yaml`.** Do not add it there; set it via a separate, explicitly-authorized change when activation is approved. |
+| `RISK_CONTEXT_SOURCE` | no (default `BRIDGE`) | Set to `REDIS` only after the collector reports a healthy, fresh snapshot. Redis mode never falls back to synchronous bridge reads. |
+| `RISK_REDIS_URL` | required when `RISK_CONTEXT_SOURCE=REDIS` | Account-scoped Redis hot-state URL, supplied from the `trading-redis-auth` Secret. |
 | `V2_EXECUTION_BRIDGE_MODE` | no (default `demo`) | `demo` \| `real` - a fence *resource namespace* prefix only, never a live-vs-simulated code switch. |
 | `V2_EXECUTION_RISK_POLICY_PATH` | no | Defaults to the shipped `orchestration/config/v2_execution_risk_policy.json` (`enabled: false`). Point at an operator-approved, reviewed file to allow any signal through; see that file's own `_comment`. |
 | `POD_NAME` | yes (Kubernetes supplies via `fieldRef`) | The ownership-fencing holder identity; must also be pre-registered in `platform.runtime_instances` (or `service.py::register_runtime_instance` does this automatically on startup) before a lease can be acquired. |
