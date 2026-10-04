@@ -16,7 +16,9 @@ class FakeStrategyCatalog:
     ROWS = [{"strategy_id": "S", "strategy_version": "V1", "enabled": True, "adapter": "Adapter",
              "routes": {"audit": True}},
             {"strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1", "strategy_version": "V1", "enabled": True,
-             "adapter": "Context", "routes": {"audit": True}}]
+             "adapter": "Context", "routes": {"audit": True}},
+            {"strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1", "strategy_version": "V1", "enabled": True,
+             "adapter": "Liquidity", "routes": {"audit": True}}]
 
     def __init__(self, *, unavailable: bool = False):
         self.unavailable = unavailable
@@ -41,6 +43,8 @@ class FakeStrategyCatalog:
     def instance_page(self, strategy_id, instance_id):
         self._ok()
         if strategy_id == "CONTEXT_STRUCTURE_RETRACE_V1" and instance_id == "phase6":
+            return {"instance_id": instance_id, "strategy_id": strategy_id}
+        if strategy_id == "LIQUIDITY_DISPLACEMENT_SCALP_V1" and instance_id == "liquidity-btc25":
             return {"instance_id": instance_id, "strategy_id": strategy_id}
         return None
 
@@ -94,6 +98,14 @@ class FakeRepository:
                                             "identity": {"strategy_instance_id": instance_id,
                                                          "observed_at": "2026-10-04T00:00:00Z"},
                                             "performance": {"trades": 10, "open": 1}}}
+
+    def liquidity_entry_outcome_report(self, instance_id=None):
+        self._ok()
+        return {"found": True, "report": {"outcome_authority": "canonical_postgres",
+                                            "outcome_type": "LIQUIDITY_ENTRY",
+                                            "identity": {"strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1",
+                                                         "strategy_instance_id": instance_id},
+                                            "performance": {"trades": 10, "open": 0}}}
 
     def trade_manager_summary(self):
         self._ok()
@@ -269,6 +281,20 @@ class PlatformControlApiTests(unittest.TestCase):
     def test_context_instance_report_unknown_instance_is_not_found(self):
         status, body = self.make_api().execute(
             "GET", "/api/v1/strategies/CONTEXT_STRUCTURE_RETRACE_V1/instances/missing/report")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"], "RESOURCE_NOT_FOUND")
+
+    def test_liquidity_instance_report_is_supported_and_uses_liquidity_outcomes(self):
+        status, body = self.make_api().execute(
+            "GET", "/api/v1/strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/instances/liquidity-btc25/report")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "canonical_postgres")
+        self.assertEqual(body["data"]["report"]["outcome_type"], "LIQUIDITY_ENTRY")
+        self.assertEqual(body["data"]["report"]["identity"]["strategy_instance_id"], "liquidity-btc25")
+
+    def test_liquidity_instance_report_unknown_instance_is_not_found(self):
+        status, body = self.make_api().execute(
+            "GET", "/api/v1/strategies/LIQUIDITY_DISPLACEMENT_SCALP_V1/instances/missing/report")
         self.assertEqual(status, 404)
         self.assertEqual(body["error"], "RESOURCE_NOT_FOUND")
 
