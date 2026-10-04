@@ -74,6 +74,7 @@ _AUDIT_COLUMNS = (
     "broker_volume_max", "calculated_volume", "submitted_volume", "estimated_loss_usd",
     "daily_loss_used", "concurrent_positions_used", "concurrent_orders_used",
     "signal_age_seconds", "max_signal_age_seconds", "canary_consumed", "canary_max",
+    "risk_diagnostics",
     "attempt_id", "attempt_state", "result_outcome", "broker_order_id", "broker_deal_id",
 )
 
@@ -299,6 +300,24 @@ class PlatformSignalApiTests(unittest.TestCase):
         self.assertEqual(evaluation["sizing"]["submitted_volume"], 0.01)
         self.assertEqual(evaluation["execution"]["attemptId"], "ATT_1")
         self.assertEqual(evaluation["brokerResult"]["broker_order_id"], "BRK_1")
+
+    def test_detail_exposes_dollar_exposure_diagnostics(self):
+        rows = (audit_row(entry_signal_id=CANONICAL_ROW["signal_id"], execution_intent_id="INTENT_1",
+                          account_id="188428665", intent_status="BLOCKED",
+                          block_reason="MAX_ACCOUNT_EXPOSURE_EXCEEDED",
+                          risk_diagnostics={"account_exposure_usd": 51.25,
+                                            "max_account_exposure_usd": 50.0,
+                                            "remaining_account_exposure_usd": 0.0,
+                                            "minimum_lot_estimated_loss_usd": 2.40,
+                                            "projected_exposure_at_minimum_lot_usd": 53.65,
+                                            "exposure_check": {"blocked": True}}),)
+        api = self.make_api(audit_rows=rows)
+        status, body = api.execute("GET", "/api/v1/signals/SIG_POST_T0_CANONICAL")
+        self.assertEqual(status, 200)
+        evaluation = body["data"]["executionEvaluations"][0]
+        self.assertEqual(evaluation["riskEvaluation"]["account_exposure_usd"], 51.25)
+        self.assertEqual(evaluation["riskEvaluation"]["max_account_exposure_usd"], 50.0)
+        self.assertEqual(evaluation["riskEvaluation"]["minimum_lot_estimated_loss_usd"], 2.40)
 
     def test_execution_authority_disabled_is_skipped_not_rejected(self):
         rows = (audit_row(entry_signal_id=CANONICAL_ROW["signal_id"], execution_intent_id="INTENT_1",

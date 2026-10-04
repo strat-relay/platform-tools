@@ -195,6 +195,9 @@ class CanonicalSignalRepository:
             "ACCOUNT_NOT_ALLOWED": "Account outside policy scope",
             "STRATEGY_NOT_ALLOWED": "Strategy outside policy scope",
             "SYMBOL_NOT_ALLOWED": "Symbol outside policy scope",
+            "MAX_ACCOUNT_EXPOSURE_EXCEEDED": "Account exposure limit exceeded",
+            "MAX_CONCURRENT_POSITIONS_EXCEEDED": "Concurrent position limit exceeded",
+            "MAX_CONCURRENT_ORDERS_EXCEEDED": "Concurrent order limit exceeded",
         }.get(reason, str(reason).replace("_", " ").title())
         account = str(row.get("account_id") or "")
         evaluation: dict[str, Any] = {
@@ -213,10 +216,24 @@ class CanonicalSignalRepository:
                                "daily_loss_used", "concurrent_positions_used", "concurrent_orders_used",
                                "signal_age_seconds", "max_signal_age_seconds", "canary_consumed", "canary_max")
             risk = {key: row.get(key) for key in evidence_fields if row.get(key) is not None}
+            diagnostics = row.get("risk_diagnostics") or {}
+            if isinstance(diagnostics, str):
+                try:
+                    diagnostics = json.loads(diagnostics)
+                except json.JSONDecodeError:
+                    diagnostics = {}
+            if isinstance(diagnostics, dict):
+                # Keep the durable dollar arithmetic visible in the public signal detail.
+                risk.update({key: value for key, value in diagnostics.items()
+                             if key.endswith("_usd") or key == "exposure_check"})
             if risk:
                 evaluation["riskEvaluation"] = risk
             account_state = {key: row.get(key) for key in ("account_equity", "daily_loss_used",
                              "concurrent_positions_used", "concurrent_orders_used") if row.get(key) is not None}
+            if isinstance(diagnostics, dict):
+                account_state.update({key: diagnostics[key] for key in
+                                      ("account_exposure_usd", "max_account_exposure_usd",
+                                       "remaining_account_exposure_usd") if diagnostics.get(key) is not None})
             if account_state:
                 evaluation["accountState"] = account_state
             sizing = {key: row.get(key) for key in ("calculated_volume", "submitted_volume",
@@ -262,7 +279,7 @@ class CanonicalSignalRepository:
                                       e.submitted_volume, e.estimated_loss_usd, e.daily_loss_used,
                                       e.concurrent_positions_used, e.concurrent_orders_used,
                                       e.signal_age_seconds, e.max_signal_age_seconds,
-                                      e.canary_consumed, e.canary_max,
+                                      e.canary_consumed, e.canary_max, e.diagnostics AS risk_diagnostics,
                                       a.attempt_id, a.state AS attempt_state,
                                       r.outcome AS result_outcome, r.broker_order_id, r.broker_deal_id,
                                       r.broker_position_id
