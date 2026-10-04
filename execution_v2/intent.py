@@ -247,6 +247,34 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
 
         if risk_context is not None or diagnostics:
             risk_context = risk_context or {}
+            if risk_context:
+                broker = risk_context.get("broker", {})
+                account = risk_context.get("account", {})
+                state = risk_context.get("state", {})
+                stop_distance = abs(float(record["entry_price"]) - float(record["stop_price"]))
+                tick_size = float(broker.get("tick_size") or 0.0)
+                tick_value = float(broker.get("tick_value") or 0.0)
+                minimum_lot = float(broker.get("volume_min") or 0.0)
+                minimum_lot_loss = (minimum_lot * stop_distance / tick_size * tick_value
+                                    if tick_size > 0 and tick_value >= 0 else None)
+                account_exposure = state.get("account_exposure")
+                max_account_exposure = risk_policy.max_account_exposure
+                remaining_exposure = (max(0.0, float(max_account_exposure) - float(account_exposure))
+                                      if account_exposure is not None else None)
+                diagnostics.update({
+                    "account_exposure_usd": account_exposure,
+                    "max_account_exposure_usd": max_account_exposure,
+                    "remaining_account_exposure_usd": remaining_exposure,
+                    "minimum_lot_estimated_loss_usd": minimum_lot_loss,
+                    "projected_exposure_at_minimum_lot_usd": (
+                        float(account_exposure) + minimum_lot_loss
+                        if account_exposure is not None and minimum_lot_loss is not None else None),
+                    "exposure_check": {
+                        "comparison": "account_exposure_usd >= max_account_exposure_usd",
+                        "blocked": (account_exposure is not None and
+                                    float(account_exposure) >= float(max_account_exposure)),
+                    },
+                })
             evidence = {
                 "execution_intent_id": intent_id,
                 "policy_version": risk_policy.version,

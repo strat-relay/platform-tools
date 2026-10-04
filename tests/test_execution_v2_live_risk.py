@@ -148,6 +148,34 @@ class LiveRiskPolicyTests(unittest.TestCase):
         self.assertEqual(evidence["risk_per_trade"], .005)
         self.assertEqual(evidence["calculated_volume"], .02)
         self.assertEqual(evidence["account_equity"], 2000)
+        diagnostics = json.loads(evidence["diagnostics"])
+        self.assertEqual(diagnostics["account_exposure_usd"], 0)
+        self.assertEqual(diagnostics["max_account_exposure_usd"], 50)
+        self.assertAlmostEqual(diagnostics["minimum_lot_estimated_loss_usd"], 5.0)
+
+    def test_exposure_rejection_persists_dollar_arithmetic(self):
+        policy = self.write_policy(valid_policy())
+        conn = FakeConnection()
+        conn.seed_entry_signal(signal_id="SIG-EXPOSURE", strategy_id="STRAT", strategy_version="V1",
+                               strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
+                               decision_time=NOW, signal_emitted_at=NOW, entry_price=1.10, stop_price=1.095,
+                               target_price=1.11, entry_signal_hash="hash")
+        result = create_execution_intent(
+            conn, signal_id="SIG-EXPOSURE", account_id="188428665", risk_policy=policy, now_utc=NOW,
+            risk_context_provider=lambda record: {"broker": {"tick_size": .00001, "tick_value": 1,
+                "volume_min": .01, "volume_max": 100, "volume_step": .01},
+                "account": {"equity": 2000},
+                "state": self.state(account_exposure=51.25)},
+        )
+        self.assertFalse(result.eligible)
+        self.assertEqual(result.reason, "MAX_ACCOUNT_EXPOSURE_EXCEEDED")
+        evidence = conn.tables["execution_v2.execution_risk_evidence"][result.execution_intent_id]
+        diagnostics = json.loads(evidence["diagnostics"])
+        self.assertEqual(diagnostics["account_exposure_usd"], 51.25)
+        self.assertEqual(diagnostics["max_account_exposure_usd"], 50)
+        self.assertEqual(diagnostics["remaining_account_exposure_usd"], 0.0)
+        self.assertAlmostEqual(diagnostics["minimum_lot_estimated_loss_usd"], 5.0)
+        self.assertAlmostEqual(diagnostics["projected_exposure_at_minimum_lot_usd"], 56.25)
 
     def test_intent_rejects_when_broker_state_is_unavailable(self):
         policy = self.write_policy(valid_policy())
