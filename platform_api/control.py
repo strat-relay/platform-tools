@@ -400,10 +400,23 @@ class PlatformControlRepository:
             GROUP BY linkage""")
         return {row["linkage"]: int(row["n"]) for row in rows}
 
-    def context_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
-        """Build the Context ENTRY_ONLY report, optionally scoped to one instance."""
+    def strategy_entry_outcome_report(
+        self,
+        strategy_id: str,
+        outcome_type: str,
+        instance_id: str | None = None,
+        cutoff_metadata_key: str | None = None,
+        display_name: str | None = None,
+        observability_version: str = "entry-outcomes.v1",
+    ) -> dict[str, Any]:
+        """Build the canonical entry/outcome report for a registered strategy.
+
+        The shared schema is intentionally strategy-neutral. Each strategy selects its
+        own outcome type, while the database remains the single source of truth for the
+        signal/outcome rows and instance scope.
+        """
         signal_scope = " AND s.strategy_instance_id = %s" if instance_id else ""
-        query_params: tuple[Any, ...] = ("CONTEXT_STRUCTURE_RETRACE_V1", "ENTRY_ONLY")
+        query_params: tuple[Any, ...] = (strategy_id, outcome_type)
         if instance_id:
             query_params += (instance_id,)
         rows = self.query("""SELECT s.signal_id, s.economic_position_id,
@@ -416,7 +429,7 @@ class PlatformControlRepository:
                           query_params)
         cutoff_rows = self.query("""SELECT value FROM platform.system_metadata
                                    WHERE key = %s""",
-                                 ("context.entry_only_outcome_cutoff",))
+                                 (cutoff_metadata_key,)) if cutoff_metadata_key else []
         cutoff = cutoff_rows[0]["value"] if cutoff_rows else {}
         if isinstance(cutoff, str):
             cutoff = json.loads(cutoff)
@@ -445,11 +458,11 @@ class PlatformControlRepository:
                 "entry_price": row["entry_price"],
                 "status": outcome_status,
             }
+            realized_r = float(row["realized_r"]) if row["realized_r"] is not None else None
             if outcome_status == "OPEN":
                 symbol_data["open"] += 1
                 open_positions.append(position)
-            else:
-                realized_r = float(row["realized_r"])
+            elif realized_r is not None:
                 realized_values.append(realized_r)
                 symbol_data["closed"] += 1
                 symbol_data["realized_r"] += realized_r
@@ -462,16 +475,19 @@ class PlatformControlRepository:
                 })
             activity.append({
                 "timestamp": row["updated_at"],
-                "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+                "strategy_id": strategy_id,
                 "symbol": symbol,
                 "event_type": outcome_status,
                 "economic_position_id": row["economic_position_id"],
-                "metadata": {"signal_id": row["signal_id"], "outcome_type": "ENTRY_ONLY"},
+                "metadata": {"signal_id": row["signal_id"], "outcome_type": outcome_type},
             })
 
-        closed_count = len(closed_positions)
+        closed_count = len(realized_values)
         target_count = sum(row["status"] == "TARGET_HIT" for row in rows)
         stopped_count = sum(row["status"] == "STOPPED" for row in rows)
+        time_exit_count = sum(row["status"] == "TIME_EXIT" for row in rows)
+        expired_count = sum(row["status"] == "EXPIRED" for row in rows)
+        invalidated_count = sum(row["status"] == "INVALIDATED" for row in rows)
         realized_total = sum(realized_values)
         count = len(rows)
         cutoff_utc = cutoff.get("cutoff_utc") if isinstance(cutoff, dict) else None
@@ -480,11 +496,11 @@ class PlatformControlRepository:
             "found": True,
             "report": {
                 "identity": {
-                    "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+                    "strategy_id": strategy_id,
                     "strategy_instance_id": instance_id,
-                    "display_name": "Context Structure Retrace",
+                    "display_name": display_name or strategy_id,
                     "strategy_version": "V1",
-                    "observability_version": "entry-only-outcomes.v1",
+                    "observability_version": observability_version,
                     "sample_boundary": cutoff_utc,
                     "observed_at": observed_at,
                 },
@@ -493,12 +509,15 @@ class PlatformControlRepository:
                     "observability_timestamp": observed_at,
                     "kill_switch": False,
                 },
-                "sample": {"scope": "CANONICAL_POST_T0_ENTRY_SIGNALS" if instance_id is None else "CANONICAL_POST_T0_ENTRY_SIGNALS_INSTANCE", "boundary": cutoff_utc},
+                "sample": {"scope": "CANONICAL_ENTRY_SIGNALS" if instance_id is None else "CANONICAL_ENTRY_SIGNALS_INSTANCE", "boundary": cutoff_utc},
                 "funnel": [
                     {"stage": "ENTRY_SIGNALS", "label": "Canonical Entry Signals", "count": count},
                     {"stage": "OPEN", "label": "Open", "count": len(open_positions)},
                     {"stage": "TARGET_HIT", "label": "Target Hit", "count": target_count},
                     {"stage": "STOPPED", "label": "Stopped", "count": stopped_count},
+                    {"stage": "TIME_EXIT", "label": "Time Exit", "count": time_exit_count},
+                    {"stage": "EXPIRED", "label": "Expired", "count": expired_count},
+                    {"stage": "INVALIDATED", "label": "Invalidated", "count": invalidated_count},
                 ],
                 "performance": {
                     "trades": closed_count,
@@ -507,9 +526,9 @@ class PlatformControlRepository:
                     "breakevens": 0,
                     "open": len(open_positions),
                     "realized_r": realized_total,
-                    "expectancy_r": realized_total / closed_count if closed_count else None,
-                    "win_rate": target_count / closed_count if closed_count else None,
-                    "loss_rate": stopped_count / closed_count if closed_count else None,
+                    "expectancy_r": realized_total / len(realized_values) if realized_values else None,
+                    "win_rate": target_count / len(realized_values) if realized_values else None,
+                    "loss_rate": stopped_count / len(realized_values) if realized_values else None,
                 },
                 "symbols": list(by_symbol.values()),
                 "open_positions": open_positions,
@@ -517,12 +536,39 @@ class PlatformControlRepository:
                 "rejection_reasons": [],
                 "data_quality": {"gap_status": "NOT_TRACKED"},
                 "recent_activity": sorted(activity, key=lambda item: item["timestamp"], reverse=True)[:50],
-                "extension": {"kind": "CONTEXT_STRUCTURE_RETRACE_V1"},
+                "extension": {"kind": strategy_id},
                 "outcome_authority": "canonical_postgres",
-                "outcome_type": "ENTRY_ONLY",
-                "outcome_schema_version": "015",
+                "outcome_type": outcome_type,
+                "outcome_schema_version": "031" if outcome_type == "LIQUIDITY_ENTRY" else "015",
             },
         }
+
+    def context_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "CONTEXT_STRUCTURE_RETRACE_V1", "ENTRY_ONLY", instance_id,
+            cutoff_metadata_key="context.entry_only_outcome_cutoff",
+            display_name="Context Structure Retrace",
+            observability_version="entry-only-outcomes.v1",
+        )
+
+    def liquidity_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "LIQUIDITY_DISPLACEMENT_SCALP_V1", "LIQUIDITY_ENTRY", instance_id,
+            display_name="Liquidity Displacement Scalp",
+            observability_version="liquidity-entry-outcomes.v1",
+        )
+
+
+STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
+    "CONTEXT_STRUCTURE_RETRACE_V1": {
+        "reader": "context_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
+    },
+    "LIQUIDITY_DISPLACEMENT_SCALP_V1": {
+        "reader": "liquidity_entry_outcome_report",
+        "outcome_type": "LIQUIDITY_ENTRY",
+    },
+}
 
 
 class PlatformControlApi:
@@ -871,16 +917,15 @@ class PlatformControlApi:
                     if page is None:
                         return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
                     return 200, self._body(page, source="canonical_postgres")
-                if (len(parts) == 4 and parts[1] == "instances" and parts[3] == "report"
-                        and parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1"):
+                report_config = STRATEGY_REPORT_REGISTRY.get(parts[0]) if parts else None
+                if len(parts) == 4 and parts[1] == "instances" and parts[3] == "report" and report_config:
                     page = self.strategy_catalog.instance_page(parts[0], parts[2])
                     if page is None:
                         return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
-                    report = self.repository.context_entry_outcome_report(instance_id=parts[2])
+                    report = getattr(self.repository, report_config["reader"])(instance_id=parts[2])
                     return 200, self._body(report, source="canonical_postgres")
-                if (parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1" and len(parts) == 2
-                        and parts[1] == "report"):
-                    report = self.repository.context_entry_outcome_report()
+                if len(parts) == 2 and parts[1] == "report" and report_config:
+                    report = getattr(self.repository, report_config["reader"])()
                     return 200, self._body(report, source="canonical_postgres")
                 return 503, self._body(None, source="canonical_platform", status="UNAVAILABLE",
                                        error="SOURCE_UNAVAILABLE", message="Canonical strategy observability data is not available")
