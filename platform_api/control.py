@@ -400,16 +400,20 @@ class PlatformControlRepository:
             GROUP BY linkage""")
         return {row["linkage"]: int(row["n"]) for row in rows}
 
-    def context_entry_outcome_report(self) -> dict[str, Any]:
-        """Build the Context ENTRY_ONLY report strictly from PostgreSQL rows."""
+    def context_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        """Build the Context ENTRY_ONLY report, optionally scoped to one instance."""
+        signal_scope = " AND s.strategy_instance_id = %s" if instance_id else ""
+        query_params: tuple[Any, ...] = ("CONTEXT_STRUCTURE_RETRACE_V1", "ENTRY_ONLY")
+        if instance_id:
+            query_params += (instance_id,)
         rows = self.query("""SELECT s.signal_id, s.economic_position_id,
                     s.instrument, s.direction, s.entry_price, s.decision_time,
                     o.status, o.realized_r, o.exit_timestamp, o.updated_at
                 FROM strategy.entry_signals AS s
                 JOIN strategy.entry_signal_outcomes AS o USING (signal_id)
                 WHERE s.strategy_id = %s AND o.outcome_type = %s
-                ORDER BY s.decision_time, s.signal_id""",
-                          ("CONTEXT_STRUCTURE_RETRACE_V1", "ENTRY_ONLY"))
+                """ + signal_scope + " ORDER BY s.decision_time, s.signal_id""",
+                          query_params)
         cutoff_rows = self.query("""SELECT value FROM platform.system_metadata
                                    WHERE key = %s""",
                                  ("context.entry_only_outcome_cutoff",))
@@ -477,6 +481,7 @@ class PlatformControlRepository:
             "report": {
                 "identity": {
                     "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+                    "strategy_instance_id": instance_id,
                     "display_name": "Context Structure Retrace",
                     "strategy_version": "V1",
                     "observability_version": "entry-only-outcomes.v1",
@@ -488,7 +493,7 @@ class PlatformControlRepository:
                     "observability_timestamp": observed_at,
                     "kill_switch": False,
                 },
-                "sample": {"scope": "CANONICAL_POST_T0_ENTRY_SIGNALS", "boundary": cutoff_utc},
+                "sample": {"scope": "CANONICAL_POST_T0_ENTRY_SIGNALS" if instance_id is None else "CANONICAL_POST_T0_ENTRY_SIGNALS_INSTANCE", "boundary": cutoff_utc},
                 "funnel": [
                     {"stage": "ENTRY_SIGNALS", "label": "Canonical Entry Signals", "count": count},
                     {"stage": "OPEN", "label": "Open", "count": len(open_positions)},
@@ -866,6 +871,13 @@ class PlatformControlApi:
                     if page is None:
                         return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
                     return 200, self._body(page, source="canonical_postgres")
+                if (len(parts) == 4 and parts[1] == "instances" and parts[3] == "report"
+                        and parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1"):
+                    page = self.strategy_catalog.instance_page(parts[0], parts[2])
+                    if page is None:
+                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                    report = self.repository.context_entry_outcome_report(instance_id=parts[2])
+                    return 200, self._body(report, source="canonical_postgres")
                 if (parts[0] == "CONTEXT_STRUCTURE_RETRACE_V1" and len(parts) == 2
                         and parts[1] == "report"):
                     report = self.repository.context_entry_outcome_report()

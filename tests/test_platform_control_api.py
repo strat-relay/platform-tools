@@ -38,6 +38,12 @@ class FakeStrategyCatalog:
         return [{"instance_id": "phase6", "strategy_id": strategy_id,
                  "display_name": "test instance", "enabled": False}]
 
+    def instance_page(self, strategy_id, instance_id):
+        self._ok()
+        if strategy_id == "CONTEXT_STRUCTURE_RETRACE_V1" and instance_id == "phase6":
+            return {"instance_id": instance_id, "strategy_id": strategy_id}
+        return None
+
 
 class FakeRepository:
     def __init__(self, *, unavailable: bool = False):
@@ -81,10 +87,12 @@ class FakeRepository:
                 "mt5_order_send_attempted": 0, "broker_orders_accepted": 0,
                 "broker_fills_observed": 0, "rejected": 0, "blocked": 0}
 
-    def context_entry_outcome_report(self):
+    def context_entry_outcome_report(self, instance_id=None):
         self._ok()
         return {"found": True, "report": {"outcome_authority": "canonical_postgres",
                                             "outcome_type": "ENTRY_ONLY",
+                                            "identity": {"strategy_instance_id": instance_id,
+                                                         "observed_at": "2026-10-04T00:00:00Z"},
                                             "performance": {"trades": 10, "open": 1}}}
 
     def trade_manager_summary(self):
@@ -251,6 +259,19 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(body["data"]["report"]["outcome_authority"], "canonical_postgres")
         self.assertEqual(body["data"]["report"]["outcome_type"], "ENTRY_ONLY")
 
+    def test_context_instance_report_is_supported_and_scoped(self):
+        status, body = self.make_api().execute(
+            "GET", "/api/v1/strategies/CONTEXT_STRUCTURE_RETRACE_V1/instances/phase6/report")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "canonical_postgres")
+        self.assertEqual(body["data"]["report"]["identity"]["strategy_instance_id"], "phase6")
+
+    def test_context_instance_report_unknown_instance_is_not_found(self):
+        status, body = self.make_api().execute(
+            "GET", "/api/v1/strategies/CONTEXT_STRUCTURE_RETRACE_V1/instances/missing/report")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"], "RESOURCE_NOT_FOUND")
+
     def test_strategy_file_is_never_consulted(self):
         api = self.make_api()
         api.strategy_config_path = "/path/that/must/not/be/read/runtime/execution/state.json"
@@ -351,11 +372,15 @@ class PlatformControlApiTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertEqual(body["status"], "UNAVAILABLE")
 
-    def test_reports_are_explicitly_unavailable_not_falsely_empty(self):
-        for path in ("/api/v1/reports", "/api/v1/reports/report-1"):
-            status, body = self.make_api().execute("GET", path)
-            self.assertEqual(status, 503)
-            self.assertEqual(body["error"], "SOURCE_UNAVAILABLE")
+    def test_reports_use_the_canonical_context_projection(self):
+        status, body = self.make_api().execute("GET", "/api/v1/reports")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["source"], "canonical_postgres")
+        self.assertEqual(body["data"][0]["id"], "context-entry-outcomes")
+
+        status, body = self.make_api().execute("GET", "/api/v1/reports/report-1")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"], "RESOURCE_NOT_FOUND")
 
     def test_unknown_api_path_does_not_fall_back(self):
         status, body = self.make_api().execute("GET", "/api/v1/not-a-route")
