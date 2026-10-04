@@ -842,6 +842,12 @@ class PlatformControlApi:
                 from .strategy_catalog import InstanceNotFound, InstanceRevisionConflict
                 expected = payload.pop("expectedRevision", None)
                 updated_by = str(payload.pop("updatedBy", "control-api"))
+                if "enabledSetupEvents" in payload:
+                    payload["enabled_setup_events"] = payload.pop("enabledSetupEvents")
+                if "timeExitMinutes" in payload:
+                    payload["time_exit_minutes"] = payload.pop("timeExitMinutes")
+                if "reentryEnabled" in payload:
+                    payload["reentry_enabled"] = payload.pop("reentryEnabled")
                 row = self.strategy_catalog.set_instance_policy(
                     policy[0], policy[1], payload, expected_revision=expected, updated_by=updated_by)
                 return 200, self._body(row, source="canonical_postgres")
