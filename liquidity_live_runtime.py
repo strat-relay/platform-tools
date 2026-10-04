@@ -82,10 +82,49 @@ def open_liquidity_entries(conn: Any) -> list[dict[str, Any]]:
                 for sid, iid, instrument, symbol, direction, entry, stop, target, decision_time in cur.fetchall()]
 
 
+def ensure_open_liquidity_outcomes(conn: Any) -> int:
+    """Create the initial OPEN outcome for every unprojected Liquidity signal.
+
+    Signal publication and outcome projection are separate tables, so this is
+    intentionally idempotent and also repairs signals created before the
+    initial-outcome hook existed.  Terminal outcomes are never overwritten.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO strategy.entry_signal_outcomes
+                (signal_id, outcome_type, status, source)
+                SELECT s.signal_id, 'LIQUIDITY_ENTRY', 'OPEN',
+                       'LIQUIDITY_DISPLACEMENT_SCALP_V1'
+                FROM strategy.entry_signals s
+                WHERE s.strategy_id = 'LIQUIDITY_DISPLACEMENT_SCALP_V1'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM strategy.entry_signal_outcomes o
+                      WHERE o.signal_id = s.signal_id
+                  )
+                ON CONFLICT (signal_id) DO NOTHING""", ())
+        return max(0, getattr(cur, "rowcount", 0))
+
+
+def ensure_open_liquidity_outcome(conn: Any, signal_id: str) -> bool:
+    """Create one initial OPEN outcome after a signal is published."""
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO strategy.entry_signal_outcomes
+                (signal_id, outcome_type, status, source)
+                SELECT signal_id, 'LIQUIDITY_ENTRY', 'OPEN',
+                       'LIQUIDITY_DISPLACEMENT_SCALP_V1'
+                FROM strategy.entry_signals
+                WHERE signal_id = %s
+                  AND strategy_id = 'LIQUIDITY_DISPLACEMENT_SCALP_V1'
+                ON CONFLICT (signal_id) DO NOTHING""", (signal_id,))
+        return getattr(cur, "rowcount", 0) == 1
+
+
 def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]:
     """Monitor already-entered trades without consulting membership state."""
     terminal: list[str] = []
-    for row in open_liquidity_entries(conn):
+    entries = open_liquidity_entries(conn)
+    audit("open_entries_loaded", runner="liquidity-live", count=len(entries),
+          signal_ids=[row["signal_id"] for row in entries])
+    for row in entries:
         try:
             snapshot = snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
         except MarketDataUnavailable as exc:
@@ -103,6 +142,9 @@ def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]
         if project_liquidity_outcome(row["signal_id"], status=outcome.status,
                                      realized_r=outcome.realized_r, exit_timestamp=outcome.exit_timestamp,
                                      connect_fn=lambda: conn):
+            audit("outcome_projected", runner="liquidity-live", signal_id=row["signal_id"],
+                  status=outcome.status, realized_r=outcome.realized_r,
+                  exit_timestamp=outcome.exit_timestamp)
             terminal.append(row["signal_id"])
     return terminal
 
@@ -142,6 +184,8 @@ class LiquidityLiveRuntime:
         membership_statuses: dict[str, dict[str, Any]] = {}
         audit("runner_cycle_started", runner="liquidity-live", evaluation_time=evaluation_time)
         self.heartbeat()
+        backfilled = ensure_open_liquidity_outcomes(self.conn)
+        audit("open_outcomes_backfilled", runner="liquidity-live", count=backfilled)
         terminal = monitor_open_liquidity_entries(self.conn, self.snapshot_reader)
         audit("open_entries_monitored", runner="liquidity-live", terminal_outcomes=terminal,
               terminal_count=len(terminal))
@@ -183,6 +227,10 @@ class LiquidityLiveRuntime:
                 if signal is None:
                     continue
                 _, inserted = self.publisher.publish(signal)
+                open_created = ensure_open_liquidity_outcome(self.conn, signal.signal_id)
+                audit("outcome_open_projected", runner="liquidity-live",
+                      strategy_id=signal.strategy_id, signal_id=signal.signal_id,
+                      inserted=inserted, created=open_created)
                 audit("signal_persisted", runner="liquidity-live", strategy_id=signal.strategy_id,
                       instance_id=signal.strategy_instance_id, signal_id=signal.signal_id,
                       canonical_instrument=signal.canonical_symbol,
