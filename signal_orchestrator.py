@@ -150,7 +150,14 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
     adapters = []
     for record in registry.enabled():
         if record["strategy_id"] == "CONTEXT_STRUCTURE_RETRACE_V1":
-            adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp))
+            instances = [x for x in config.get("instances", [])
+                         if x.get("strategy_id") == record["strategy_id"] and x.get("enabled")]
+            # Context currently has one audited instance. Pass its live policy into
+            # the adapter; the adapter applies policy only to newly discovered signals.
+            if instances:
+                adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp, instances[0]))
+            else:
+                adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp))
         elif record["strategy_id"] == "LIQUIDITY_DISPLACEMENT_SCALP_V1":
             # The parent owns the adapter family.  Enabled children are persisted as
             # strategy instances and each keeps an isolated state/dedupe namespace.

@@ -15,9 +15,12 @@ class ContextStructureRetraceAdapter:
     strategy_id = "CONTEXT_STRUCTURE_RETRACE_V1"
     strategy_version = "V1"
 
-    def __init__(self, root: Path, freeze_timestamp: str):
+    def __init__(self, root: Path, freeze_timestamp: str, instance: dict[str, Any] | None = None):
         self.root = root
         self.freeze_timestamp = freeze_timestamp
+        self.instance = instance or {}
+        self.policy = self.instance.get("instance_policy") or {}
+        self.active_instruments = set(self.instance.get("active_instruments") or [])
         # Phase6's active producer writes the compact runtime.  Do not fall
         # back to the removed legacy full-state file: doing so hides a live
         # source failure as an empty/old pipeline.
@@ -58,6 +61,14 @@ class ContextStructureRetraceAdapter:
                 geometry = position.get("geometry") or {}
                 direction = setup.get("direction") or position.get("direction")
                 symbol = setup.get("symbol") or position.get("symbol")
+                pattern = setup.get("pattern")
+                enabled_patterns = self.policy.get("enabled_setup_events")
+                if enabled_patterns and pattern not in set(enabled_patterns):
+                    continue
+                if self.active_instruments and symbol not in self.active_instruments:
+                    continue
+                if self.policy.get("reentry_enabled") is False and position.get("reentry_type") not in (None, "INITIAL"):
+                    continue
                 created = datetime.now(timezone.utc).isoformat()
                 source_provenance = setup.get("provenance") or {}
                 position_provenance = position.get("provenance") or {}
@@ -74,13 +85,17 @@ class ContextStructureRetraceAdapter:
                     target_distance=target_distance(position.get("executable_paper_entry"), position.get("target")), target_r=geometry.get("target_R"),
                     timeframe="M15", lower_timeframe="M5", higher_timeframes=("H1", "H4"),
                     entry_mechanism=tuple(position.get("entry_mechanisms", [])),
-                    strategy_metadata={"pattern": setup.get("pattern"), "reentry_type": position.get("reentry_type"),
-                                       "v1_status": position.get("status")},
+                    strategy_metadata={"pattern": pattern, "reentry_type": position.get("reentry_type"),
+                                       "v1_status": position.get("status"),
+                                       "instance_policy_revision": self.policy.get("revision", 0),
+                                       "time_exit_minutes": self.policy.get("time_exit_minutes")},
                     decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     signal_emitted_at=created,
                     provenance={"source_process": "context_structure_retrace_forward.py", "source_pid": None,
                                 "source_state_reference": str(self.state_path), "source_strategy_fingerprint": "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc",
                                 "source_config_hash": "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e",
+                                "instance_policy_revision": self.policy.get("revision", 0),
+                                "instance_policy_fingerprint": self.policy.get("fingerprint"),
                                 "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",
                                 "orchestrator_freeze_timestamp": self.freeze_timestamp,
                                 # These fields are copied when supplied by a
