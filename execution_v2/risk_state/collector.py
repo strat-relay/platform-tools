@@ -32,6 +32,7 @@ MAX_SOURCE_ERRORS = 20
 CONFIRMED_ATTEMPT_STATES = frozenset({"CONFIRMED"})
 NOT_EXECUTED_ATTEMPT_STATES = frozenset({"REJECTED", "FENCED", "NOT_SENT", "CANCELLED", "FAILED"})
 _LOG = logging.getLogger(__name__)
+REFERENCE_CACHE_MAX_AGE_SECONDS = 900.0
 
 
 class RiskStateCollector:
@@ -111,8 +112,14 @@ class RiskStateCollector:
             # symbol the reference cycle has not seen yet, instead of waiting up to its interval.
             known = set(self.store.read_references())
             for symbol in sorted({p.provider_symbol for p in positions} - known):
-                self.store.write_reference(symbol, normalize_reference(
-                    self.read_tool("mt5_symbol_info", {"symbol": symbol}), symbol))
+                cached = self.store.read_market_metadata(symbol, max_age=REFERENCE_CACHE_MAX_AGE_SECONDS, now=at)
+                if cached is not None:
+                    _LOG.info("risk_reference_cache_hit symbol=%s source=market_data_cache", symbol)
+                    reference = normalize_reference(cached, symbol)
+                else:
+                    _LOG.info("risk_reference_cache_miss symbol=%s source=read_bridge", symbol)
+                    reference = normalize_reference(self.read_tool("mt5_symbol_info", {"symbol": symbol}), symbol)
+                self.store.write_reference(symbol, reference)
 
             def apply(snapshot):
                 snapshot.equity, snapshot.balance = equity, float(balance) if balance is not None else None
@@ -149,8 +156,15 @@ class RiskStateCollector:
                 _LOG.info("risk_reference_symbol_started index=%d/%d symbol=%s",
                           index, len(ordered_symbols), symbol)
                 try:
-                    payload = self.read_tool("mt5_symbol_info", {"symbol": symbol})
-                    reference = normalize_reference(payload, symbol)
+                    cached = self.store.read_market_metadata(symbol, max_age=REFERENCE_CACHE_MAX_AGE_SECONDS, now=at)
+                    if cached is not None:
+                        _LOG.info("risk_reference_cache_hit index=%d/%d symbol=%s source=market_data_cache",
+                                  index, len(ordered_symbols), symbol)
+                        reference = normalize_reference(cached, symbol)
+                    else:
+                        _LOG.info("risk_reference_cache_miss index=%d/%d symbol=%s source=read_bridge",
+                                  index, len(ordered_symbols), symbol)
+                        reference = normalize_reference(self.read_tool("mt5_symbol_info", {"symbol": symbol}), symbol)
                     self.store.write_reference(symbol, reference)
                 except Exception:
                     _LOG.exception("risk_reference_symbol_failed index=%d/%d symbol=%s elapsed_ms=%.1f",
@@ -171,8 +185,10 @@ class RiskStateCollector:
         """One scheduler pass: run each due collection (fast early on a refresh request)."""
         now, ran = self.clock(), {}
         refresh = self.store.take_refresh_request()
-        for component, collect in (("reference", self.collect_reference), ("fast", self.collect_fast),
-                                   ("history", self.collect_history)):
+        # Critical account/history state gets first access to the serialized read bridge. Reference
+        # metadata normally comes from the shared market-data cache and is last-resort bridge work.
+        for component, collect in (("fast", self.collect_fast), ("history", self.collect_history),
+                                   ("reference", self.collect_reference)):
             due = now - self._last_run.get(component, float("-inf")) >= self.intervals[component]
             if due or (refresh and component in ("fast", "history")):
                 ran[component] = collect()

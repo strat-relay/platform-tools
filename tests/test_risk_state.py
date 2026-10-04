@@ -380,6 +380,15 @@ class FreshnessAndSnapshotTests(RiskStateTestCase):
         self.assertTrue(self.collector.collect_fast())
         self.assertIn("BTCUSDm", self.store.read_references())
 
+    def test_reference_uses_fresh_market_metadata_before_read_bridge(self):
+        for symbol, info in (("ETHUSDm", REFERENCE["ETHUSDm"]), ("EURUSDm", REFERENCE["EURUSDm"])):
+            self.redis.set(f"md:meta:{symbol}", json.dumps({"symbol_info": info, "observed_at": T}))
+        self.broker.fail = "mt5_symbol_info"
+
+        self.assertTrue(self.collector.collect_reference())
+        self.assertNotIn("mt5_symbol_info", self.broker.calls)
+        self.assertEqual(set(self.store.read_references()), {"ETHUSDm", "EURUSDm"})
+
     def test_open_position_on_a_symbol_without_metadata_is_not_guessed(self):
         self.collect()
         self.broker.positions = [{**BTC_POSITION, "symbol": "XAUUSDm"}]   # broker has no metadata for it
