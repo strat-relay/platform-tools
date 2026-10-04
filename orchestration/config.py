@@ -102,11 +102,19 @@ def load_config_from_database(conn: Any) -> dict[str, Any]:
 
 def load_instances_from_database(conn: Any) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
-        cur.execute("""SELECT instance_id, strategy_id, display_name, enabled, attributes
-                       FROM platform.strategy_instance ORDER BY strategy_id, instance_id""")
-        return [{**_json(attrs), "instance_id": iid, "strategy_id": sid,
-                 "display_name": display_name, "enabled": bool(enabled)}
-                for iid, sid, display_name, enabled, attrs in cur.fetchall()]
+        cur.execute("""SELECT i.instance_id, i.strategy_id, i.display_name, i.enabled, i.attributes,
+                              coalesce(array_agg(m.canonical_instrument) FILTER (WHERE m.state = 'ACTIVE'), '{}')
+                       FROM platform.strategy_instance i
+                       LEFT JOIN strategy.instrument_membership m
+                         ON m.strategy_instance_id = i.instance_id AND m.strategy_id = i.strategy_id
+                       GROUP BY i.instance_id, i.strategy_id, i.display_name, i.enabled, i.attributes
+                       ORDER BY i.strategy_id, i.instance_id""")
+        rows = cur.fetchall()
+        # Keep local/fake database adapters compatible while the canonical schema rolls out.
+        return [{**_json(row[4]), "instance_id": row[0], "strategy_id": row[1],
+                 "display_name": row[2], "enabled": bool(row[3]),
+                 "active_instruments": list(row[5] or []) if len(row) >= 6 else []}
+                for row in rows]
 
 
 def refresh_lifecycle(config: dict[str, Any], *, connect_fn: Any = None) -> dict[str, Any]:

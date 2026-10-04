@@ -678,6 +678,17 @@ class PlatformControlApi:
             return parts[0], parts[2]
         return None
 
+    @staticmethod
+    def _instance_policy_route(path: str) -> tuple[str, str] | None:
+        """.../instances/{instanceId}/policy -> (strategyId, instanceId)."""
+        prefix = "/api/v1/strategies/"
+        if not path.startswith(prefix):
+            return None
+        parts = [unquote(p) for p in path[len(prefix):].split("/")]
+        if len(parts) == 4 and parts[1] == "instances" and parts[3] == "policy" and parts[0] and parts[2]:
+            return parts[0], parts[2]
+        return None
+
     def _save_instance_lifecycle(self, strategy_id: str, instance_id: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
         from .strategy_catalog import (InstanceNotFound, InstanceRevisionConflict, LifecycleNotEnforced,
                                        ParameterSetNotPublished)
@@ -811,6 +822,44 @@ class PlatformControlApi:
             if method != "POST":
                 return 405, self._body(None, source="platform", error="METHOD_NOT_ALLOWED")
             return self._save_instance_lifecycle(*lifecycle, body)
+        policy = self._instance_policy_route(path)
+        if policy is not None:
+            if method == "GET":
+                try:
+                    page = self.strategy_catalog.instance_page(policy[0], policy[1])
+                    if page is None:
+                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                    return 200, self._body(page.get("instance_policy", {}), source="canonical_postgres")
+                except CanonicalSourceUnavailable as exc:
+                    return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
+                                           error="SOURCE_UNAVAILABLE", message=str(exc))
+            if method != "POST":
+                return 405, self._body(None, source="platform", error="METHOD_NOT_ALLOWED")
+            try:
+                payload = json.loads((body or b"{}").decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("request body must be a JSON object")
+                from .strategy_catalog import InstanceNotFound, InstanceRevisionConflict
+                expected = payload.pop("expectedRevision", None)
+                updated_by = str(payload.pop("updatedBy", "control-api"))
+                if "enabledSetupEvents" in payload:
+                    payload["enabled_setup_events"] = payload.pop("enabledSetupEvents")
+                if "timeExitMinutes" in payload:
+                    payload["time_exit_minutes"] = payload.pop("timeExitMinutes")
+                if "reentryEnabled" in payload:
+                    payload["reentry_enabled"] = payload.pop("reentryEnabled")
+                row = self.strategy_catalog.set_instance_policy(
+                    policy[0], policy[1], payload, expected_revision=expected, updated_by=updated_by)
+                return 200, self._body(row, source="canonical_postgres")
+            except InstanceNotFound as exc:
+                return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND", message=str(exc))
+            except InstanceRevisionConflict as exc:
+                return 409, self._body(None, source="canonical_postgres", error="REVISION_CONFLICT", message=str(exc))
+            except (ValueError, json.JSONDecodeError) as exc:
+                return 400, self._body(None, source="canonical_postgres", error="INVALID_REQUEST", message=str(exc))
+            except CanonicalSourceUnavailable as exc:
+                return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
+                                       error="SOURCE_UNAVAILABLE", message=str(exc))
         if method == "POST" and path == self.V2_RISK_POLICY_PATH:
             return self.v2_risk_api.save(body)
         if path == self.V2_AUTHORITY_PATH:

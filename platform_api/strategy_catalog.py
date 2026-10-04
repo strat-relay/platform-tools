@@ -10,7 +10,9 @@ Outcome coverage is explicit: signals with no canonical outcome row are counted 
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+import hashlib
+import json
 from typing import Any, Callable
 
 from postgres.db import connect
@@ -122,6 +124,36 @@ STRATEGY_LIFECYCLE_ENFORCEMENT = "Signal orchestrator refreshes parent strategy 
 LIFECYCLE_NOT_ENFORCED_REASON = ("The runtime for this strategy does not read instance enablement yet; "
                                  "ONLINE/OFFLINE would not change what it evaluates")
 
+# These are intentionally operational instance controls, not a replacement for a frozen
+# StrategyVersion.  They live in strategy_instance.attributes so the existing revision-checked
+# instance write path and the orchestrator's every-cycle refresh can consume the same record.
+INSTANCE_POLICY_DEFAULTS = {
+    "enabled_setup_events": None,
+    "time_exit_minutes": None,
+    "reentry_enabled": True,
+}
+SETUP_EVENTS = frozenset({"BULLISH_ENGULFING", "BEARISH_ENGULFING", "MORNING_STAR",
+                          "EVENING_STAR", "BULLISH_REJECTION_WICK", "BEARISH_REJECTION_WICK"})
+
+
+def _policy_fingerprint(policy: dict[str, Any]) -> str:
+    encoded = json.dumps(policy, sort_keys=True, separators=(",", ":"), default=str).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def instance_policy(attributes: dict[str, Any]) -> dict[str, Any]:
+    raw = attributes.get("instance_policy") if isinstance(attributes, dict) else None
+    values = dict(INSTANCE_POLICY_DEFAULTS)
+    if isinstance(raw, dict):
+        values.update({key: raw[key] for key in INSTANCE_POLICY_DEFAULTS if key in raw})
+        values["revision"] = int(raw.get("revision", 0))
+        values["effective_at"] = raw.get("effective_at")
+        values["updated_by"] = raw.get("updated_by")
+    else:
+        values.update({"revision": 0, "effective_at": None, "updated_by": None})
+    values["fingerprint"] = _policy_fingerprint({key: values[key] for key in INSTANCE_POLICY_DEFAULTS})
+    return values
+
 # Friendly labels for known instance parameters (attributes); unknown keys are shown as-is.
 _PARAMETER_LABELS = {"symbol": "Symbol", "target_r": "Target (R)", "entry_fraction": "Entry fraction",
                      "max_hold_minutes": "Max hold (min)"}
@@ -189,6 +221,7 @@ def _instance(row: dict[str, Any], execution: dict[str, Any] | None,
         "revision": int(row["revision"]), "created_at": row["created_at"], "updated_at": row["updated_at"],
         "updated_by": row["updated_by"],
         "attributes": attributes, "parameters": _parameters(attributes),
+        "instance_policy": instance_policy(attributes),
         "instruments": {"active": instruments, "active_count": len(instruments),
                         "disabled_count": int(row["instruments_disabled"]), "source": "INSTRUMENT_MEMBERSHIP"},
         "stats": {"scope": "STRATEGY_INSTANCE", "signals": int(row["signals"]),
@@ -436,6 +469,70 @@ class StrategyCatalogRepository:
             })
             return page
         return self._run(read)
+
+    def set_instance_policy(self, strategy_id: str, instance_id: str, patch: dict[str, Any], *,
+                            expected_revision: Any, updated_by: str) -> dict[str, Any]:
+        """Revision-checked update of safe instance controls.
+
+        The policy applies to new strategy decisions. Existing trades retain the policy
+        captured with their entry; trade-manager enforcement of time exits is a separate
+        boundary and must not be inferred from this write alone.
+        """
+        if not isinstance(patch, dict) or not patch:
+            raise ValueError("at least one instance policy field is required")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            raise ValueError("expectedRevision (integer) is required")
+        if not updated_by.strip():
+            raise ValueError("updatedBy is required")
+        unknown = set(patch) - set(INSTANCE_POLICY_DEFAULTS)
+        if unknown:
+            raise ValueError(f"unsupported instance policy fields: {', '.join(sorted(unknown))}")
+        if "enabled_setup_events" in patch:
+            events = patch["enabled_setup_events"]
+            if events is not None or not isinstance(events, list):
+                if not isinstance(events, list) or not all(isinstance(x, str) and x in SETUP_EVENTS for x in events):
+                    raise ValueError("enabled_setup_events must contain only supported setup event names")
+                if len(set(events)) != len(events):
+                    raise ValueError("enabled_setup_events must not contain duplicates")
+        if "time_exit_minutes" in patch:
+            value = patch["time_exit_minutes"]
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                raise ValueError("time_exit_minutes must be null or a positive integer")
+        if "reentry_enabled" in patch and not isinstance(patch["reentry_enabled"], bool):
+            raise ValueError("reentry_enabled must be boolean")
+        try:
+            with self._connect(readonly=False) as conn:
+                with conn.cursor() as cur:
+                    self._require_instances(cur)
+                    cur.execute("""SELECT attributes, revision FROM platform.strategy_instance
+                                   WHERE strategy_id = %s AND instance_id = %s FOR UPDATE""",
+                                (strategy_id, instance_id))
+                    row = cur.fetchone()
+                    if row is None:
+                        raise InstanceNotFound(f"{strategy_id}/{instance_id} does not exist")
+                    if int(row[1]) != expected_revision:
+                        raise InstanceRevisionConflict(
+                            f"revision conflict: expected {expected_revision}, current {row[1]}")
+                    attributes = row[0] if isinstance(row[0], dict) else {}
+                    current = instance_policy(attributes)
+                    next_policy = {key: current[key] for key in INSTANCE_POLICY_DEFAULTS}
+                    next_policy.update(patch)
+                    next_policy.update({"revision": int(row[1]) + 1,
+                                        "effective_at": datetime.now(timezone.utc).isoformat(),
+                                        "updated_by": updated_by.strip()})
+                    attributes = {**attributes, "instance_policy": next_policy}
+                    cur.execute("""UPDATE platform.strategy_instance
+                                   SET attributes = %s::jsonb, revision = revision + 1,
+                                       updated_at = now(), updated_by = %s
+                                   WHERE strategy_id = %s AND instance_id = %s""",
+                                (json.dumps(attributes), updated_by.strip(), strategy_id, instance_id))
+                conn.commit()
+        except (InstanceNotFound, InstanceRevisionConflict, CanonicalSourceUnavailable):
+            raise
+        except Exception as exc:
+            raise CanonicalSourceUnavailable(f"canonical PostgreSQL strategy instance policy write unavailable: {exc}") from exc
+        return self._run(lambda cur: self._instances(
+            cur, "WHERE i.strategy_id = %s AND i.instance_id = %s", (strategy_id, instance_id))[0])
 
     def set_instance_lifecycle(self, strategy_id: str, instance_id: str, state: str, *,
                                expected_revision: Any, updated_by: str) -> dict[str, Any]:
