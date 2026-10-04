@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import json
 import math
+import logging
 import urllib.error
 import urllib.request
+from time import monotonic
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -31,6 +33,7 @@ from ..fence import FenceGrant, WriteAuthorization
 _ERROR_CLASSES = {cls.__name__: cls for cls in
                   (InvalidSignature, ExpiredGrant, ExpiredAuthorization, StaleGeneration,
                    WrongAccount, RequestFingerprintMismatch)}
+_LOG = logging.getLogger(__name__)
 
 
 class BridgeUnreachable(RuntimeError):
@@ -168,13 +171,36 @@ class HttpBridgeFenceClient:
         return rows
 
     def _mcp(self, body: dict[str, Any], *, headers: dict[str, str], endpoint: str | None = None) -> dict[str, Any]:
+        target = endpoint or self.base_url
+        params = body.get("params") if isinstance(body.get("params"), dict) else {}
+        tool = params.get("name", "unknown")
+        arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+        # Log only safe request context. In particular, never log headers, signatures, or the
+        # complete arguments because execution requests can contain sensitive authorization data.
+        safe_context = {key: arguments[key] for key in ("symbol", "limit") if key in arguments}
+        request_id = body.get("id")
+        started = monotonic()
+        _LOG.info("bridge_request_started endpoint=%s request_id=%s tool=%s args=%s timeout_s=%.3f",
+                  target, request_id, tool, safe_context, self.timeout_s)
         data = json.dumps(body).encode("utf-8")
         try:
-            req = urllib.request.Request(endpoint or self.base_url, data=data, method="POST", headers=headers)
+            req = urllib.request.Request(target, data=data, method="POST", headers=headers)
             with urllib.request.urlopen(req, timeout=self.timeout_s) as response:
-                return json.loads(response.read().decode("utf-8"))
+                raw = response.read()
+                elapsed_ms = (monotonic() - started) * 1000
+                _LOG.info("bridge_request_completed endpoint=%s request_id=%s tool=%s status=%s bytes=%d elapsed_ms=%.1f",
+                          target, request_id, tool, response.status, len(raw), elapsed_ms)
+                return json.loads(raw.decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            elapsed_ms = (monotonic() - started) * 1000
+            _LOG.warning("bridge_request_http_error endpoint=%s request_id=%s tool=%s status=%s elapsed_ms=%.1f",
+                         target, request_id, tool, exc.code, elapsed_ms)
+            raise BridgeUnreachable(f"real bridge at {target} returned HTTP {exc.code}") from exc
         except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
-            raise BridgeUnreachable(f"real bridge at {self.base_url} is unreachable: {exc}") from exc
+            elapsed_ms = (monotonic() - started) * 1000
+            _LOG.warning("bridge_request_failed endpoint=%s request_id=%s tool=%s error_type=%s elapsed_ms=%.1f error=%s",
+                         target, request_id, tool, type(exc).__name__, elapsed_ms, exc)
+            raise BridgeUnreachable(f"real bridge at {target} is unreachable: {exc}") from exc
 
     @staticmethod
     def _raise_bridge_error(message: str) -> None:
