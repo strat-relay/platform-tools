@@ -20,7 +20,11 @@ class ContextStructureRetraceAdapter:
         self.freeze_timestamp = freeze_timestamp
         self.instance = instance or {}
         self.policy = self.instance.get("instance_policy") or {}
-        self.active_instruments = set(self.instance.get("active_instruments") or [])
+        # Membership rows are canonical (BTCUSD), while the forward producer's state uses
+        # provider symbols (BTCUSDm). Store the membership set canonically and normalize the
+        # producer symbol before applying the runtime filter.
+        self.active_instruments = {self._canonical_instrument(symbol)
+                                   for symbol in self.instance.get("active_instruments") or []}
         # Phase6's active producer writes the compact runtime.  Do not fall
         # back to the removed legacy full-state file: doing so hides a live
         # source failure as an empty/old pipeline.
@@ -34,6 +38,12 @@ class ContextStructureRetraceAdapter:
         if isinstance(value, (int, float)):
             return int(value)
         return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+
+    @staticmethod
+    def _canonical_instrument(symbol: Any) -> Any:
+        if isinstance(symbol, str) and symbol.endswith("m"):
+            return symbol[:-1]
+        return symbol
 
     def discover_new_signals(self, seen_signal_ids: set[str]) -> list[StrategySignal]:
         state = json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -61,11 +71,12 @@ class ContextStructureRetraceAdapter:
                 geometry = position.get("geometry") or {}
                 direction = setup.get("direction") or position.get("direction")
                 symbol = setup.get("symbol") or position.get("symbol")
+                canonical_symbol = self._canonical_instrument(symbol)
                 pattern = setup.get("pattern")
                 enabled_patterns = self.policy.get("enabled_setup_events")
                 if enabled_patterns and pattern not in set(enabled_patterns):
                     continue
-                if self.active_instruments and symbol not in self.active_instruments:
+                if self.active_instruments and canonical_symbol not in self.active_instruments:
                     continue
                 if self.policy.get("reentry_enabled") is False and position.get("reentry_type") not in (None, "INITIAL"):
                     continue
@@ -78,7 +89,7 @@ class ContextStructureRetraceAdapter:
                     source_event_id=source_event_id, market_event_id=setup.get("market_event_id"), setup_id=setup.get("setup_id"),
                     entry_opportunity_id=position.get("entry_opportunity_id"), economic_position_id=position.get("economic_position_id"),
                     created_at=created, signal_timestamp=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
-                    symbol=symbol, canonical_symbol=symbol.rstrip("m") if symbol else symbol, broker_symbol_hint=symbol,
+                    symbol=symbol, canonical_symbol=canonical_symbol, broker_symbol_hint=symbol,
                     direction=direction, entry_type="MARKET_PAPER_OBSERVATION",
                     entry_price=float(position.get("executable_paper_entry")), stop_price=float(position.get("stop")),
                     target_price=float(position.get("target")), risk_distance=float(geometry.get("stop_distance") or 0),
