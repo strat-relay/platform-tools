@@ -31,6 +31,7 @@ class FakeBridge:
 
     def __init__(self, clock):
         self.clock, self.calls, self.revised, self.down, self.frozen_forming = clock, [], {}, False, None
+        self.stale_quote = False
         self.reject_full_snapshot = False
 
     def __call__(self, tool, args):
@@ -43,7 +44,8 @@ class FakeBridge:
         if tool == "mt5_symbol_info":
             return {"symbol": symbol, "tick_size": 0.00001, "digits": 5}
         if tool == "mt5_quote":
-            return {"symbol": symbol, "bid": 1.1, "ask": 1.1002, "time": int(self.clock())}
+            quote_time = int(self.clock()) - 60 if self.stale_quote else int(self.clock())
+            return {"symbol": symbol, "bid": 1.1, "ask": 1.1002, "time": quote_time}
         assert tool == "mt5_symbol_snapshot", tool
         if self.reject_full_snapshot and args["limit"] == 321:
             return {"healthy": False, "source_read_health": False,
@@ -235,6 +237,12 @@ class MetadataAndQuoteTests(MarketDataCacheTest):
             client.quote("EURUSDm")
         client.rates("EURUSDm", "M5", limit=1)
         passthrough.rates.assert_called_once_with("EURUSDm", "M5", limit=1)
+
+    def test_stale_broker_quotes_are_not_written(self):
+        self.collector.quote_symbols = lambda: ["BTCUSDm"]
+        self.bridge.stale_quote = True
+        self.collector.tick()
+        self.assertIsNone(self.store.quote("BTCUSDm"))
 
 
 class IntegrationTests(unittest.TestCase):
