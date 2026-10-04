@@ -14,7 +14,7 @@ Environment:
     MARKET_DATA_BRIDGE_CB_HALF_OPEN_PROBES=1
 
 Bar symbols: every ACTIVE strategy instrument membership with an ACTIVE MT5 mapping. Quote
-symbols: instruments of OPEN managed trades plus MARKET_QUOTE_SYMBOLS. Metadata symbols: the V2
+symbols: active strategy instruments, instruments of OPEN managed trades, plus MARKET_QUOTE_SYMBOLS. Metadata symbols: the V2
 risk policy's allowed symbols. It only reads the bridge and PostgreSQL.
 """
 from __future__ import annotations
@@ -58,10 +58,13 @@ def main() -> None:
 
     def quote_symbols() -> list[str]:
         extra = [s.strip() for s in os.getenv("MARKET_QUOTE_SYMBOLS", "").split(",") if s.strip()]
-        return extra + rows("""SELECT DISTINCT p.provider_symbol FROM trade_management.managed_trade t
-                               JOIN platform.instrument_provider_mapping p
-                                 ON p.canonical_instrument = t.instrument AND p.provider = 'MT5' AND p.state = 'ACTIVE'
-                               WHERE t.state = 'OPEN' ORDER BY 1""")
+        open_trade_symbols = rows("""SELECT DISTINCT p.provider_symbol FROM trade_management.managed_trade t
+                                    JOIN platform.instrument_provider_mapping p
+                                      ON p.canonical_instrument = t.instrument AND p.provider = 'MT5' AND p.state = 'ACTIVE'
+                                    WHERE t.state = 'OPEN' ORDER BY 1""")
+        # A new signal needs a current quote before an open managed trade exists. Trade Manager
+        # reads md:quote, so refreshing only open-trade symbols leaves new entries uncovered.
+        return sorted(set(bar_symbols() + open_trade_symbols + extra))
 
     def metadata_symbols() -> list[str]:
         return rows("""SELECT DISTINCT p.provider_symbol FROM execution_v2.risk_policy_allowed_symbol a

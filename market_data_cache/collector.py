@@ -57,6 +57,7 @@ class MarketDataCollector:
                  full_limit: int = 321, incremental_limit: int = 8, boundary_grace: float = 2.0,
                  retry_seconds: float = 5.0, max_retries: int = 3,
                  metadata_interval: float = 300.0, quote_interval: float = 2.0, max_quotes_per_pass: int = 10,
+                 quote_max_age: float | None = None,
                  clock: Callable[[], float] = time.time,
                  bridge_breaker: BridgeCircuitBreaker | None = None,
                  bridge_max_inflight: int | None = None):
@@ -65,6 +66,8 @@ class MarketDataCollector:
         self.full_limit, self.incremental_limit = full_limit, incremental_limit
         self.boundary_grace, self.retry_seconds, self.max_retries = boundary_grace, retry_seconds, max_retries
         self.metadata_interval, self.quote_interval, self.max_quotes_per_pass = metadata_interval, quote_interval, max_quotes_per_pass
+        self.quote_max_age = (float(os.getenv("MARKET_QUOTE_MAX_AGE_SECONDS", "15"))
+                              if quote_max_age is None else quote_max_age)
         self.clock = clock
         self.bridge_breaker = bridge_breaker or BridgeCircuitBreaker(
             failure_threshold=int(os.getenv("MARKET_DATA_BRIDGE_CB_FAILURE_THRESHOLD", "3")),
@@ -396,9 +399,23 @@ class MarketDataCollector:
             except Exception as exc:
                 self._failure_telemetry(symbol, self.store.state(symbol), exc)
                 continue
-            if isinstance(quote, dict) and not quote.get("error"):
-                self.store.set_quote(symbol, quote, now)
-                refreshed.append(symbol)
+            if not isinstance(quote, dict) or quote.get("error"):
+                continue
+            try:
+                quote_time = float(quote["time"])
+            except (KeyError, TypeError, ValueError):
+                log.warning("%s", json.dumps({"event": "market_quote_rejected", "provider_symbol": symbol,
+                                               "reason": "missing_timestamp"}, sort_keys=True))
+                continue
+            quote_age = now - quote_time
+            if quote_age < -5 or quote_age > self.quote_max_age:
+                log.warning("%s", json.dumps({"event": "market_quote_rejected", "provider_symbol": symbol,
+                                               "reason": "stale_timestamp" if quote_age >= 0 else "future_timestamp",
+                                               "quote_time": quote_time, "quote_age_seconds": quote_age,
+                                               "max_age_seconds": self.quote_max_age}, sort_keys=True))
+                continue
+            self.store.set_quote(symbol, quote, now)
+            refreshed.append(symbol)
         return refreshed
 
     # ---- scheduler ---------------------------------------------------------------------------
