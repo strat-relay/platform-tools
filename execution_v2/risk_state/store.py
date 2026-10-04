@@ -149,6 +149,24 @@ class RedisRiskStateStore:
         raw = self.redis.hgetall(self.key("reference")) or {}
         return {_text(k): json.loads(v) for k, v in raw.items()}
 
+    def read_market_metadata(self, provider_symbol: str, *, max_age: float, now: float | None = None) -> dict[str, Any] | None:
+        """Read fresh symbol metadata published by the shared market-data collector.
+
+        The market-data collector and risk collector use the same Redis database. This is a
+        cache-only optimization: callers must still fail closed when metadata is missing, stale,
+        or malformed and may fall back to the read bridge.
+        """
+        raw = self.redis.get(f"md:meta:{provider_symbol}")
+        if raw is None:
+            return None
+        payload = json.loads(raw)
+        observed_at = float(payload.get("observed_at", 0))
+        current = self.clock() if now is None else now
+        if current - observed_at > max_age:
+            return None
+        value = payload.get("symbol_info")
+        return value if isinstance(value, dict) else None
+
     # ---- collector health ----------------------------------------------------------------
     def read_health(self) -> dict[str, Any]:
         raw = self.redis.get(self.key("health"))
