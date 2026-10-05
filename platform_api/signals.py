@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -320,6 +322,35 @@ class CanonicalSignalRepository:
         except Exception as exc:
             raise CanonicalSourceUnavailable("canonical PostgreSQL execution audit unavailable") from exc
 
+    @staticmethod
+    def _post_exit_research(row: dict[str, Any]) -> dict[str, Any] | None:
+        """Read the separate Context research ledger without touching canonical signal state."""
+        if row.get("strategy_id") != "CONTEXT_STRUCTURE_RETRACE_V1":
+            return None
+        path = Path(os.getenv("CONTEXT_POST_EXIT_RESEARCH_LEDGER", "/work/context_structure_retrace_post_exit.jsonl"))
+        base = {"research_only": True, "source": "context_post_exit_ledger"}
+        if not path.exists():
+            return {**base, "status": "NOT_AVAILABLE", "reason": "research ledger is not mounted"}
+        try:
+            if path.stat().st_size > 64 * 1024 * 1024:
+                return {**base, "status": "SOURCE_UNAVAILABLE", "reason": "research ledger exceeds API read bound"}
+            signal_id = row.get("signal_id")
+            trade_id = row.get("economic_position_id")
+            match = None
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                candidate = json.loads(line)
+                if ((signal_id and candidate.get("signal_id") == signal_id) or
+                        (trade_id and candidate.get("trade_id") == trade_id)):
+                    match = candidate
+            if match is None:
+                return {**base, "status": "NOT_OBSERVED", "reason": "no stopped-trade observation matches this signal"}
+            status = "DATA_GAP" if match.get("record_type") == "CONTEXT_STOPPED_POST_EXIT_DATA_GAP" else "AVAILABLE"
+            return {**base, "status": status, "record": match}
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            return {**base, "status": "SOURCE_UNAVAILABLE", "reason": f"{type(exc).__name__}: research ledger could not be read"}
+
     def list_signals(self, query: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         try:
             limit = int(query.get("limit", DEFAULT_LIMIT))
@@ -381,6 +412,7 @@ class CanonicalSignalRepository:
         audit = self._execution_audit([signal_id], full=True)
         if rows:
             rows[0]["executionEvaluations"] = audit.get(signal_id, [])
+            rows[0]["postExitResearch"] = self._post_exit_research(rows[0])
         return rows[0] if rows else None
 
 

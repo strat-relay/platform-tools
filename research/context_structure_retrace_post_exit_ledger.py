@@ -219,6 +219,7 @@ def observe_stopped_trade(position: dict[str, Any], bars_by_timeframe: dict[str,
             summary["observation_complete"] for summary in summaries.values() if summary["bars_observed"]
         ),
         "coverage_note": "M5/M15 bars begin after the exit candle to avoid pre-exit leakage; missing bars are not interpolated",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
     }
     record["record_hash"] = _json_hash(record)
     return record
