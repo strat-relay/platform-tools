@@ -14,7 +14,7 @@ from typing import Any, Awaitable, Callable
 from infrastructure.messaging.contracts import EventEnvelope
 from migration.flags import ExecutionAuthorityMode
 
-from ..intent import EntrySignalRecordMissing
+from ..intent import EntrySignalRecordMissing, RetryableRiskState
 from ..worker import ExecutionOutcome, ExecutionWorker
 from ..trace import emit as trace_emit
 
@@ -71,4 +71,6 @@ class ExecutionSignalConsumer:
                 return True
             except EntrySignalRecordMissing:
                 return False  # caller applies retry-with-backoff, matching P4's open consumer
+            except RetryableRiskState:
+                return False  # collector warm-up/restart; redeliver after risk state refresh
         return await consume(_handler)

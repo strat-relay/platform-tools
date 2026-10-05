@@ -7,6 +7,7 @@ import threading
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -335,6 +336,31 @@ class PlatformSignalApiTests(unittest.TestCase):
         status, body = api.execute("GET", "/api/v1/signals/unknown")
         self.assertEqual(status, 404)
         self.assertEqual(body["error"], "RESOURCE_NOT_FOUND")
+
+    def test_context_signal_detail_adds_separate_post_exit_research(self):
+        row = {**CANONICAL_ROW, "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
+               "economic_position_id": "ep-context-1", "signal_id": "SIG_CONTEXT_RESEARCH"}
+        research = {"record_type": "CONTEXT_STOPPED_POST_EXIT_OBSERVATION", "trade_id": "ep-context-1",
+                    "post_exit_mfe_r": 1.25, "original_target_after_stop": True}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "context-research.jsonl"
+            path.write_text(json.dumps(research) + "\n", encoding="utf-8")
+            with patch.dict("os.environ", {"CONTEXT_POST_EXIT_RESEARCH_LEDGER": str(path)}):
+                api = self.make_api(rows=(row,))
+                status, body = api.execute("GET", "/api/v1/signals/SIG_CONTEXT_RESEARCH")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["postExitResearch"]["status"], "AVAILABLE")
+        self.assertEqual(body["data"]["postExitResearch"]["record"]["post_exit_mfe_r"], 1.25)
+
+    def test_non_context_signal_detail_does_not_expose_context_research(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "context-research.jsonl"
+            path.write_text(json.dumps({"trade_id": "ep-liquidity"}) + "\n", encoding="utf-8")
+            with patch.dict("os.environ", {"CONTEXT_POST_EXIT_RESEARCH_LEDGER": str(path)}):
+                api = self.make_api()
+                status, body = api.execute("GET", f"/api/v1/signals/{CANONICAL_ROW['signal_id']}")
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["data"].get("postExitResearch"))
 
     def test_postgres_unavailable_does_not_fall_back_to_legacy_jsonl(self):
         with tempfile.TemporaryDirectory() as directory:

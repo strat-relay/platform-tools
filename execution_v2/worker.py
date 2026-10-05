@@ -27,7 +27,7 @@ from .bridge_fence_types import BridgeFence
 from .fence import FenceAuthority
 from .ids import attempt_id as _attempt_id
 from .ids import execution_result_id as _execution_result_id
-from .intent import EntrySignalRecordMissing, IntentResult, create_execution_intent
+from .intent import IntentResult, create_execution_intent
 from .risk import RiskPolicy, RiskPolicyError
 from .symbols import (canonical_request_fingerprint, canonical_request_text, correlation_comment,
                       resolve_broker_symbol)
@@ -81,7 +81,8 @@ class ExecutionWorker:
                  risk_policy_provider: Callable[[], RiskPolicy] | None = None,
                  authority_provider: Callable[[], str] | None = None,
                  broker_symbol_lookup: Callable[[str], str | None] | None = None,
-                 risk_gate: Any | None = None) -> None:
+                 risk_gate: Any | None = None,
+                 retryable_risk_state: bool = False) -> None:
         if mode not in ("demo", "real"):
             raise ValueError("mode must be 'demo' or 'real'")
         self.conn = conn
@@ -98,6 +99,7 @@ class ExecutionWorker:
         # RISK_CONTEXT_SOURCE=REDIS: cached risk state + atomic reservation (execution_v2/risk_state).
         # None keeps the synchronous bridge risk_context_provider path unchanged.
         self.risk_gate = risk_gate
+        self.retryable_risk_state = retryable_risk_state
         self.resource = f"execution:{mode}:{account_id}"
 
     def _read_generation(self) -> int:
@@ -304,7 +306,8 @@ class ExecutionWorker:
         intent_result = create_execution_intent(self.conn, signal_id=signal_id, account_id=self.account_id,
                                                 risk_policy=self.risk_policy, now_utc=now_utc,
                                                 risk_context_provider=self.risk_context_provider,
-                                                risk_gate=self.risk_gate)
+                                                risk_gate=self.risk_gate,
+                                                retryable_risk_state=self.retryable_risk_state)
         if intent_result.status == "QUARANTINED" or not intent_result.eligible:
             return ExecutionOutcome("BLOCKED", intent_result, None, None, intent_result.reason)
 
