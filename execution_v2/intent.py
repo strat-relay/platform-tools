@@ -51,6 +51,15 @@ class EntrySignalRecordMissing(RuntimeError):
     trade_management.managed_trade.EntrySignalRecordMissing)."""
 
 
+class RetryableRiskState(RuntimeError):
+    """Risk state is temporarily unavailable or stale; the event must be redelivered.
+
+    This is used by the live consumer during collector warm-up or a short collector restart.
+    No blocked intent is written, so a retry can evaluate the same signal after Redis has a
+    fresh broker snapshot.
+    """
+
+
 @dataclass(frozen=True)
 class EligibilityResult:
     eligible: bool
@@ -135,7 +144,8 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                             now_utc: datetime, claimed_entry_signal_hash: str | None = None,
                             risk_context_provider: Any | None = None,
                             blocked_reason: str | None = None,
-                            risk_gate: Any | None = None) -> IntentResult:
+                            risk_gate: Any | None = None,
+                            retryable_risk_state: bool = False) -> IntentResult:
     started = time.perf_counter()
     trace_emit("INTENT_CREATION_STARTED", signal_id=signal_id, account_id=account_id)
     with transaction(conn):
@@ -171,6 +181,10 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
             risk_context, risk_decision = gate_result.context, gate_result.decision
             diagnostics, reserved_here = gate_result.diagnostics, gate_result.reserved
             if not risk_decision.permitted:
+                if retryable_risk_state and diagnostics.get("risk_context_failure", {}).get("retryable"):
+                    trace_emit("INTENT_RISK_STATE_RETRYABLE", signal_id=signal_id,
+                               reason=risk_decision.reason, diagnostics=diagnostics)
+                    raise RetryableRiskState(risk_decision.reason)
                 eligibility = EligibilityResult(False, risk_decision.reason)
                 status = "BLOCKED"
             else:

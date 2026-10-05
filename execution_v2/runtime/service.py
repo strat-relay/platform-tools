@@ -279,7 +279,8 @@ async def main_async() -> None:
                              risk_context_provider=None if risk_gate is not None else risk_context_provider,
                              risk_policy_provider=risk_policy_provider,
                              authority_provider=authority_provider,
-                             broker_symbol_lookup=symbol_lookup, risk_gate=risk_gate)
+                             broker_symbol_lookup=symbol_lookup, risk_gate=risk_gate,
+                             retryable_risk_state=risk_gate is not None)
     consumer = ExecutionSignalConsumer(worker, execution_authority_mode=config.execution_authority_mode,
                                        authority_provider=authority_provider)
 

@@ -145,6 +145,7 @@ class RiskStateCollector:
 
     def collect_reference(self) -> bool:
         def collect(at: float) -> None:
+            batch_started = time.monotonic()
             snapshot = self.store.read_snapshot()
             symbols = set(self.reference_symbols())
             symbols |= {p.provider_symbol for p in (snapshot.open_positions if snapshot else [])}
@@ -178,7 +179,7 @@ class RiskStateCollector:
                 return snap
             self.store.write_snapshot(apply)
             _LOG.info("risk_reference_batch_succeeded symbol_count=%d elapsed_ms=%.1f",
-                      len(ordered_symbols), (time.monotonic() - at) * 1000)
+                      len(ordered_symbols), (time.monotonic() - batch_started) * 1000)
         return self._run("reference", collect)
 
     def tick(self) -> dict[str, bool]:
