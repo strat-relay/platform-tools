@@ -108,6 +108,13 @@ class ContextRawOhlcEvaluator(_RawBase):
         self.setups = {str(k): dict(v) for k, v in state.get("setups", {}).items()}
         self.pattern_ids = set(state.get("pattern_ids", []))
 
+    def _entry_geometry(self, setup: dict[str, Any], bar: dict[str, Any], quote: dict[str, Any],
+                        contract: dict[str, Any]) -> dict[str, Any]:
+        spread = _spread(bar, contract, quote)
+        executable = float(setup["entry_level"]) + spread / 2 if setup["direction"] == "LONG" else float(setup["entry_level"]) - spread / 2
+        return _geometry(setup["event_bar"], setup["direction"], setup["context_snapshot"], executable, spread,
+                         setup["context_snapshot"]["timeframes"]["M15"]["ema_context"].get("atr"))
+
     def _new_setups(self, event: MarketEvent) -> list[SetupLifecycleEvent]:
         replay = _replay(self.state, event.close_timestamp)
         m15 = replay.bars_by_timeframe.get("M15", [])
@@ -147,15 +154,26 @@ class ContextRawOhlcEvaluator(_RawBase):
                 continue
             spread = _spread(bar, contract, quote)
             executable = level + spread / 2 if direction == "LONG" else level - spread / 2
-            atr_value = setup["context_snapshot"]["timeframes"]["M15"]["ema_context"].get("atr")
-            geometry = _geometry(setup["event_bar"], direction, setup["context_snapshot"], executable, spread, atr_value)
+            geometry = self._entry_geometry(setup, bar, quote, contract)
             if geometry["target_direction_state"] != "TARGET_BEYOND_ENTRY":
                 setup["status"] = "NO_REMAINING_TARGET_UNDER_CURRENT_SETUP_GEOMETRY"
                 outputs.append(SetupLifecycleEvent(setup["setup_id"], self.strategy_version.strategy_version_id, event.canonical_instrument, setup["status"], event.close_timestamp, {"geometry": geometry, "completed_candle_only": True}))
                 continue
+            if geometry.get("v2_eligible") is False:
+                setup["status"] = "RR_BELOW_MINIMUM"
+                outputs.append(SetupLifecycleEvent(setup["setup_id"], self.strategy_version.strategy_version_id,
+                                                    event.canonical_instrument, "RR_BELOW_MINIMUM", event.close_timestamp,
+                                                    {"completed_candle_only": True, "geometry": geometry,
+                                                     "rejection_reason": "RR_BELOW_MINIMUM"}))
+                continue
             signal_id = "SIG_" + fingerprint({"setup_id": setup["setup_id"], "decision": event.close_timestamp, "entry": executable, "stop": geometry["stop"], "target": geometry["effective_target"]})[:24]
             setup["status"] = "FILLED"
-            outputs.extend((SetupLifecycleEvent(setup["setup_id"], self.strategy_version.strategy_version_id, event.canonical_instrument, "ENTERED", event.close_timestamp, {"completed_candle_only": True, "entry": executable, "stop": geometry["stop"], "target": geometry["effective_target"]}), EntrySignal(signal_id, self.strategy_version.strategy_version_id, event.canonical_instrument, direction, executable, geometry["stop"], geometry["effective_target"], event.close_timestamp, "MARKET", self._expiry(event.close_timestamp), {"setup_id": setup["setup_id"], "parent_entry_semantics": "DEPTH_ONLY", "parent_stop_semantics": "ORIGINATING_SETUP_EXTREME", "parent_target_semantics": "STRUCTURE_CAPPED_EXTENSION", "completed_candle_only": True})))
+            provenance = {"setup_id": setup["setup_id"], "parent_entry_semantics": "DEPTH_ONLY", "parent_stop_semantics": "ORIGINATING_SETUP_EXTREME", "parent_target_semantics": "STRUCTURE_CAPPED_EXTENSION", "completed_candle_only": True}
+            if geometry.get("v2_eligible"):
+                provenance.update({"planned_r": geometry["target_R"], "minimum_required_r": geometry["minimum_required_r"],
+                                   "target_source": geometry.get("target_source"), "target_structure": geometry.get("target_structure"),
+                                   "rejected_target_candidates": geometry.get("rejected_target_candidates", [])})
+            outputs.extend((SetupLifecycleEvent(setup["setup_id"], self.strategy_version.strategy_version_id, event.canonical_instrument, "ENTERED", event.close_timestamp, {"completed_candle_only": True, "entry": executable, "stop": geometry["stop"], "target": geometry["effective_target"]}), EntrySignal(signal_id, self.strategy_version.strategy_version_id, event.canonical_instrument, direction, executable, geometry["stop"], geometry["effective_target"], event.close_timestamp, "MARKET", self._expiry(event.close_timestamp), provenance)))
         return outputs
 
     def consume_market_event(self, event: MarketEvent) -> tuple[SetupLifecycleEvent | EntrySignal, ...]:
@@ -165,6 +183,20 @@ class ContextRawOhlcEvaluator(_RawBase):
         outputs.extend(self._process_setups(event))
         return tuple(outputs)
 
+
+class ContextV2RawOhlcEvaluator(ContextRawOhlcEvaluator):
+    """Research/shadow V2: V1 setup lifecycle plus a structural >=1R target gate."""
+
+    VERSION = "CONTEXT_STRUCTURE_RETRACE_V2_RAW_OHLC_RESEARCH"
+    strategy_id = "CONTEXT_STRUCTURE_RETRACE_V2"
+
+    def _entry_geometry(self, setup: dict[str, Any], bar: dict[str, Any], quote: dict[str, Any],
+                        contract: dict[str, Any]) -> dict[str, Any]:
+        from context_structure_retrace_v2 import v2_geometry
+        spread = _spread(bar, contract, quote)
+        executable = float(setup["entry_level"]) + spread / 2 if setup["direction"] == "LONG" else float(setup["entry_level"]) - spread / 2
+        return v2_geometry(setup["event_bar"], setup["direction"], setup["context_snapshot"], executable, spread,
+                           setup["context_snapshot"]["timeframes"]["M15"]["ema_context"].get("atr"))
 
 class LiquidityRawOhlcEvaluator(_RawBase):
     """Liquidity adapter calling the unchanged parent candle predicate causally."""
@@ -249,5 +281,6 @@ class LiquidityRawOhlcEvaluator(_RawBase):
 
 def register_raw_ohlc_evaluators(registry: Any) -> Any:
     registry.register("context_structure_retrace_intraday_v1", ContextRawOhlcEvaluator)
+    registry.register("context_structure_retrace_v2_research", ContextV2RawOhlcEvaluator)
     registry.register("liquidity_displacement_intraday_v1", LiquidityRawOhlcEvaluator)
     return registry
