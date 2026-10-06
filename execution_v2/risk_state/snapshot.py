@@ -112,14 +112,16 @@ def normalize_orders(payload: Any, canonical_for: Any) -> list[PendingOrder]:
 
 
 def daily_loss_from_history(payload: Any, day: date) -> tuple[float, float]:
-    """(daily_realized_pnl, daily_loss) for the UTC `day`, with exactly the V2 bridge semantics:
-    daily_loss is the sum of today's losing deal results (profit + commission + swap); gains never
-    offset losses. Any row missing a timestamp or profit is malformed (never counted as zero)."""
+    """Return net daily realized P&L and net daily loss for the UTC ``day``.
+
+    Winning deals offset losing deals; a profitable day reports zero loss. Any row missing a
+    timestamp or profit is malformed (never counted as zero).
+    """
     if isinstance(payload, dict):
         payload = payload.get("deals") or payload.get("history") or payload.get("rows")
     if not isinstance(payload, list):
         raise MalformedBrokerState("HISTORY", "HISTORY_UNAVAILABLE", "broker history is unavailable")
-    realized = loss = 0.0
+    realized = 0.0
     for row in payload:
         if not isinstance(row, dict):
             raise MalformedBrokerState("HISTORY", "HISTORY_ROW_MALFORMED", "broker history row is malformed")
@@ -134,8 +136,7 @@ def daily_loss_from_history(payload: Any, day: date) -> tuple[float, float]:
             raise MalformedBrokerState("HISTORY", "HISTORY_TIMESTAMP_MALFORMED", "broker history row is malformed") from None
         if when.date() == day:
             realized += result
-            loss += min(0.0, result)
-    return realized, abs(loss)
+    return realized, max(0.0, -realized)
 
 
 def normalize_reference(symbol_info: Any, provider_symbol: str) -> dict[str, Any]:

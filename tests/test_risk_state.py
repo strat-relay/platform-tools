@@ -349,16 +349,25 @@ class FreshnessAndSnapshotTests(RiskStateTestCase):
                                              risk_gate=self.gate)
         self.assertEqual((result.status, result.reason), ("BLOCKED", "RISK_STATE_STALE"))
 
-    def test_daily_loss_semantics_are_unchanged_and_enforced(self):
+    def test_daily_loss_is_net_and_profitable_day_is_zero(self):
         today = int(T) - 60
         self.broker.history = [{"time": today, "profit": -80.0, "commission": -5.0, "swap": 0},
                                {"time": today, "profit": -20.0}, {"time": today, "profit": 500.0},
                                {"time": today - 86400, "profit": -900.0}]
         self.collect()
         snapshot = self.store.read_snapshot()
-        self.assertEqual((snapshot.daily_loss, snapshot.daily_realized_pnl), (105.0, 395.0))
+        self.assertEqual((snapshot.daily_loss, snapshot.daily_realized_pnl), (0.0, 395.0))
         result = self.evaluate(self.conn())
-        self.assertEqual(result.reason, "DAILY_LOSS_LIMIT_EXCEEDED")
+        self.assertEqual(result.status, "CREATED")
+
+    def test_net_daily_loss_excludes_prior_day_and_counts_net_deficit(self):
+        today = int(T) - 60
+        self.broker.history = [{"time": today, "profit": -80.0, "commission": -5.0, "swap": 0},
+                               {"time": today, "profit": -20.0}, {"time": today, "profit": 10.0},
+                               {"time": today - 86400, "profit": -900.0}]
+        self.collect()
+        snapshot = self.store.read_snapshot()
+        self.assertEqual((snapshot.daily_loss, snapshot.daily_realized_pnl), (95.0, -95.0))
 
     def test_position_without_a_stop_is_unbounded_exposure_not_zero(self):
         self.broker.positions = [{**BTC_POSITION, "sl": 0.0}]
