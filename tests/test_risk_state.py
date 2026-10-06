@@ -161,6 +161,32 @@ class EthusdIncidentRegressionTests(RiskStateTestCase):
         self.assertAlmostEqual(intent["approved_volume"], 1.0)
         self.assertEqual(self.reservation(conn)["status"], "RESERVED")
 
+    def test_redis_snapshot_excludes_manual_positions_and_orders_when_ownership_is_available(self):
+        manual_position = {**BTC_POSITION, "ticket": 999001}
+        manual_order = {"ticket": 999002, "symbol": "BTCUSDm", "type": 2, "volume": 0.01}
+        self.broker.positions = [manual_position]
+        self.broker.orders = [manual_order]
+        self.collector.owned_tickets = lambda: frozenset()
+
+        self.assertTrue(self.collector.collect_fast())
+        snapshot = self.store.read_snapshot()
+        self.assertEqual(snapshot.open_position_count, 0)
+        self.assertEqual(snapshot.pending_order_count, 0)
+
+    def test_redis_snapshot_keeps_only_platform_ticket_rows(self):
+        platform_position = {**BTC_POSITION, "ticket": 111001}
+        manual_position = {**BTC_POSITION, "ticket": 999001}
+        platform_order = {"ticket": 111002, "symbol": "BTCUSDm", "type": 2, "volume": 0.01}
+        manual_order = {"ticket": 999002, "symbol": "BTCUSDm", "type": 2, "volume": 0.01}
+        self.broker.positions = [platform_position, manual_position]
+        self.broker.orders = [platform_order, manual_order]
+        self.collector.owned_tickets = lambda: frozenset({"111001", "111002"})
+
+        self.assertTrue(self.collector.collect_fast())
+        snapshot = self.store.read_snapshot()
+        self.assertEqual([row.ticket for row in snapshot.open_positions], ["111001"])
+        self.assertEqual([row.ticket for row in snapshot.pending_orders], ["111002"])
+
 
 class ConcurrencyTests(RiskStateTestCase):
     def test_a_two_concurrent_signals_get_exactly_one_slot(self):
