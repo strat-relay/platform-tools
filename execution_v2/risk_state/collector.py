@@ -39,12 +39,17 @@ class RiskStateCollector:
     def __init__(self, store: RedisRiskStateStore, read_tool: Callable[[str, dict[str, Any]], Any], *,
                  canonical_for: Callable[[str], str | None],
                  reference_symbols: Callable[[], list[str]],
+                 owned_tickets: Callable[[], frozenset[str]] | None = None,
                  fast_interval: float = 10.0, history_interval: float = 30.0, reference_interval: float = 300.0,
                  clock: Callable[[], float] = time.time):
         self.store = store
         self.read_tool = read_tool
         self.canonical_for = canonical_for
         self.reference_symbols = reference_symbols
+        # When supplied, this is the durable ownership boundary for execution risk.  The bridge
+        # path already applies the same boundary; Redis must not turn unrelated/manual account
+        # rows into platform exposure or concurrency.
+        self.owned_tickets = owned_tickets
         self.intervals = {"fast": fast_interval, "history": history_interval, "reference": reference_interval}
         self.clock = clock
         self.health: dict[str, Any] = store.read_health() or {}
@@ -103,8 +108,19 @@ class RiskStateCollector:
     def collect_fast(self) -> bool:
         def collect(at: float) -> None:
             account = self.read_tool("mt5_account_info", {})
-            positions = normalize_positions(self.read_tool("mt5_positions", {}), self.canonical_for)
-            orders = normalize_orders(self.read_tool("mt5_orders", {}), self.canonical_for)
+            all_positions = normalize_positions(self.read_tool("mt5_positions", {}), self.canonical_for)
+            all_orders = normalize_orders(self.read_tool("mt5_orders", {}), self.canonical_for)
+            if self.owned_tickets is None:
+                # Kept for isolated callers/tests that do not have the durable execution store.
+                # Production always supplies owned_tickets from PostgreSQL.
+                positions, orders = all_positions, all_orders
+            else:
+                owned = self.owned_tickets()
+                positions = [row for row in all_positions if row.ticket in owned]
+                orders = [row for row in all_orders if row.ticket in owned]
+                _LOG.info("risk_fast_ticket_scope broker_positions=%d platform_positions=%d "
+                          "broker_orders=%d platform_orders=%d",
+                          len(all_positions), len(positions), len(all_orders), len(orders))
             if not isinstance(account, dict) or account.get("equity") is None:
                 raise MalformedBrokerState("ACCOUNT", "EQUITY_MISSING", "broker account equity is missing")
             equity, balance = float(account["equity"]), account.get("balance")

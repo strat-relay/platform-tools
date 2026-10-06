@@ -34,6 +34,7 @@ def main() -> None:
     from postgres.db import connect
     from ..risk_policy_store import read_effective_policy
     from ..runtime.bridge_client import HttpBridgeFenceClient
+    from ..runtime.service import platform_broker_tickets
     from ..symbols import SymbolMappingError, catalog_symbol_lookup, resolve_broker_symbol
     from .collector import RiskStateCollector, attempt_states_from_postgres
     from .snapshot import account_ref
@@ -80,6 +81,7 @@ def main() -> None:
 
     collector = RiskStateCollector(
         store, read_tool, canonical_for=canonical_for, reference_symbols=reference_symbols,
+        owned_tickets=lambda: platform_broker_tickets(connect_fn, account_id),
         fast_interval=_seconds("RISK_FAST_REFRESH_SECONDS", 10.0),
         history_interval=_seconds("RISK_HISTORY_REFRESH_SECONDS", 30.0),
         reference_interval=_seconds("RISK_REFERENCE_REFRESH_SECONDS", 300.0))
