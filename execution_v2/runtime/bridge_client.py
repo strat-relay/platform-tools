@@ -277,7 +277,7 @@ class HttpBridgeFenceClient:
             history = history.get("deals") or history.get("history") or history.get("rows")
         if not isinstance(history, list):
             raise BridgeUnreachable("broker history is unavailable")
-        daily_loss = 0.0
+        daily_realized_pnl = 0.0
         for row in history:
             if not isinstance(row, dict):
                 raise BridgeUnreachable("broker history row is malformed")
@@ -288,7 +288,7 @@ class HttpBridgeFenceClient:
             try:
                 when = datetime.fromtimestamp(float(stamp), tz=timezone.utc) if isinstance(stamp, (int, float)) else datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
                 if when.date() == day:
-                    daily_loss += min(0.0, float(pnl) + float(row.get("commission", 0) or 0) + float(row.get("swap", 0) or 0))
+                    daily_realized_pnl += float(pnl) + float(row.get("commission", 0) or 0) + float(row.get("swap", 0) or 0)
             except (TypeError, ValueError):
                 raise BridgeUnreachable("broker history timestamp is malformed")
         position_rows = positions if isinstance(positions, list) else positions.get("positions") if isinstance(positions, dict) else None
@@ -317,7 +317,7 @@ class HttpBridgeFenceClient:
             "broker": {"tick_size": float(symbol["tick_size"]), "tick_value": float(symbol["tick_value"]),
                         "volume_min": float(symbol["min_lot"]), "volume_max": float(symbol["max_lot"]),
                         "volume_step": float(symbol["lot_step"])},
-            "state": {"daily_loss": abs(daily_loss), "concurrent_positions": len(own_positions),
+            "state": {"daily_loss": max(0.0, -daily_realized_pnl), "concurrent_positions": len(own_positions),
                       "concurrent_orders": len(own_orders), "account_exposure": exposure, "canary_used": 0},
             "positions": {"platform": len(own_positions), "manual": len(position_rows) - len(own_positions),
                           "platform_orders": len(own_orders), "manual_orders": len(order_rows) - len(own_orders),
