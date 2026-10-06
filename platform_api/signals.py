@@ -332,18 +332,20 @@ class CanonicalSignalRepository:
         if not path.exists():
             return {**base, "status": "NOT_AVAILABLE", "reason": "research ledger is not mounted"}
         try:
-            if path.stat().st_size > 64 * 1024 * 1024:
-                return {**base, "status": "SOURCE_UNAVAILABLE", "reason": "research ledger exceeds API read bound"}
             signal_id = row.get("signal_id")
             trade_id = row.get("economic_position_id")
             match = None
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                candidate = json.loads(line)
-                if ((signal_id and candidate.get("signal_id") == signal_id) or
-                        (trade_id and candidate.get("trade_id") == trade_id)):
-                    match = candidate
+            # This is an append-only JSONL research ledger and can grow well beyond the API
+            # response size. Stream it instead of loading it all into memory or rejecting it by
+            # total file size; the latest matching record remains the authoritative observation.
+            with path.open("r", encoding="utf-8") as ledger:
+                for line in ledger:
+                    if not line.strip():
+                        continue
+                    candidate = json.loads(line)
+                    if ((signal_id and candidate.get("signal_id") == signal_id) or
+                            (trade_id and candidate.get("trade_id") == trade_id)):
+                        match = candidate
             if match is None:
                 return {**base, "status": "NOT_OBSERVED", "reason": "no stopped-trade observation matches this signal"}
             status = "DATA_GAP" if match.get("record_type") == "CONTEXT_STOPPED_POST_EXIT_DATA_GAP" else "AVAILABLE"
