@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -30,12 +31,20 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
 
 
+def _epoch(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    from datetime import datetime
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+
+
 class DecisionLedger:
     """Write hash-chained JSONL records; an existing ledger cannot be truncated."""
 
-    def __init__(self, path: Path, *, capture_hash: str):
+    def __init__(self, path: Path, *, capture_hash: str, t0: str | int | float | None = None):
         self.path = path
         self.capture_hash = capture_hash
+        self.t0 = t0 if t0 is not None else os.environ.get("CONTEXT_T0")
         self.previous_hash = self._last_hash()
 
     def _last_hash(self) -> str | None:
@@ -53,7 +62,7 @@ class DecisionLedger:
         if missing:
             raise ValueError(f"missing decision fields: {', '.join(missing)}")
         payload = {**record, "schema": SCHEMA, "capture_hash": self.capture_hash,
-                   "previous_record_hash": self.previous_hash}
+                   "capture_t0": self.t0, "previous_record_hash": self.previous_hash}
         payload["record_hash"] = hashlib.sha256(_canonical(payload)).hexdigest()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as stream:
@@ -111,8 +120,16 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "max_drawdown_r": _max_drawdown(rs), "signals_per_day": None}
 
 
-def report(path: Path) -> dict[str, Any]:
+def report(path: Path, *, t0: str | int | float | None = None) -> dict[str, Any]:
     rows = _records(path)
+    boundary = t0 if t0 is not None else os.environ.get("CONTEXT_T0")
+    if boundary is None:
+        boundary = next((row.get("capture_t0") for row in rows if row.get("capture_t0") is not None), None)
+    if boundary is None:
+        raise ValueError("T0 boundary is required for a V1/V2 report")
+    boundary_epoch = _epoch(boundary)
+    historical_count = sum(_epoch(row["decision_timestamp"]) < boundary_epoch for row in rows)
+    rows = [row for row in rows if _epoch(row["decision_timestamp"]) >= boundary_epoch]
     by_strategy = defaultdict(list)
     for row in rows:
         by_strategy[row["strategy_id"]].append(row)
@@ -131,6 +148,8 @@ def report(path: Path) -> dict[str, Any]:
         buckets[label] = _metrics([row for row in v2 if row.get("planned_r") is not None and
                                    float(row["planned_r"]) >= lower and (upper is None or float(row["planned_r"]) < upper)])
     return {"schema": "context-v1-v2-comparison-report-v1", "ledger": str(path),
+            "t0": boundary, "historical_records_excluded": historical_count,
+            "experiment_records": len(rows),
             "v1": _metrics(v1), "v2": _metrics(v2), "v1_removed_by_v2": _metrics(removed),
             "v2_by_instrument_direction": breakdown, "v2_by_planned_r_bucket": buckets,
             "research_only": True, "broker_writes": 0}
@@ -140,8 +159,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("ledger", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--t0", default=None)
     args = parser.parse_args()
-    payload = json.dumps(report(args.ledger), indent=2, sort_keys=True) + "\n"
+    payload = json.dumps(report(args.ledger, t0=args.t0), indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(payload, encoding="utf-8")
     else:
