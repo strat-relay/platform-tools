@@ -35,6 +35,8 @@ def register_builtin_evaluators(registry: StrategyEvaluatorRegistry) -> Strategy
     """Register research evaluators without creating any production strategy state."""
     from .kojo_wedge import EVALUATOR_KEY, KojoWedgeEvaluator
     registry.register(EVALUATOR_KEY, KojoWedgeEvaluator)
+    from .kojo_structure_reclaim import EVALUATOR_KEY as KSR_KEY, KojoStructureReclaimEvaluator
+    registry.register(KSR_KEY, KojoStructureReclaimEvaluator)
     from .raw_ohlc_adapters import register_raw_ohlc_evaluators
     register_raw_ohlc_evaluators(registry)
     return registry

@@ -22,6 +22,12 @@ from .kojo_wedge import (
     kojo_wedge_parameter_schema,
     write_kojo_wedge_diagnostic_artifact,
 )
+from .kojo_structure_reclaim import (
+    EVALUATOR_KEY as KOJO_STRUCTURE_RECLAIM_EVALUATOR_KEY,
+    KojoStructureReclaimEvaluator,
+    kojo_structure_reclaim_baseline_parameter_set,
+    kojo_structure_reclaim_parameter_schema,
+)
 from .parity import assert_live_replay_parity
 
 __all__ = [
@@ -31,4 +37,6 @@ __all__ = [
     "assert_live_replay_parity", "register_builtin_evaluators", "KojoWedgeEvaluator",
     "kojo_wedge_parameter_schema", "kojo_wedge_baseline_parameter_set",
     "kojo_wedge_diagnostic_artifact", "write_kojo_wedge_diagnostic_artifact",
+    "KOJO_STRUCTURE_RECLAIM_EVALUATOR_KEY", "KojoStructureReclaimEvaluator",
+    "kojo_structure_reclaim_parameter_schema", "kojo_structure_reclaim_baseline_parameter_set",
 ]
