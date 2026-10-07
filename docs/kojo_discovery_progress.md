@@ -270,6 +270,8 @@ BROKER_WRITES=0
 ```
 BASE_COMMIT=1418304
 BRANCH=feat/kojo-discovery-backtest
+COMMIT=4989adc
+PR=https://github.com/strat-relay/platform-tools/pull/115
 
 PR113_BASE=feat/dynamic-strategy-creation-pipeline
 PR113_DEPENDS_ON_PR111=true
