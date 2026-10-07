@@ -1,6 +1,6 @@
 # KOJO_STRUCTURE_RECLAIM_V1 Discovery Backtest Progress
 
-## Status: COMPLETE (pending causal test confirmation)
+## Status: COMPLETE
 
 ---
 
@@ -235,8 +235,10 @@ NO_LOOKAHEAD_PASS=true
   Behavioral: event_timestamp and decision_timestamp verified ≤ event.close_timestamp at each step
   Structural: _confirmed_swings() uses prev H1 close_ts as as_of bound (code inspection ✓)
 
-PREFIX_INVARIANCE_PASS=pending_test_run
-  (causal_tests.py running in background)
+PREFIX_INVARIANCE_PASS=true
+  Engine test (PREFIX_END=2026-07-20): all 507 prefix signals match in full run
+  Spot check (PREFIX_END=2026-07-15): 321 signals; 1 apparent boundary signal correctly
+  excluded because its H1 break bar closes at 2026-07-16 00:00:00 (outside prefix window)
 
 DETERMINISTIC_RERUN_PASS=true
   Run-1 fingerprint: 70d44c192082f90941e69a6e88879fc6f769afe392018c75cf778b0259f332e9
@@ -320,7 +322,7 @@ MEDIAN_PLANNED_RR=0.3075
 MEDIAN_HOLD_MINUTES=15
 
 NO_LOOKAHEAD_PASS=true
-PREFIX_INVARIANCE_PASS=pending_confirmation
+PREFIX_INVARIANCE_PASS=true
 DETERMINISTIC_RERUN_PASS=true
 HISTORICAL_LIVE_EVALUATOR_PARITY_PASS=true
 
