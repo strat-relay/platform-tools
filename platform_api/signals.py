@@ -322,15 +322,15 @@ class CanonicalSignalRepository:
         except Exception as exc:
             raise CanonicalSourceUnavailable("canonical PostgreSQL execution audit unavailable") from exc
 
-    # Incremental index for the append-only post-exit research ledger.
-    # Keyed by (signal_id, trade_id) → latest matching record.  Rebuilt only when
-    # the file grows beyond the byte offset we last scanned.
-    _post_exit_index: dict[str, Any] = {}       # signal_id or trade_id → latest record
+    # Offset index for the append-only post-exit research ledger.
+    # Stores byte offsets only (not records) so memory cost is O(n_signals) not O(file_size).
+    # On lookup we seek to the stored offset and read one line.
+    _post_exit_index: dict[str, int] = {}       # signal_id or trade_id → byte offset of latest line
     _post_exit_scanned: int = 0                 # byte offset scanned so far
 
     @classmethod
     def _refresh_post_exit_index(cls, path: Path) -> None:
-        """Extend the in-process index with any bytes appended since last scan."""
+        """Extend the offset index with any bytes appended since last scan."""
         try:
             current_size = path.stat().st_size
         except OSError:
@@ -340,23 +340,22 @@ class CanonicalSignalRepository:
         try:
             with path.open("rb") as f:
                 f.seek(cls._post_exit_scanned)
-                chunk = f.read(current_size - cls._post_exit_scanned)
+                offset = cls._post_exit_scanned
+                for raw_line in f:
+                    stripped = raw_line.strip()
+                    if stripped:
+                        try:
+                            record = json.loads(stripped)
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            offset += len(raw_line)
+                            continue
+                        if sid := record.get("signal_id"):
+                            cls._post_exit_index[sid] = offset
+                        if tid := record.get("trade_id"):
+                            cls._post_exit_index[tid] = offset
+                    offset += len(raw_line)
             cls._post_exit_scanned = current_size
-            # chunk may start mid-line if a previous scan ended on a partial write;
-            # split on newlines and skip the first fragment if offset was mid-line.
-            for line in chunk.decode("utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if sid := record.get("signal_id"):
-                    cls._post_exit_index[sid] = record
-                if tid := record.get("trade_id"):
-                    cls._post_exit_index[tid] = record
-        except (OSError, UnicodeError):
+        except OSError:
             pass
 
     @classmethod
@@ -372,9 +371,12 @@ class CanonicalSignalRepository:
             cls._refresh_post_exit_index(path)
             signal_id = row.get("signal_id")
             trade_id = row.get("economic_position_id")
-            match = cls._post_exit_index.get(signal_id) or cls._post_exit_index.get(trade_id)
-            if match is None:
+            file_offset = cls._post_exit_index.get(signal_id) or cls._post_exit_index.get(trade_id)
+            if file_offset is None:
                 return {**base, "status": "NOT_OBSERVED", "reason": "no stopped-trade observation matches this signal"}
+            with path.open("rb") as f:
+                f.seek(file_offset)
+                match = json.loads(f.readline())
             status = "DATA_GAP" if match.get("record_type") == "CONTEXT_STOPPED_POST_EXIT_DATA_GAP" else "AVAILABLE"
             return {**base, "status": status, "record": match}
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
