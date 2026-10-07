@@ -4,7 +4,6 @@ import json
 import os
 from datetime import date, datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -322,65 +321,35 @@ class CanonicalSignalRepository:
         except Exception as exc:
             raise CanonicalSourceUnavailable("canonical PostgreSQL execution audit unavailable") from exc
 
-    # Offset index for the append-only post-exit research ledger.
-    # Stores byte offsets only (not records) so memory cost is O(n_signals) not O(file_size).
-    # On lookup we seek to the stored offset and read one line.
-    _post_exit_index: dict[str, int] = {}       # signal_id or trade_id → byte offset of latest line
-    _post_exit_scanned: int = 0                 # byte offset scanned so far
-
-    @classmethod
-    def _refresh_post_exit_index(cls, path: Path) -> None:
-        """Extend the offset index with any bytes appended since last scan."""
-        try:
-            current_size = path.stat().st_size
-        except OSError:
-            return
-        if current_size <= cls._post_exit_scanned:
-            return
-        try:
-            with path.open("rb") as f:
-                f.seek(cls._post_exit_scanned)
-                offset = cls._post_exit_scanned
-                for raw_line in f:
-                    stripped = raw_line.strip()
-                    if stripped:
-                        try:
-                            record = json.loads(stripped)
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            offset += len(raw_line)
-                            continue
-                        if sid := record.get("signal_id"):
-                            cls._post_exit_index[sid] = offset
-                        if tid := record.get("trade_id"):
-                            cls._post_exit_index[tid] = offset
-                    offset += len(raw_line)
-            cls._post_exit_scanned = current_size
-        except OSError:
-            pass
-
-    @classmethod
-    def _post_exit_research(cls, row: dict[str, Any]) -> dict[str, Any] | None:
-        """Read the separate Context research ledger without touching canonical signal state."""
+    def _post_exit_research(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        """Look up the Context post-exit observation for this signal from PostgreSQL."""
         if row.get("strategy_id") != "CONTEXT_STRUCTURE_RETRACE_V1":
             return None
-        path = Path(os.getenv("CONTEXT_POST_EXIT_RESEARCH_LEDGER", "/work/context_structure_retrace_post_exit.jsonl"))
-        base = {"research_only": True, "source": "context_post_exit_ledger"}
-        if not path.exists():
-            return {**base, "status": "NOT_AVAILABLE", "reason": "research ledger is not mounted"}
+        base = {"research_only": True, "source": "context_post_exit_db"}
+        signal_id = row.get("signal_id")
+        trade_id = row.get("economic_position_id")
         try:
-            cls._refresh_post_exit_index(path)
-            signal_id = row.get("signal_id")
-            trade_id = row.get("economic_position_id")
-            file_offset = cls._post_exit_index.get(signal_id) or cls._post_exit_index.get(trade_id)
-            if file_offset is None:
-                return {**base, "status": "NOT_OBSERVED", "reason": "no stopped-trade observation matches this signal"}
-            with path.open("rb") as f:
-                f.seek(file_offset)
-                match = json.loads(f.readline())
-            status = "DATA_GAP" if match.get("record_type") == "CONTEXT_STOPPED_POST_EXIT_DATA_GAP" else "AVAILABLE"
-            return {**base, "status": status, "record": match}
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            return {**base, "status": "SOURCE_UNAVAILABLE", "reason": f"{type(exc).__name__}: research ledger could not be read"}
+            with self._connect(readonly=True) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT payload, record_type
+                             FROM research.context_post_exit_observations
+                            WHERE signal_id = %s OR trade_id = %s
+                            ORDER BY inserted_at DESC
+                            LIMIT 1""",
+                        (signal_id, trade_id),
+                    )
+                    found = cursor.fetchone()
+        except Exception as exc:
+            return {**base, "status": "SOURCE_UNAVAILABLE", "reason": f"{type(exc).__name__}: research DB unavailable"}
+        if found is None:
+            return {**base, "status": "NOT_OBSERVED", "reason": "no stopped-trade observation matches this signal"}
+        payload, record_type = found
+        # psycopg3 returns jsonb as a dict; older drivers may return a string
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        status = "DATA_GAP" if record_type == "CONTEXT_STOPPED_POST_EXIT_DATA_GAP" else "AVAILABLE"
+        return {**base, "status": status, "record": payload}
 
     def list_signals(self, query: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         try:
