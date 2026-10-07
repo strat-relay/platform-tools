@@ -23,7 +23,7 @@ from strategy_backtest.models import MarketEvent
 from strategy_backtest.registry import StrategyEvaluatorRegistry, register_builtin_evaluators
 from strategy_backtest.parity import evaluate_sequential
 from strategy_backtest.models import ParameterSet
-from context_structure_retrace_v2 import research_parameter_set, research_strategy_version
+from context_structure_retrace_v2 import research_metadata, research_parameter_set, research_strategy_version
 
 
 def load(path: Path, symbols: set[str] | None = None) -> tuple[MarketEvent, ...]:
@@ -72,6 +72,7 @@ def run(path: Path, symbols: set[str] | None = None) -> dict:
             "timeframes": sorted({event.timeframe for event in events}),
             "v1": {"signals": len(left), "output_counts": output_counts(v1_outputs), "records": left},
             "v2": {"signals": len(right), "output_counts": output_counts(v2_outputs), "records": right},
+            "v2_metadata": research_metadata(),
             "research_only": True,
             "note": "This compares research adapters; live runner parity requires the exact live snapshot and live state-machine replay."}
 
