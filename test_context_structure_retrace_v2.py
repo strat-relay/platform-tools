@@ -68,7 +68,7 @@ class ContextStructureRetraceV2Tests(unittest.TestCase):
         with patch("context_structure_retrace_v2.v1_geometry", return_value=base):
             result = v2_geometry({}, "LONG", {}, 100.0, 0.0, None)
         self.assertFalse(result["v2_eligible"])
-        self.assertEqual(result["rejection_reason"], "RR_BELOW_MINIMUM")
+        self.assertEqual(result["rejection_reason"], "INVALID_RISK")
 
     def test_precision_is_not_ui_rounded(self):
         base = base_geometry()

@@ -7,9 +7,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
+
+# Support both `python -m research.context_structure_retrace_parity` and the documented
+# direct invocation from a checkout. This script is research-only and must not import
+# production runtime state.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from strategy_backtest.feeds import HistoricalMarketFeed
 from strategy_backtest.models import MarketEvent
@@ -44,20 +51,27 @@ def run(path: Path, symbols: set[str] | None = None) -> dict:
                                  v2.parameter_schema.schema_id, dict(parameter_set.values),
                                  {"research_only": True, "broker_writes": False})
     v1_outputs, v2_outputs = [], []
+    fingerprints = {}
     for instrument in sorted(grouped):
         feed = HistoricalMarketFeed(tuple(grouped[instrument]), dataset_id=f"{path}:{instrument}", partition="VALIDATION")
+        fingerprints[instrument] = feed.dataset_fingerprint
         v1_outputs.extend(evaluate_sequential(v1, v1_parameters, feed,
                                               register_builtin_evaluators(StrategyEvaluatorRegistry())))
         v2_outputs.extend(evaluate_sequential(v2, parameter_set, feed,
                                               register_builtin_evaluators(StrategyEvaluatorRegistry())))
     def signals(outputs):
         return [asdict(row) for row in outputs if row.__class__.__name__ == "EntrySignal"]
+    def output_counts(outputs):
+        counts = defaultdict(int)
+        for row in outputs:
+            counts[row.__class__.__name__] += 1
+        return dict(sorted(counts.items()))
     left, right = signals(v1_outputs), signals(v2_outputs)
-    return {"dataset": str(path), "dataset_fingerprint": feed.dataset_fingerprint,
+    return {"dataset": str(path), "dataset_fingerprints": fingerprints,
             "instruments": sorted({event.canonical_instrument for event in events}),
             "timeframes": sorted({event.timeframe for event in events}),
-            "v1": {"signals": len(left), "records": left},
-            "v2": {"signals": len(right), "records": right},
+            "v1": {"signals": len(left), "output_counts": output_counts(v1_outputs), "records": left},
+            "v2": {"signals": len(right), "output_counts": output_counts(v2_outputs), "records": right},
             "research_only": True,
             "note": "This compares research adapters; live runner parity requires the exact live snapshot and live state-machine replay."}
 

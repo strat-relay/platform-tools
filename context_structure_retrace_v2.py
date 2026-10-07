@@ -52,12 +52,17 @@ def select_target_candidates(base: dict[str, Any], direction: str, entry: float)
 def v2_geometry(event_bar: dict[str, Any], direction: str, snapshot: dict[str, Any], entry: float,
                 spread: float, atr_value: float | None) -> dict[str, Any]:
     base = v1_geometry(event_bar, direction, snapshot, entry, spread, atr_value)
+    risk = float(base["stop_distance"])
+    if risk <= 0:
+        return {**base, "target_candidates": [], "rejected_target_candidates": [],
+                "minimum_required_r": MIN_PLANNED_R, "v2_eligible": False,
+                "best_structural_target": None, "best_structural_target_r": None,
+                "rejection_reason": "INVALID_RISK"}
     candidates = select_target_candidates(base, direction, entry)
     for candidate in candidates:
-        risk = float(base["stop_distance"])
         signed = (candidate["target"] - entry) if direction == "LONG" else (entry - candidate["target"])
-        candidate.update({"reward_distance": signed, "planned_r": signed / risk if risk > 0 else None})
-    eligible = [row for row in candidates if row["planned_r"] is not None and row["planned_r"] >= MIN_PLANNED_R]
+        candidate.update({"reward_distance": signed, "planned_r": signed / risk})
+    eligible = [row for row in candidates if row["planned_r"] >= MIN_PLANNED_R]
     # Preserve V1's nearest-structural-target hierarchy among candidates that satisfy V2.
     selected = (min(eligible, key=lambda row: row["target"]) if direction == "LONG"
                 else max(eligible, key=lambda row: row["target"])) if eligible else None
@@ -71,10 +76,9 @@ def v2_geometry(event_bar: dict[str, Any], direction: str, snapshot: dict[str, A
                        "best_structural_target_r": (max(candidates, key=lambda row: row["planned_r"])["planned_r"]
                                                      if candidates else None)})
         return result
-    risk = float(base["stop_distance"])
     signed = float(selected["reward_distance"])
     result.update({"v2_eligible": True, "effective_target": selected["target"],
-                   "signed_target_distance": signed, "target_R": signed / risk if risk > 0 else None,
+                   "signed_target_distance": signed, "target_R": signed / risk,
                    "target_source": selected["source"], "target_structure": selected["source"],
                    "rejection_reason": None})
     return result
