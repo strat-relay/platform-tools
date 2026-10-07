@@ -322,8 +322,45 @@ class CanonicalSignalRepository:
         except Exception as exc:
             raise CanonicalSourceUnavailable("canonical PostgreSQL execution audit unavailable") from exc
 
-    @staticmethod
-    def _post_exit_research(row: dict[str, Any]) -> dict[str, Any] | None:
+    # Incremental index for the append-only post-exit research ledger.
+    # Keyed by (signal_id, trade_id) → latest matching record.  Rebuilt only when
+    # the file grows beyond the byte offset we last scanned.
+    _post_exit_index: dict[str, Any] = {}       # signal_id or trade_id → latest record
+    _post_exit_scanned: int = 0                 # byte offset scanned so far
+
+    @classmethod
+    def _refresh_post_exit_index(cls, path: Path) -> None:
+        """Extend the in-process index with any bytes appended since last scan."""
+        try:
+            current_size = path.stat().st_size
+        except OSError:
+            return
+        if current_size <= cls._post_exit_scanned:
+            return
+        try:
+            with path.open("rb") as f:
+                f.seek(cls._post_exit_scanned)
+                chunk = f.read(current_size - cls._post_exit_scanned)
+            cls._post_exit_scanned = current_size
+            # chunk may start mid-line if a previous scan ended on a partial write;
+            # split on newlines and skip the first fragment if offset was mid-line.
+            for line in chunk.decode("utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if sid := record.get("signal_id"):
+                    cls._post_exit_index[sid] = record
+                if tid := record.get("trade_id"):
+                    cls._post_exit_index[tid] = record
+        except (OSError, UnicodeError):
+            pass
+
+    @classmethod
+    def _post_exit_research(cls, row: dict[str, Any]) -> dict[str, Any] | None:
         """Read the separate Context research ledger without touching canonical signal state."""
         if row.get("strategy_id") != "CONTEXT_STRUCTURE_RETRACE_V1":
             return None
@@ -332,20 +369,10 @@ class CanonicalSignalRepository:
         if not path.exists():
             return {**base, "status": "NOT_AVAILABLE", "reason": "research ledger is not mounted"}
         try:
+            cls._refresh_post_exit_index(path)
             signal_id = row.get("signal_id")
             trade_id = row.get("economic_position_id")
-            match = None
-            # This is an append-only JSONL research ledger and can grow well beyond the API
-            # response size. Stream it instead of loading it all into memory or rejecting it by
-            # total file size; the latest matching record remains the authoritative observation.
-            with path.open("r", encoding="utf-8") as ledger:
-                for line in ledger:
-                    if not line.strip():
-                        continue
-                    candidate = json.loads(line)
-                    if ((signal_id and candidate.get("signal_id") == signal_id) or
-                            (trade_id and candidate.get("trade_id") == trade_id)):
-                        match = candidate
+            match = cls._post_exit_index.get(signal_id) or cls._post_exit_index.get(trade_id)
             if match is None:
                 return {**base, "status": "NOT_OBSERVED", "reason": "no stopped-trade observation matches this signal"}
             status = "DATA_GAP" if match.get("record_type") == "CONTEXT_STOPPED_POST_EXIT_DATA_GAP" else "AVAILABLE"
