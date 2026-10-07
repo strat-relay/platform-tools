@@ -10,6 +10,20 @@ from .config import PostgresConfig
 ROOT = Path(__file__).resolve().parent
 MIGRATIONS = ROOT / "migrations"
 
+# Migration 035 was applied in production with this checksum before a comment-only
+# revision reached the image. The SQL object is unchanged; accept the recorded legacy
+# checksum so the runner can continue to forward migrations without rewriting history.
+# This is intentionally a narrow, filename-scoped compatibility exception.
+LEGACY_APPLIED_CHECKSUMS = {
+    "035_manual_signal_invalidation.sql": {
+        "d647e5c4c3683fb36c233a762cb7ccf6c2eaef6dd797f601e068cb2de0ca5c86",
+    },
+}
+
+
+def checksum_is_accepted(filename: str, applied_checksum: str, current_checksum: str) -> bool:
+    return applied_checksum == current_checksum or applied_checksum in LEGACY_APPLIED_CHECKSUMS.get(filename, set())
+
 
 def connect(config: PostgresConfig | None = None, *, readonly: bool = False):
     """Open a psycopg 3 connection without making psycopg mandatory at import time."""
@@ -58,7 +72,7 @@ def apply_migrations(conn, migrations_dir: Path = MIGRATIONS) -> list[str]:
                 version = path.name.split("_", 1)[0]
                 checksum = hashlib.sha256(path.read_bytes()).hexdigest()
                 if version in applied:
-                    if applied[version][1] != checksum:
+                    if not checksum_is_accepted(path.name, applied[version][1], checksum):
                         raise RuntimeError(f"Migration checksum changed: {path.name}")
                     continue
                 cur.execute(path.read_text(encoding="utf-8"))

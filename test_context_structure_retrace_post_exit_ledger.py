@@ -65,3 +65,17 @@ def test_ledger_is_idempotent(tmp_path):
     assert writer.append(record) is False
     assert len(path.read_text().splitlines()) == 1
     assert json.loads(path.read_text())["research_only"] is True
+
+
+def test_ledger_reloads_by_streaming_records(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    writer = ledger.ObservationLedger(path)
+    first = ledger.observe_stopped_trade(position(), {"M5": [], "M15": []}, {"point": 0.01})
+    second_position = position()
+    second_position["economic_position_id"] = "ep-2"
+    second = ledger.observe_stopped_trade(second_position, {"M5": [], "M15": []}, {"point": 0.01})
+    assert writer.append(first) is True
+    assert writer.append(second) is True
+    reloaded = ledger.ObservationLedger(path)
+    assert reloaded.append(first) is False
+    assert reloaded.append(second) is False

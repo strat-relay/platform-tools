@@ -233,9 +233,13 @@ class ObservationLedger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._known: set[str] = set()
         if self.path.exists():
-            for line in self.path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    self._known.add(json.loads(line).get("record_hash", ""))
+            # The ledger is append-only and can be hundreds of MB. Stream it so the
+            # observer's memory use is bounded by one JSON record, rather than loading
+            # the complete file and all hashes at once.
+            with self.path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    if line.strip():
+                        self._known.add(json.loads(line).get("record_hash", ""))
 
     def append(self, record: dict[str, Any]) -> bool:
         if record["record_hash"] in self._known:
