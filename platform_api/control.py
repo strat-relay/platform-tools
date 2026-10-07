@@ -582,11 +582,17 @@ class PlatformControlApi:
                  strategy_config_path: str | None = None,
                  v2_risk_api: Any | None = None,
                  bridge_reader: Any | None = None,
-                 trade_manager_mode_api: Any | None = None):
+                 trade_manager_mode_api: Any | None = None,
+                 strategy_mgmt_api: Any | None = None):
         self.repository = repository or PlatformControlRepository()
         self.instrument_membership = InstrumentMembershipRepository()
         from .strategy_catalog import StrategyCatalogRepository
         self.strategy_catalog = StrategyCatalogRepository()
+        # Dynamic strategy creation pipeline (migration 042)
+        if strategy_mgmt_api is None:
+            from .strategy_mgmt import StrategyMgmtApi
+            strategy_mgmt_api = StrategyMgmtApi()
+        self.strategy_mgmt_api = strategy_mgmt_api
         self.environ = os.environ if environ is None else environ
         # platform.json is no longer read. `strategy_config_path` is accepted for compatibility only.
         self.strategy_config_path = strategy_config_path
@@ -761,6 +767,11 @@ class PlatformControlApi:
     def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
+        # Dynamic strategy creation pipeline (migration 042): dispatch first so new routes
+        # never collide with existing /api/v1/strategies/* paths.
+        strategy_mgmt_result = self.strategy_mgmt_api.handle(method, path, body)
+        if strategy_mgmt_result is not None:
+            return strategy_mgmt_result
         if path == "/api/v1/instruments" and method == "GET":
             try:
                 return 200, self._body([item.__dict__ for item in self.instrument_membership.list_catalog()],
