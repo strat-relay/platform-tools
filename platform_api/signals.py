@@ -635,6 +635,11 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
         def log_message(self, _format: str, *_args: Any) -> None:
             return
 
+        def address_string(self) -> str:
+            # Skip reverse DNS lookup — default gethostbyaddr() adds ~13s latency per request
+            # when no PTR record exists (common in k8s pod networks).
+            return self.client_address[0]
+
     return ThreadingHTTPServer((host, port), Handler)
 
 
