@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 SCHEMA_VERSION = "context-t0-capture-v1"
+PRECAPTURE_SCHEMA_VERSION = "context-t0-precapture-v1"
 V1_CONFIG_HASH = "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e"
 V1_STRATEGY_FINGERPRINT = "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc"
 V2_CONTRACT_HASH = "4430542fb8d249d6338ead1fb745664a2e44836c4123e16f069b0c48bd69e107"
@@ -86,6 +87,56 @@ def _artifact_entry(name: str, source: Path, destination: Path, kind: str | None
             "source": str(source.resolve())}
 
 
+def freeze_precapture(output_dir: Path, deployment: Path, *, captured_at_utc: str | None = None) -> dict:
+    """Freeze deployment provenance while Kubernetes is healthy.
+
+    The resulting directory is immutable input to ``capture``.  It contains no
+    live Kubernetes client and can be consumed after the API becomes unavailable.
+    """
+    if output_dir.exists():
+        raise FileExistsError(f"precapture destination already exists: {output_dir}")
+    if not deployment.is_file():
+        raise FileNotFoundError(deployment)
+    output_dir.mkdir(parents=True)
+    destination = output_dir / "deployment.json"
+    shutil.copyfile(deployment, destination)
+    manifest = {"schema": PRECAPTURE_SCHEMA_VERSION, "status": "FROZEN",
+                "captured_at_utc": captured_at_utc or datetime.now(timezone.utc).isoformat(),
+                "artifacts": [_artifact_entry("deployment.json", deployment, destination, "deployment")]}
+    manifest_sha = hashlib.sha256(_canonical(manifest)).hexdigest()
+    _write_json(output_dir / "manifest.json", manifest)
+    (output_dir / "manifest.sha256").write_text(manifest_sha + "\n", encoding="utf-8")
+    _write_json(output_dir / "seal.json", {"schema": PRECAPTURE_SCHEMA_VERSION, "status": "FROZEN",
+                                             "manifest_sha256": manifest_sha,
+                                             "frozen_at_utc": manifest["captured_at_utc"]})
+    return {**manifest, "manifest_sha256": manifest_sha}
+
+
+def verify_precapture(output_dir: Path) -> dict:
+    manifest_path, seal_path, hash_path = (output_dir / name for name in ("manifest.json", "seal.json", "manifest.sha256"))
+    if not manifest_path.is_file() or not seal_path.is_file() or not hash_path.is_file():
+        raise ValueError("deployment precapture is not sealed")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema") != PRECAPTURE_SCHEMA_VERSION or manifest.get("status") != "FROZEN":
+        raise ValueError("invalid deployment precapture")
+    expected = hashlib.sha256(_canonical(manifest)).hexdigest()
+    if expected != hash_path.read_text(encoding="utf-8").strip():
+        raise ValueError("deployment precapture manifest tampering detected")
+    seal = json.loads(seal_path.read_text(encoding="utf-8"))
+    if seal.get("manifest_sha256") != expected:
+        raise ValueError("deployment precapture seal mismatch")
+    artifacts = manifest.get("artifacts", [])
+    if len(artifacts) != 1 or artifacts[0].get("filename") != "deployment.json":
+        raise ValueError("deployment precapture must contain exactly deployment.json")
+    if seal.get("schema") != PRECAPTURE_SCHEMA_VERSION or seal.get("status") != "FROZEN":
+        raise ValueError("invalid deployment precapture seal")
+    for artifact in artifacts:
+        path = output_dir / str(artifact["filename"])
+        if not path.is_file() or _sha256(path) != artifact["sha256"]:
+            raise ValueError(f"deployment precapture artifact tampering detected: {path.name}")
+    return {**manifest, "manifest_sha256": expected}
+
+
 def _require(mapping: Mapping[str, object], key: str, prefix: str = "") -> object:
     value = mapping.get(key)
     if value is None or value == "":
@@ -98,7 +149,7 @@ def validate_metadata(metadata: Mapping[str, object]) -> None:
         "experiment_id", "captured_at_utc", "t0_utc", "capture_started_at", "capture_completed_at",
         "platform_source_commit", "gitops_revision", "runtime_image", "runtime_image_digest",
         "migration_version", "schema_fingerprint", "strategy_v1", "strategy_v2",
-        "execution_safety", "evidence_boundaries", "ledger",
+        "execution_safety", "evidence_boundaries", "source_skew", "ledger", "deployment_precapture",
     )
     for key in required:
         _require(metadata, key)
@@ -112,6 +163,21 @@ def validate_metadata(metadata: Mapping[str, object]) -> None:
     for key in ("strategy_id", "strategy_version", "mode", "min_planned_r", "broker_writes",
                 "contract_hash", "parameter_hash"):
         _require(v2, key, "strategy_v2.")
+    pre = metadata["deployment_precapture"]
+    if not isinstance(pre, Mapping):
+        raise ValueError("deployment_precapture must be an object")
+    for key in ("directory", "manifest_sha256", "captured_at_utc"):
+        _require(pre, key, "deployment_precapture.")
+    skew = metadata["source_skew"]
+    if not isinstance(skew, Mapping):
+        raise ValueError("source_skew must be an object")
+    for source, details in skew.items():
+        if not isinstance(details, Mapping):
+            raise ValueError(f"source_skew.{source} must be an object")
+        for key in ("source_timestamp", "capture_timestamp", "offset_from_t0_ms", "max_allowed_skew_ms"):
+            _require(details, key, f"source_skew.{source}.")
+        if abs(float(details["offset_from_t0_ms"])) > float(details["max_allowed_skew_ms"]):
+            raise ValueError(f"source freshness exceeded for {source}")
     if v2["mode"] != "RESEARCH_ONLY" or float(v2["min_planned_r"]) != 1.0:
         raise ValueError("V2 must be RESEARCH_ONLY with min_planned_r=1.0")
     if v2["broker_writes"] is not False or v2["contract_hash"] != V2_CONTRACT_HASH or v2["parameter_hash"] != V2_PARAMETER_HASH:
@@ -133,17 +199,37 @@ def _write_json(path: Path, value: object) -> None:
 
 def capture(output_dir: Path, artifacts: Iterable[tuple[str, Path] | tuple[str, Path, str]], *,
             metadata: Mapping[str, object] | None = None, capture_id: str | None = None,
-            source_commit: str | None = None) -> dict:
-    """Copy artifacts and seal a new T0 bundle; failed captures remain INCOMPLETE."""
+            source_commit: str | None = None, precapture_dir: Path | None = None) -> dict:
+    """Seal a new T0 bundle from frozen metadata and authoritative source files.
+
+    ``precapture_dir`` is mandatory by design: deployment provenance must have
+    been frozen before T0, so this phase never needs Kubernetes access.
+    """
     if output_dir.exists():
         raise FileExistsError(f"capture destination already exists: {output_dir}")
     requested = list(artifacts)
     if not requested:
         raise ValueError("at least one evidence artifact is required")
+    if precapture_dir is None:
+        raise ValueError("deployment precapture is required before T0 capture")
+    precapture = verify_precapture(precapture_dir)
     metadata = dict(metadata or {})
     if source_commit and "platform_source_commit" not in metadata:
         metadata["platform_source_commit"] = source_commit
     validate_metadata(metadata)
+    if metadata["deployment_precapture"]["manifest_sha256"] != precapture["manifest_sha256"]:
+        raise ValueError("metadata does not reference the supplied deployment precapture")
+    t0 = str(metadata["t0_utc"])
+    try:
+        precapture_time = datetime.fromisoformat(str(precapture["captured_at_utc"]).replace("Z", "+00:00"))
+        t0_time = datetime.fromisoformat(t0.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("precapture and t0 timestamps must be ISO-8601") from exc
+    if precapture_time > t0_time:
+        raise ValueError("deployment precapture occurred after T0")
+    frozen_deployment = precapture_dir / "deployment.json"
+    if any(item[0] == "deployment.json" for item in requested):
+        raise ValueError("deployment.json must come from the frozen precapture")
     for item in requested:
         name, source = item[:2]
         if not name or Path(name).name != name or name in {".", ".."}:
@@ -155,7 +241,8 @@ def capture(output_dir: Path, artifacts: Iterable[tuple[str, Path] | tuple[str, 
                   "experiment_id": metadata["experiment_id"], "capture_id": capture_id or output_dir.name}
     _write_json(output_dir / "capture-status.json", incomplete)
     try:
-        entries = []
+        shutil.copyfile(frozen_deployment, output_dir / "deployment.json")
+        entries = [_artifact_entry("deployment.json", frozen_deployment, output_dir / "deployment.json", "deployment")]
         for item in requested:
             name, source = item[:2]
             kind = item[2] if len(item) == 3 else None
@@ -209,22 +296,36 @@ def records_at_t0(records: Iterable[Mapping[str, object]], t0_utc: str) -> list[
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("output", type=Path)
-    parser.add_argument("--metadata", type=Path, required=True, help="JSON metadata captured at the same T0")
-    parser.add_argument("--state", type=Path)
-    parser.add_argument("--market-data", type=Path)
-    parser.add_argument("--publication-ledger", type=Path)
-    parser.add_argument("--execution-ledger", type=Path)
-    parser.add_argument("--deployment", type=Path)
-    parser.add_argument("--schema", type=Path)
+    commands = parser.add_subparsers(dest="command", required=True)
+    pre = commands.add_parser("precapture", help="freeze deployment provenance before T0")
+    pre.add_argument("output", type=Path)
+    pre.add_argument("--deployment", type=Path, required=True)
+    pre.add_argument("--captured-at-utc")
+    cap = commands.add_parser("capture", help="seal a T0 bundle without Kubernetes access")
+    cap.add_argument("output", type=Path)
+    cap.add_argument("--metadata", type=Path, required=True)
+    cap.add_argument("--precapture", type=Path, required=True)
+    cap.add_argument("--state", type=Path)
+    cap.add_argument("--market-data", type=Path)
+    cap.add_argument("--publication-ledger", type=Path)
+    cap.add_argument("--execution-ledger", type=Path)
+    cap.add_argument("--schema", type=Path)
+    verify = commands.add_parser("verify", help="verify a sealed T0 bundle")
+    verify.add_argument("output", type=Path)
     args = parser.parse_args()
+    if args.command == "precapture":
+        print(json.dumps(freeze_precapture(args.output, args.deployment, captured_at_utc=args.captured_at_utc), indent=2, sort_keys=True))
+        return
+    if args.command == "verify":
+        print(json.dumps(verify_sealed_capture(args.output), indent=2, sort_keys=True))
+        return
     candidates = (("state.json", args.state, "state"), ("market_data.jsonl", args.market_data, "jsonl"),
                   ("publication_ledger.jsonl", args.publication_ledger, "ledger"),
                   ("execution_ledger.jsonl", args.execution_ledger, "ledger"),
-                  ("deployment.json", args.deployment, "deployment"), ("schema.json", args.schema, "schema"))
+                  ("schema.json", args.schema, "schema"))
     artifacts = [(name, path, kind) for name, path, kind in candidates if path is not None]
     metadata = json.loads(args.metadata.read_text(encoding="utf-8"))
-    print(json.dumps(capture(args.output, artifacts, metadata=metadata), indent=2, sort_keys=True))
+    print(json.dumps(capture(args.output, artifacts, metadata=metadata, precapture_dir=args.precapture), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
