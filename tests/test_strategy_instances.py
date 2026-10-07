@@ -84,6 +84,8 @@ class OrchestratorLifecycleTests(unittest.TestCase):
             def fetchall(self):
                 if "strategy_definition" in self.sql:
                     return [(LIQUIDITY, False)]
+                if "strategy_instance_v2" in self.sql:
+                    return []  # no v2 instances in this test fixture
                 return [("liquidity-xau33", LIQUIDITY, "XAU 33%", True, {"symbol": "XAUUSDm"})]
 
         base["strategies"] = [dict(self.PARENT)]
