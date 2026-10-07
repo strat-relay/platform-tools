@@ -21,7 +21,9 @@ Reservation lifecycle (atomic Lua; see RESERVE_LUA / TRANSITION_LUA):
 
 RESERVED, SUBMITTED and UNKNOWN always consume a position slot, an in-flight order slot and their
 reserved risk; CONFIRMED consumes them until a broker snapshot observed after the confirmation
-(which then shows the real position). SUBMITTED and UNKNOWN never expire.
+(which then shows the real position). SUBMITTED extends expires_at by SUBMITTED_TTL_SECONDS on
+transition; UNKNOWN extends by UNKNOWN_TTL_SECONDS, giving a reconciliation window before the slot
+is freed. All three are expired by the Lua scripts once expires_at passes.
 """
 from __future__ import annotations
 
@@ -49,7 +51,7 @@ local all = redis.call('HGETALL', KEYS[2])
 for i = 1, #all, 2 do
   local r = cjson.decode(all[i + 1])
   local s = r.status
-  if s == 'RESERVED' and tonumber(r.expires_at) <= now then
+  if (s == 'RESERVED' or s == 'SUBMITTED' or s == 'UNKNOWN') and tonumber(r.expires_at) <= now then
     r.status = 'EXPIRED'; r.updated_at = now
     redis.call('HSET', KEYS[2], all[i], cjson.encode(r)); s = 'EXPIRED'
   end
@@ -74,7 +76,7 @@ local raw = redis.call('HGET', KEYS[1], ARGV[1])
 if not raw then return {'MISSING', ''} end
 local r = cjson.decode(raw)
 local now = tonumber(ARGV[4])
-if r.status == 'RESERVED' and tonumber(r.expires_at) <= now then r.status = 'EXPIRED'; r.updated_at = now end
+if (r.status == 'RESERVED' or r.status == 'SUBMITTED' or r.status == 'UNKNOWN') and tonumber(r.expires_at) <= now then r.status = 'EXPIRED'; r.updated_at = now end
 local allowed = false
 for s in string.gmatch(ARGV[2], '[^,]+') do if s == r.status then allowed = true end end
 if not allowed then
@@ -84,9 +86,13 @@ end
 r.status = ARGV[3]; r.updated_at = now
 if ARGV[5] ~= '' then r[ARGV[5]] = now end
 if ARGV[6] ~= '' then r.note = ARGV[6] end
+if ARGV[7] ~= '' then r.expires_at = tonumber(ARGV[7]) end
 redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(r))
 return {'OK', r.status}
 """
+
+SUBMITTED_TTL_SECONDS: float = 3600.0   # 1 h: broker confirmation window
+UNKNOWN_TTL_SECONDS: float   = 86400.0  # 24 h: reconciliation window
 
 
 @dataclass(frozen=True)
@@ -205,15 +211,19 @@ class RedisRiskStateStore:
         return ReserveOutcome(status, payload, None)
 
     def transition(self, intent_id: str, *, allowed_from: tuple[str, ...], to: str,
-                   stamp_field: str = "", note: str = "") -> tuple[bool, str]:
+                   stamp_field: str = "", note: str = "",
+                   extend_expires_at: float | None = None) -> tuple[bool, str]:
+        new_expires = repr(extend_expires_at) if extend_expires_at is not None else ""
         status, current = self._transition(keys=[self.key("reservations")],
                                            args=[intent_id, ",".join(allowed_from), to, repr(self.clock()),
-                                                 stamp_field, note])
+                                                 stamp_field, note, new_expires])
         return _text(status) == "OK", _text(current)
 
     # Lifecycle, named for the execution states they follow.
     def mark_submitted(self, intent_id: str) -> tuple[bool, str]:
-        return self.transition(intent_id, allowed_from=("RESERVED",), to="SUBMITTED", stamp_field="submitted_at")
+        return self.transition(intent_id, allowed_from=("RESERVED",), to="SUBMITTED",
+                               stamp_field="submitted_at",
+                               extend_expires_at=self.clock() + SUBMITTED_TTL_SECONDS)
 
     def release_before_submit(self, intent_id: str, reason: str) -> tuple[bool, str]:
         return self.transition(intent_id, allowed_from=("RESERVED",), to="RELEASED", note=reason)
@@ -226,7 +236,9 @@ class RedisRiskStateStore:
         return self.transition(intent_id, allowed_from=("SUBMITTED",), to="CONFIRMED", stamp_field="confirmed_at")
 
     def mark_unknown(self, intent_id: str, reason: str) -> tuple[bool, str]:
-        return self.transition(intent_id, allowed_from=("SUBMITTED", "RESERVED"), to="UNKNOWN", note=reason)
+        return self.transition(intent_id, allowed_from=("SUBMITTED", "RESERVED"), to="UNKNOWN",
+                               note=reason,
+                               extend_expires_at=self.clock() + UNKNOWN_TTL_SECONDS)
 
     def reservations(self) -> dict[str, dict[str, Any]]:
         raw = self.redis.hgetall(self.key("reservations")) or {}
@@ -236,7 +248,7 @@ class RedisRiskStateStore:
         now = self.clock() if now is None else now
         seen = (snapshot.positions_observed_at or 0) if snapshot else 0
         return [r for r in self.reservations().values()
-                if (r["status"] in ACTIVE_STATUSES and not (r["status"] == "RESERVED" and r["expires_at"] <= now))
+                if (r["status"] in ACTIVE_STATUSES and float(r.get("expires_at", 0)) > now)
                 or (r["status"] == "CONFIRMED" and r.get("confirmed_at", 0) >= seen)]
 
     def prune(self, snapshot: RiskSnapshot | None, *, keep_seconds: float = 86400.0) -> int:
