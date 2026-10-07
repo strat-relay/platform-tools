@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -25,7 +26,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def capture(output_dir: Path, artifacts: Iterable[tuple[str, Path]], *, capture_id: str | None = None) -> dict:
+def _source_commit() -> str | None:
+    try:
+        return subprocess.check_output(("git", "rev-parse", "HEAD"), text=True,
+                                       stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def capture(output_dir: Path, artifacts: Iterable[tuple[str, Path]], *, capture_id: str | None = None,
+            source_commit: str | None = None) -> dict:
     """Copy named evidence files into a new bundle and write a hashed manifest.
 
     The destination must not exist. This prevents an old snapshot from being silently
@@ -53,11 +63,16 @@ def capture(output_dir: Path, artifacts: Iterable[tuple[str, Path]], *, capture_
         manifest = {"schema": SCHEMA_VERSION,
                     "capture_id": capture_id or output_dir.name,
                     "captured_at": datetime.now(timezone.utc).isoformat(),
+                    "source_commit": source_commit or _source_commit(),
                     "artifacts": entries,
                     "production_writes": False,
                     "replay_contract": {"completed_bars_only": True,
                                         "bounded_interval_required": True,
                                         "live_state_must_be_immutable": True}}
+        manifest["capture_hash"] = hashlib.sha256(
+            json.dumps({key: value for key, value in manifest.items() if key != "captured_at"},
+                       sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
                                                    encoding="utf-8")
         return manifest
@@ -75,13 +90,14 @@ def main() -> None:
     parser.add_argument("--execution-ledger", type=Path)
     parser.add_argument("--deployment", type=Path)
     parser.add_argument("--schema", type=Path)
+    parser.add_argument("--source-commit")
     args = parser.parse_args()
     candidates = (("state.json", args.state), ("market_data.jsonl", args.market_data),
                   ("publication_ledger.jsonl", args.publication_ledger),
                   ("execution_ledger.jsonl", args.execution_ledger),
                   ("deployment.json", args.deployment), ("schema.json", args.schema))
     artifacts = [(name, path) for name, path in candidates if path is not None]
-    print(json.dumps(capture(args.output, artifacts), indent=2, sort_keys=True))
+    print(json.dumps(capture(args.output, artifacts, source_commit=args.source_commit), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

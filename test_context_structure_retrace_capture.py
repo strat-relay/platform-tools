@@ -17,6 +17,8 @@ class ContextRetraceCaptureTests(unittest.TestCase):
             destination = root / "capture-1"
             manifest = capture(destination, (("market_data.jsonl", source),), capture_id="capture-1")
             self.assertEqual(manifest["schema"], "context-v1-parity-capture-v1")
+            self.assertEqual(len(manifest["capture_hash"]), 64)
+            self.assertIsNotNone(manifest["source_commit"])
             self.assertEqual(manifest["artifacts"][0]["bytes"], source.stat().st_size)
             self.assertEqual((destination / "market_data.jsonl").read_text(encoding="utf-8"), source.read_text(encoding="utf-8"))
             with self.assertRaises(FileExistsError):
