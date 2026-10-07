@@ -33,6 +33,8 @@ class FakeBridge:
         self.clock, self.calls, self.revised, self.down, self.frozen_forming = clock, [], {}, False, None
         self.stale_quote = False
         self.reject_full_snapshot = False
+        self.advance_on_snapshot_seconds = 0.0
+        self.advance_clock = lambda seconds: None
 
     def __call__(self, tool, args):
         self.calls.append((tool, args.get("symbol"), args.get("limit")))
@@ -58,6 +60,8 @@ class FakeBridge:
             forming = now - now % step
             times = [forming - step * i for i in range(args["limit"])][::-1]
             rates[tf] = {"rates": [_bar(symbol, tf, t, self.revised.get((symbol, tf, t), 0)) for t in times]}
+        if self.advance_on_snapshot_seconds:
+            self.advance_clock(self.advance_on_snapshot_seconds)
         return {"healthy": True, "source_read_health": True, "symbol_info": {"symbol": symbol, "point": 0.00001},
                 "quote": {"bid": 1.1, "ask": 1.1002, "time": int(self.clock())}, "rates": rates}
 
@@ -76,6 +80,7 @@ class MarketDataCacheTest(unittest.TestCase):
         from market_data_cache.store import MarketDataStore
         self.now = {"t": float(START + 3)}
         self.bridge = FakeBridge(lambda: self.now["t"])
+        self.bridge.advance_clock = lambda seconds: self.now.__setitem__("t", self.now["t"] + seconds)
         self.store = MarketDataStore(fakeredis.FakeRedis())
         self.collector = MarketDataCollector(self.store, self.bridge, bar_symbols=lambda: list(self.SYMBOLS),
                                              clock=lambda: self.now["t"])
@@ -92,6 +97,17 @@ class MarketDataCacheTest(unittest.TestCase):
         self.assertEqual(contract, direct_contract)
         for tf in TF_SECONDS:
             self.assertEqual(bars[tf], direct_bars[tf], f"{symbol} {tf} at {self.now['t']}")
+
+    def test_quote_freshness_uses_response_time_after_slow_bar_work(self):
+        self.collector.quote_symbols = lambda: ["EURUSDm"]
+        self.bridge.advance_on_snapshot_seconds = 10.0
+
+        result = self.collector.tick()
+
+        self.assertEqual(result["quotes"], ["EURUSDm"])
+        cached = self.store.quote("EURUSDm")
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached["observed_at"], self.now["t"])
 
 
 class CompletedBarTests(MarketDataCacheTest):

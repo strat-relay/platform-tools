@@ -394,27 +394,55 @@ class MarketDataCollector:
         due.sort(key=lambda s: self._quote_at.get(s, float("-inf")))          # least recently refreshed first
         for symbol in due[: self.max_quotes_per_pass]:
             self._quote_at[symbol] = now
+            request_started_at = self.clock()
+            request_started_perf = time.perf_counter()
             try:
                 quote = self._read("mt5_quote", {"symbol": symbol})
             except Exception as exc:
+                observed_at = self.clock()
+                log.warning("%s", json.dumps({"event": "market_quote_request_failed",
+                                               "provider_symbol": symbol,
+                                               "request_started_at": request_started_at,
+                                               "observed_at": observed_at,
+                                               "bridge_elapsed_ms": (time.perf_counter() - request_started_perf) * 1000,
+                                               "error_type": type(exc).__name__,
+                                               "error": str(exc)[:300]}, sort_keys=True))
                 self._failure_telemetry(symbol, self.store.state(symbol), exc)
                 continue
+            observed_at = self.clock()
+            bridge_elapsed_ms = (time.perf_counter() - request_started_perf) * 1000
             if not isinstance(quote, dict) or quote.get("error"):
+                log.warning("%s", json.dumps({"event": "market_quote_response_invalid",
+                                               "provider_symbol": symbol,
+                                               "request_started_at": request_started_at,
+                                               "observed_at": observed_at,
+                                               "bridge_elapsed_ms": bridge_elapsed_ms,
+                                               "response_error": quote.get("error") if isinstance(quote, dict) else None},
+                                              sort_keys=True))
                 continue
             try:
                 quote_time = float(quote["time"])
             except (KeyError, TypeError, ValueError):
                 log.warning("%s", json.dumps({"event": "market_quote_rejected", "provider_symbol": symbol,
-                                               "reason": "missing_timestamp"}, sort_keys=True))
+                                               "reason": "missing_timestamp", "request_started_at": request_started_at,
+                                               "observed_at": observed_at, "bridge_elapsed_ms": bridge_elapsed_ms},
+                                              sort_keys=True))
                 continue
-            quote_age = now - quote_time
+            # `now` is the tick start time. Bar work and bridge calls can take several seconds
+            # before this request runs, so comparing a fresh broker timestamp to `now` can
+            # incorrectly classify it as a future quote. Freshness is measured at response time.
+            quote_age = observed_at - quote_time
+            telemetry = {"event": "market_quote_observed", "provider_symbol": symbol,
+                         "request_started_at": request_started_at, "observed_at": observed_at,
+                         "quote_time": quote_time, "quote_age_seconds": quote_age,
+                         "bridge_elapsed_ms": bridge_elapsed_ms, "max_age_seconds": self.quote_max_age}
             if quote_age < -5 or quote_age > self.quote_max_age:
-                log.warning("%s", json.dumps({"event": "market_quote_rejected", "provider_symbol": symbol,
-                                               "reason": "stale_timestamp" if quote_age >= 0 else "future_timestamp",
-                                               "quote_time": quote_time, "quote_age_seconds": quote_age,
-                                               "max_age_seconds": self.quote_max_age}, sort_keys=True))
+                telemetry.update({"event": "market_quote_rejected",
+                                  "reason": "stale_timestamp" if quote_age >= 0 else "future_timestamp"})
+                log.warning("%s", json.dumps(telemetry, sort_keys=True))
                 continue
-            self.store.set_quote(symbol, quote, now)
+            log.info("%s", json.dumps(telemetry, sort_keys=True))
+            self.store.set_quote(symbol, quote, observed_at)
             refreshed.append(symbol)
         return refreshed
 
