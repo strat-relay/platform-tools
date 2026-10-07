@@ -20,6 +20,12 @@ archive/
 runtime/
 artifacts/
 
+# Keep discovery backtest deliverables.
+!docs/kojo_discovery_progress.md
+!docs/kojo_discovery_semantic_audit.json
+!artifacts/backtests/
+!artifacts/backtests/**
+
 # Keep reproducible manifests/configuration and protocol fixtures.
 !**/*_manifest.json
 !orchestration/config/*.json
