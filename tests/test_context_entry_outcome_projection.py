@@ -61,6 +61,9 @@ class Cursor:
                     return
                 self.db.outcomes[signal_id] = proposed
                 self.rows = [(signal_id,)]
+        elif normalized.startswith("SELECT status FROM strategy.entry_signal_outcomes"):
+            existing = self.db.outcomes.get(params[0])
+            self.rows = [(existing[1],)] if existing else []
         elif normalized.startswith("SELECT outcome_type, status, realized_r"):
             existing = self.db.outcomes.get(params[0])
             self.rows = [existing] if existing else []
@@ -181,6 +184,24 @@ class EntryOnlyProjectionTests(unittest.TestCase):
 
         self.assertEqual(result, {"matched": 1, "projected": 1, "unchanged": 0, "unmatched": 4})
         self.assertEqual(self.db.outcomes["SIG-STALE"][1], "OPEN")
+
+    def test_time_exit_is_not_overwritten_by_runner_open_state(self):
+        self.db.signals.append(("SIG-TIME", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-TIME",
+                                "OP-TIME", CUTOFF, None, NOW))
+        self.db.outcomes["SIG-TIME"] = (
+            "ENTRY_ONLY", "TIME_EXIT", -0.25,
+            datetime.fromtimestamp(1790059500, timezone.utc),
+            "CONTEXT_STRUCTURE_RETRACE_V1",
+        )
+        state = {"positions": {"POS-TIME": {
+            "economic_position_id": "POS-TIME", "entry_opportunity_id": "OP-TIME",
+            "status": "OPEN", "realized_R": None, "exit_timestamp": None,
+        }}}
+
+        result = project_entry_only_outcomes(state, **self.kwargs)
+
+        self.assertEqual(result, {"matched": 1, "projected": 0, "unchanged": 1, "unmatched": 4})
+        self.assertEqual(self.db.outcomes["SIG-TIME"][1], "TIME_EXIT")
 
     def test_entry_opportunity_mismatch_is_not_projected(self):
         state = runner_state()

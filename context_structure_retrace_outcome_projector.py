@@ -20,7 +20,7 @@ OUTCOME_TYPE = "ENTRY_ONLY"
 OUTCOME_SOURCE = STRATEGY_ID
 METADATA_KEY = "context.entry_only_outcome_cutoff"
 OUTCOME_SCHEMA_VERSION = "015"
-ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED", "INVALIDATED", "AMBIGUOUS_INTRABAR"}
+ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED", "TIME_EXIT", "INVALIDATED", "AMBIGUOUS_INTRABAR"}
 
 
 class OutcomeProjectionError(RuntimeError):
@@ -124,6 +124,20 @@ def project_entry_only_outcomes(
             )
             signals = cur.fetchall()
             for signal_id, position_id, opportunity_id, signal_emitted_at, decision_time in signals:
+                # A broker-confirmed Trade Manager time exit is canonical.  The
+                # frozen runner may still show the economic position as OPEN
+                # until its next checkpoint, so never project that state back
+                # over the terminal TIME_EXIT outcome.
+                cur.execute(
+                    """SELECT status FROM strategy.entry_signal_outcomes
+                       WHERE signal_id = %s""",
+                    (signal_id,),
+                )
+                existing_row = cur.fetchone()
+                if existing_row and existing_row[0] == "TIME_EXIT":
+                    counts["matched"] += 1
+                    counts["unchanged"] += 1
+                    continue
                 position = positions.get(str(position_id)) if position_id else None
                 if not position or (opportunity_id and
                                     str(position.get("entry_opportunity_id")) != str(opportunity_id)):

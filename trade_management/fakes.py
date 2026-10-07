@@ -62,7 +62,7 @@ class FakeCursor:
             self._rows = rows
             self._result = "MULTI"
             return
-        if "STRATEGY.ENTRY_SIGNALS" in upper:
+        if "STRATEGY.ENTRY_SIGNALS" in upper and "JOIN STRATEGY.ENTRY_SIGNALS" not in upper:
             row = self.conn.view("strategy.entry_signals").get(params[0])
             self._result = tuple(row[k] for k in _ENTRY_SIGNAL_COLUMNS) if row else None
             return
@@ -85,6 +85,14 @@ class FakeCursor:
                           r["strategy_instance_id"], r["instrument"]) for r in rows]
             self._result = "MULTI"
             return
+        if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "JOIN STRATEGY.ENTRY_SIGNALS" in upper:
+            row = self.conn.view("trade_management.managed_trade").get(params[0])
+            signal = self.conn.view("strategy.entry_signals").get(row["entry_signal_id"], {}) if row else {}
+            self._result = ((row["direction"], row["reference_entry_price"], row["initial_stop"],
+                             row["risk_distance"], row["state"], row.get("instrument"),
+                             row.get("initial_target"), row.get("decision_time"), row.get("time_exit_at"),
+                             signal.get("publication_state") == "PUBLISHED") if row else None)
+            return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "ENTRY_SIGNAL_ID=" in upper.replace(" ", ""):
             row = next((r for r in self.conn.view("trade_management.managed_trade").values()
                        if r["entry_signal_id"] == params[0]), None)
@@ -98,13 +106,21 @@ class FakeCursor:
             if row is None:
                 self._result = None
             else:
+                signal = self.conn.view("strategy.entry_signals").get(row["entry_signal_id"], {})
                 self._result = (row["direction"], row["reference_entry_price"], row["initial_stop"],
                                 row["risk_distance"], row["state"], row.get("instrument"),
-                                row.get("initial_target"), row.get("decision_time"))
+                                row.get("initial_target"), row.get("decision_time"), row.get("time_exit_at"),
+                                signal.get("publication_state") == "PUBLISHED")
             return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "STATE FROM" in upper:
             row = self.conn.view("trade_management.managed_trade").get(params[0])
             self._result = (row["state"],) if row else None
+            return
+        if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "ENTRY_SIGNAL_ID, TIME_EXIT_MINUTES" in upper:
+            row = self.conn.view("trade_management.managed_trade").get(params[0])
+            self._result = ((row["managed_trade_id"], row["state"], row["tm_version_id"],
+                             row["last_observation_seq"], row["instrument"], row["entry_signal_id"],
+                             row.get("time_exit_minutes"), row.get("time_exit_at")) if row else None)
             return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper:
             row = self.conn.view("trade_management.managed_trade").get(params[0])
@@ -232,7 +248,8 @@ class FakeCursor:
 _ENTRY_SIGNAL_COLUMNS = ("signal_id", "strategy_id", "strategy_version", "strategy_ref",
                          "parameter_set_ref", "parameter_set_status", "strategy_instance_id",
                          "instrument", "direction", "decision_time", "entry_price", "stop_price",
-                         "risk_distance", "target_price", "entry_signal_hash")
+                         "risk_distance", "target_price", "strategy_metadata", "publication_state",
+                         "entry_signal_hash")
 
 _INSERT_TABLE_MARKERS = (
     ("PLATFORM.INBOX_EVENTS", "platform.inbox_events"),
@@ -351,6 +368,7 @@ class FakeConnection:
         keys = ("managed_trade_id", "entry_signal_id", "entry_signal_hash", "strategy_id", "strategy_version",
                 "strategy_ref", "parameter_set_ref", "parameter_set_status", "instrument", "direction",
                 "decision_time", "reference_entry_price", "initial_stop", "initial_target", "risk_distance",
+                "time_exit_minutes", "time_exit_at",
                 "tm_version_id", "tm_binding_id", "binding_hash", "tm_bound_at", "binding_resolution",
                 "evidence_mode", "eligibility", "eligibility_reason", "creation_lag_seconds",
                 "record_mode", "state")

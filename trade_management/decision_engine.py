@@ -32,6 +32,8 @@ from .publication_gate import GateInputs, evaluate_publication_gate
 from .tm_breakeven_trail import EVALUATOR_ID as BREAKEVEN_TRAIL_EVALUATOR_ID
 from .tm_breakeven_trail import BreakevenTrailPolicy, TmBreakevenTrailEvaluator
 from .tm_none import DECISION_CONSUMER_NAME, TmNoneEvaluator
+from .tm_time_exit import EVALUATOR_ID as TIME_EXIT_EVALUATOR_ID
+from .tm_time_exit import evaluate_time_exit
 from .tm_structure import EVALUATOR_ID as STRUCTURE_EVALUATOR_ID
 from .tm_structure import StructurePolicy, TmStructureEvaluator
 
@@ -70,15 +72,18 @@ def _load_observation(conn: Any, observation_id: str) -> dict[str, Any] | None:
 
 def _load_trade(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
-        cur.execute("""SELECT direction, reference_entry_price, initial_stop, risk_distance, state,
-                             instrument, initial_target, decision_time
-                      FROM trade_management.managed_trade WHERE managed_trade_id=%s""",
+        cur.execute("""SELECT mt.direction, mt.reference_entry_price, mt.initial_stop, mt.risk_distance, mt.state,
+                             mt.instrument, mt.initial_target, mt.decision_time, mt.time_exit_at,
+                             (s.publication_state = 'PUBLISHED')
+                      FROM trade_management.managed_trade mt
+                      JOIN strategy.entry_signals s ON s.signal_id = mt.entry_signal_id
+                     WHERE mt.managed_trade_id=%s""",
                     (managed_trade_id,))
         row = cur.fetchone()
     if row is None:
         return None
     keys = ("direction", "reference_entry_price", "initial_stop", "risk_distance", "state",
-            "instrument", "initial_target", "decision_time")
+            "instrument", "initial_target", "decision_time", "time_exit_at", "entry_signal_published")
     return dict(zip(keys, row))
 
 
@@ -176,6 +181,9 @@ def _evaluate(*, evaluator_id: str, manifest: dict[str, Any], trade: dict[str, A
             initial_stop=float(trade["initial_stop"]), risk_distance=trade["risk_distance"],
             current_stop=current_stop, mark_price=_mark_price(trade["direction"], snapshot),
             trade_state=trade["state"] or "OPEN", policy=policy)
+    if evaluator_id == TIME_EXIT_EVALUATOR_ID:
+        return evaluate_time_exit(trade_state=trade["state"] or "OPEN",
+                                  time_exit_at=trade.get("time_exit_at"), as_of=as_of)
     raise UnknownEvaluator(f"no dispatch entry for evaluator_id={evaluator_id!r}")
 
 
@@ -243,12 +251,12 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
                         canonical_bytes(parameters).decode("utf-8"), list(reason_codes), "{}",
                         observation["effective_at"], persisted_at, observation["data_status"], "SHADOW"))
 
-            # Same gate call TM-NONE itself makes, same defaults (entry_signal_published=False,
-            # tm_version_publication_eligibility="SHADOW_ONLY") - a non-HOLD action from the new
-            # evaluator still comes out WITHHELD(TM_VERSION_NOT_PUBLISHABLE) unless a later,
-            # separately-authorized change deliberately marks a version PUBLISHABLE. Nothing in
-            # this module ever does that.
-            outcome, reason = evaluate_publication_gate(GateInputs(action=action))
+            # Only the explicitly publishable Context time-exit version may reach the existing
+            # execution-v2 management consumer. All legacy versions retain the old shadow gate.
+            publishable = version["evaluator_id"] == TIME_EXIT_EVALUATOR_ID and bool(trade.get("entry_signal_published"))
+            outcome, reason = evaluate_publication_gate(
+                GateInputs(action=action, entry_signal_published=publishable,
+                           tm_version_publication_eligibility="PUBLISHABLE" if publishable else "SHADOW_ONLY"))
             cur.execute("""INSERT INTO trade_management.publication_decision(decision_id, outcome, reason)
                           VALUES (%s,%s,%s) ON CONFLICT (decision_id) DO NOTHING""",
                        (decision_id, outcome, reason))
