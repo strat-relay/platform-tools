@@ -78,3 +78,40 @@ forward runner's compact state and canonical publication records, then run
 timestamp/instrument rows, first divergence, and V1/V2 counts. No count should be normalized or
 tuned to match. Until that export exists, the table above is the strongest reproducible
 research result and must be labelled `research_adapter_replay`, not `live_parity`.
+
+## GBPUSD case study: 2026-10-06
+
+The canonical row recovered from PostgreSQL is signal `SIG_bbc55367d565f51dbbd794d5`,
+with decision time `2026-10-06T09:45:00Z` (03:45 America/Denver), not 03:45 UTC. It is a
+SHORT with entry `1.323626`, stop `1.324705`, target `1.32346607142857`, and planned
+`0.148219250628756R`.
+
+This is intended V1 behavior, not a V2 defect. V1's geometry computes the stop from the
+originating setup extreme plus the causal ATR/spread safety buffer, then computes the
+directionally valid structural-capped extension target. V1 has no minimum planned-R gate, so
+the low-R candidate is published. The recovered metadata is `EVENING_STAR`, initial entry,
+and `time_exit_minutes=15`.
+
+The outcome row is `STOPPED`, `-1R`, at `2026-10-06T10:05:00Z`, which is a theoretical
+strategy outcome. The execution intent is independently `BLOCKED` with
+`MAX_ACCOUNT_EXPOSURE_EXCEEDED`; there is no attempt and no broker result. Therefore this
+signal cannot have produced broker P/L, and the strategy outcome must not be described as a
+live fill.
+
+The UI's `NOT_EVALUATED` label is produced only when the signal has no execution-audit row
+(or the audit is unavailable before the cutoff). For this case the execution detail has an
+intent row and correctly maps the blocked intent to `REJECTED`. These are separate views:
+strategy evaluation/outcome versus execution-audit decision. A UI showing both for one signal
+must preserve that distinction rather than infer a broker trade from the strategy outcome.
+
+## Next parity-window capture
+
+`research/context_structure_retrace_capture.py` creates a new, non-overwritable local bundle
+from operator-exported files. It records SHA-256, byte count, capture time, and an explicit
+research-only contract for completed bars, immutable live state, bounded interval, and zero
+production writes. It intentionally does not contact Kubernetes, Redis, PostgreSQL, or a
+broker. The bundle should include the exact M5/M15/H1/H4 market export, compact runner state,
+publication ledger, execution audit export, deployment/config snapshot, and schema snapshot
+before the next bounded replay window begins.
+
+No live deployment or V2 routing change was made as part of this investigation.
