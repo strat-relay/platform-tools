@@ -760,6 +760,10 @@ class StrategyMgmtApi:
         parameter_values = request_payload.get("_parameter_values")  # test injection point
         evaluator_key = request_payload.get("_evaluator_key")  # test injection point
         schema_fields = request_payload.get("_schema_fields")  # test injection point
+        # _strategy_version_id: canonical "STRATEGY_ID@VERSION" (e.g. "KOJO_STRUCTURE_RECLAIM_V1@V1").
+        # Required when the evaluator checks strategy_version.strategy_version_id identity.
+        # Falls back to the DB UUID@V1 for evaluators that do not perform this check.
+        canonical_svid_override = request_payload.get("_strategy_version_id")  # test injection point
 
         if feed_events is None or parameter_values is None or evaluator_key is None:
             return None  # no embedded compute data; caller polls for QUEUED → dispatched externally
@@ -777,10 +781,24 @@ class StrategyMgmtApi:
                 run_row.get("schema_id") or "inline",
                 schema_fields or {},
             )
-            sv_id = str(run_row["strategy_version_id"])
             ps_id = str(run_row["parameter_set_id"])
-            strategy_version = StrategyVersion(sv_id, "V1", evaluator_key, schema)
-            parameter_set = ParameterSet(ps_id, sv_id, schema.schema_id, parameter_values)
+
+            # Build StrategyVersion with the canonical identity.
+            # When _strategy_version_id is supplied (e.g. "KOJO_STRUCTURE_RECLAIM_V1@V1"),
+            # parse it into strategy_id + version_label so evaluator identity checks pass.
+            # Without it, fall back to the DB row UUID which works for evaluators without strict
+            # identity checks.
+            if canonical_svid_override:
+                parts = str(canonical_svid_override).rsplit("@", 1)
+                canonical_sid = parts[0]
+                version_label = parts[1] if len(parts) == 2 else "V1"
+            else:
+                canonical_sid = str(run_row["strategy_version_id"])
+                version_label = "V1"
+            strategy_version = StrategyVersion(canonical_sid, version_label, evaluator_key, schema)
+            # ParameterSet.strategy_version_id must equal strategy_version.strategy_version_id.
+            parameter_set = ParameterSet(ps_id, strategy_version.strategy_version_id,
+                                         schema.schema_id, parameter_values)
 
             events = tuple(
                 MarketEvent(**e) if isinstance(e, dict) else e for e in feed_events

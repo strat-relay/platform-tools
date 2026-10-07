@@ -111,10 +111,62 @@ def load_instances_from_database(conn: Any) -> list[dict[str, Any]]:
                        ORDER BY i.strategy_id, i.instance_id""")
         rows = cur.fetchall()
         # Keep local/fake database adapters compatible while the canonical schema rolls out.
-        return [{**_json(row[4]), "instance_id": row[0], "strategy_id": row[1],
-                 "display_name": row[2], "enabled": bool(row[3]),
-                 "active_instruments": list(row[5] or []) if len(row) >= 6 else []}
-                for row in rows]
+        instances = [{**_json(row[4]), "instance_id": row[0], "strategy_id": row[1],
+                      "display_name": row[2], "enabled": bool(row[3]),
+                      "active_instruments": list(row[5] or []) if len(row) >= 6 else []}
+                     for row in rows]
+    # Also load pipeline-created instances from strategy_mgmt schema (online only).
+    # These bridge strategy_instance_v2 records into the existing instance format so
+    # load_adapters() can discover them without duplicating the identity model.
+    v2 = _load_v2_instances_from_database(conn)
+    return instances + v2
+
+
+def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
+    """Load ONLINE strategy_instance_v2 rows into the standard instance dict format.
+
+    Only ONLINE instances (online=true) are returned.  execution_eligible is never
+    relevant here — that column is owned by the execution authority system.
+
+    Returns [] if the strategy_mgmt schema does not exist (pre-042 deployments).
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT v.id, sv.evaluator_key, v.display_name, v.online,
+                          v.instruments, v.attributes
+                   FROM strategy_mgmt.strategy_instance_v2 v
+                   JOIN strategy_mgmt.strategy_version sv ON sv.id = v.strategy_version_id
+                   WHERE v.online = true
+                   ORDER BY sv.evaluator_key, v.id"""
+            )
+            rows = cur.fetchall()
+    except Exception:  # noqa: BLE001
+        return []
+
+    from strategy_backtest.kojo_structure_reclaim import STRATEGY_ID as KSR_ID, EVALUATOR_KEY as KSR_KEY
+    result = []
+    for row in rows:
+        inst_id, evaluator_key, display_name, online, instruments_json, attrs_json = row
+        # Map evaluator_key → strategy_id.  Currently only KOJO_STRUCTURE_RECLAIM_V1 uses v2.
+        if evaluator_key == KSR_KEY:
+            strategy_id = KSR_ID
+        else:
+            # Unknown evaluator key — skip; do not invent an adapter.
+            continue
+        instruments = []
+        if instruments_json:
+            raw = instruments_json if isinstance(instruments_json, list) else []
+            instruments = [str(x.get("canonical_instrument") or x) for x in raw if x]
+        result.append({
+            "instance_id": str(inst_id),
+            "strategy_id": strategy_id,
+            "display_name": display_name,
+            "enabled": bool(online),
+            "active_instruments": instruments,
+            "_source": "strategy_instance_v2",  # provenance marker
+        })
+    return result
 
 
 def refresh_lifecycle(config: dict[str, Any], *, connect_fn: Any = None) -> dict[str, Any]:
