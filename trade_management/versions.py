@@ -114,6 +114,22 @@ def tm_none_1_manifest_with_code_hash(module_source: bytes) -> TmVersionManifest
 TM_NONE_1_LABEL = "TM-NONE-1"
 
 
+# Context's first publishable management version.  The mutable instance policy is captured
+# onto each ManagedTrade; this frozen version only defines how the captured deadline becomes an
+# EXIT decision.  It is scoped to Context so other strategies remain on their existing binding.
+TM_CONTEXT_TIME_EXIT_1_MANIFEST = TmVersionManifest(
+    evaluator_id="tm-context-time-exit.v1",
+    label="TM-CONTEXT-TIME-EXIT-1",
+    policy_bundle=("deadline_source=managed_trade.time_exit_at",),
+    observation_spec={"quote_required": False, "timeframes_consumed": [], "late_event_rule": "EVALUATE_AT_EFFECTIVE_TIME"},
+    price_semantics={"version": "not_used_for_deadline"},
+    arithmetic={"deadline": "filled_at + captured_time_exit_minutes"},
+    code_manifest={"trade_management/tm_time_exit.py": "computed-at-registration"},
+    scope={"strategies": ["CONTEXT_STRUCTURE_RETRACE_V1"], "instruments": ["*"]},
+)
+TM_CONTEXT_TIME_EXIT_1_LABEL = "TM-CONTEXT-TIME-EXIT-1"
+
+
 # --------------------------------------------------------------------------------------
 # TM-BREAKEVEN-TRAIL-1: the first evaluator that can produce a non-HOLD decision
 # (trade_management/tm_breakeven_trail.py). Parametrized per binding via `policy_bundle` -

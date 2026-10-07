@@ -13,7 +13,7 @@ second sequence number - this is what makes recording restart/redelivery-safe.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from core.strategies.evaluation import canonical_bytes
@@ -26,7 +26,7 @@ from .market_data import BarWindow, MarketDataProvider, MarketQuote
 
 @dataclass(frozen=True)
 class ObservationResult:
-    status: str  # RECORDED | DUPLICATE | MANAGED_TRADE_MISSING | TRADE_NOT_OPEN
+    status: str  # RECORDED | DUPLICATE | MANAGED_TRADE_MISSING | TRADE_NOT_OPEN | WAITING_FOR_ENTRY
     observation_id: str | None
     observation_seq: int | None
     market_snapshot_id: str | None
@@ -36,13 +36,15 @@ class ObservationResult:
 
 def _load_managed_trade_for_update(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
-        cur.execute("""SELECT managed_trade_id, state, tm_version_id, last_observation_seq, instrument
+        cur.execute("""SELECT managed_trade_id, state, tm_version_id, last_observation_seq, instrument,
+                             entry_signal_id, time_exit_minutes, time_exit_at
                       FROM trade_management.managed_trade WHERE managed_trade_id=%s FOR UPDATE""",
                     (managed_trade_id,))
         row = cur.fetchone()
     if row is None:
         return None
-    keys = ("managed_trade_id", "state", "tm_version_id", "last_observation_seq", "instrument")
+    keys = ("managed_trade_id", "state", "tm_version_id", "last_observation_seq", "instrument",
+            "entry_signal_id", "time_exit_minutes", "time_exit_at")
     return dict(zip(keys, row))
 
 
@@ -72,6 +74,34 @@ def record_observation(conn: Any, *, managed_trade_id: str, quote: MarketQuote,
             return ObservationResult(status="TRADE_NOT_OPEN", observation_id=obs_id, observation_seq=None,
                                      market_snapshot_id=None, managed_trade_id=managed_trade_id,
                                      tm_version_id=trade["tm_version_id"])
+
+        # A time exit starts at the confirmed entry fill, never at signal creation. Signals
+        # without a filled execution are not managed positions and cannot consume observations.
+        if trade.get("time_exit_minutes") is not None:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT r.confirmed_at
+                              FROM execution_v2.execution_intent i
+                              JOIN execution_v2.execution_result r
+                                ON r.execution_intent_id = i.execution_intent_id
+                             WHERE i.entry_signal_id = %s AND r.outcome = 'FILLED'
+                             ORDER BY r.confirmed_at ASC LIMIT 1""", (trade["entry_signal_id"],))
+                fill = cur.fetchone()
+            if fill is None:
+                return ObservationResult(status="WAITING_FOR_ENTRY", observation_id=None,
+                                         observation_seq=None, market_snapshot_id=None,
+                                         managed_trade_id=managed_trade_id,
+                                         tm_version_id=trade["tm_version_id"])
+            if trade.get("time_exit_at") is None:
+                fill_at = fill[0]
+                if not isinstance(fill_at, datetime):
+                    fill_at = datetime.fromisoformat(str(fill_at).replace("Z", "+00:00"))
+                if fill_at.tzinfo is None:
+                    fill_at = fill_at.replace(tzinfo=timezone.utc)
+                deadline = fill_at + timedelta(minutes=int(trade["time_exit_minutes"]))
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE trade_management.managed_trade SET time_exit_at=%s WHERE managed_trade_id=%s",
+                                (deadline, managed_trade_id))
+                trade["time_exit_at"] = deadline
 
         snapshot_id = _market_snapshot_id(provider_id=quote.provider_id, feed_id=quote.feed_id,
                                           instrument=quote.instrument, source_timestamp=quote.source_timestamp,

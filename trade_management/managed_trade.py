@@ -46,7 +46,7 @@ def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
         cur.execute("""SELECT signal_id, strategy_id, strategy_version, strategy_ref, parameter_set_ref,
                              parameter_set_status, strategy_instance_id, instrument, direction,
                              decision_time, entry_price, stop_price, risk_distance, target_price,
-                             entry_signal_hash
+                             strategy_metadata, publication_state, entry_signal_hash
                       FROM strategy.entry_signals WHERE signal_id=%s""", (signal_id,))
         row = cur.fetchone()
     if row is None:
@@ -54,7 +54,7 @@ def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
     keys = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "parameter_set_ref",
             "parameter_set_status", "strategy_instance_id", "instrument", "direction",
             "decision_time", "entry_price", "stop_price", "risk_distance", "target_price",
-            "entry_signal_hash")
+            "strategy_metadata", "publication_state", "entry_signal_hash")
     return dict(zip(keys, row))
 
 
@@ -73,6 +73,17 @@ def compute_eligibility(*, decision_time: str, now_utc: datetime,
     if lag > max_creation_lag_seconds:
         return "FORWARD_INELIGIBLE", "LATE_CREATION", lag
     return "ELIGIBLE", None, lag
+
+
+def _time_exit_minutes(metadata: Any) -> int | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("time_exit_minutes")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("time_exit_minutes in signal metadata must be a positive integer")
+    return value
 
 
 def _record_quarantine(conn: Any, *, entry_signal_id: str, expected_hash: str, actual_hash: str,
@@ -133,22 +144,25 @@ def create_managed_trade(conn: Any, *, event_id: str, signal_id: str, resolver: 
         risk_distance = record["risk_distance"]
         if risk_distance is None and entry_price is not None and stop_price is not None:
             risk_distance = abs(float(entry_price) - float(stop_price))
+        time_exit_minutes = _time_exit_minutes(record.get("strategy_metadata"))
 
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO trade_management.managed_trade
                 (managed_trade_id, entry_signal_id, entry_signal_hash, strategy_id, strategy_version,
                  strategy_ref, parameter_set_ref, parameter_set_status, instrument, direction,
                  decision_time, reference_entry_price, initial_stop, initial_target, risk_distance,
+                 time_exit_minutes, time_exit_at,
                  tm_version_id, tm_binding_id, binding_hash, tm_bound_at, binding_resolution,
                  evidence_mode, eligibility, eligibility_reason, creation_lag_seconds,
                  record_mode, state)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (entry_signal_id) DO NOTHING
                 RETURNING managed_trade_id""",
                        (trade_id, signal_id, record["entry_signal_hash"], record["strategy_id"],
                         record["strategy_version"], record["strategy_ref"], record["parameter_set_ref"],
                         record["parameter_set_status"], record["instrument"], record["direction"],
                         decision_time, entry_price, stop_price, target_price, risk_distance,
+                        time_exit_minutes, None,
                         binding.tm_version_id, binding.binding_id, binding.binding_hash, now_utc,
                         binding.resolution, "FORWARD", eligibility, eligibility_reason, lag,
                         "SHADOW", "OPEN"))
@@ -177,6 +191,7 @@ def create_managed_trade(conn: Any, *, event_id: str, signal_id: str, resolver: 
             "reference_entry_price": float(entry_price) if entry_price is not None else None,
             "initial_stop": float(stop_price) if stop_price is not None else None,
             "initial_target": float(target_price) if target_price is not None else None,
+            "time_exit_minutes": time_exit_minutes,
             "tm_version_id": binding.tm_version_id, "tm_binding_id": binding.binding_id,
             "evidence_mode": "FORWARD", "eligibility": eligibility, "record_mode": "SHADOW",
         }

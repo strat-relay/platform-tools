@@ -144,6 +144,29 @@ class ManagementWorker:
         self._record({**base, **extra, "status": "REJECTED", "reason": reason, "completed_at": datetime.now(timezone.utc)})
         return ManagementOutcome("REJECTED", base["management_intent_id"], reason)
 
+    def _record_time_exit_outcome(self, managed_trade_id: str, *, exit_price: float | None) -> None:
+        """Project TIME_EXIT only after the broker confirmed the reduce-only close."""
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT mt.entry_signal_id, mt.strategy_id, mt.direction,
+                                  mt.reference_entry_price, mt.risk_distance
+                             FROM trade_management.managed_trade mt
+                            WHERE mt.managed_trade_id=%s""", (managed_trade_id,))
+            row = cur.fetchone()
+            if row is None or row[1] != "CONTEXT_STRUCTURE_RETRACE_V1":
+                return
+            signal_id, strategy_id, direction, entry, risk = row
+            if exit_price is None or entry is None or not risk:
+                return
+            signed = float(exit_price) - float(entry) if direction == "LONG" else float(entry) - float(exit_price)
+            realized_r = signed / float(risk)
+            cur.execute("""INSERT INTO strategy.entry_signal_outcomes
+                    (signal_id, outcome_type, status, realized_r, exit_timestamp, source)
+                VALUES (%s, 'ENTRY_ONLY', 'TIME_EXIT', %s, now(), %s)
+                ON CONFLICT (signal_id) DO UPDATE SET status='TIME_EXIT', realized_r=EXCLUDED.realized_r,
+                    exit_timestamp=EXCLUDED.exit_timestamp, updated_at=now()
+                WHERE strategy.entry_signal_outcomes.status='OPEN'""",
+                        (signal_id, realized_r, strategy_id))
+
     # ---- entry point -----------------------------------------------------------------------
     def process_decision(self, payload: dict[str, Any], *, now_utc: datetime) -> ManagementOutcome:
         tm_action = str(payload.get("action") or "")
@@ -156,6 +179,7 @@ class ManagementWorker:
         link = self._platform_link(managed_trade_id)
         if link is None:
             return ManagementOutcome("IGNORED", reason="NOT_A_PLATFORM_POSITION")
+        link["managed_trade_id"] = managed_trade_id
         if self._existing(decision_id) is not None:
             return ManagementOutcome("DUPLICATE", reason="DECISION_ALREADY_HANDLED")
 
@@ -214,11 +238,13 @@ class ManagementWorker:
              "target": args.get("take_profit")}, sort_keys=True).encode()).hexdigest()[:32]
         if not self._record({**base, "action_key": action_key, "status": "AUTHORIZED", "attempt_id": intent_id}):
             return self._reject({**base, "management_intent_id": intent_id}, "DUPLICATE_MANAGEMENT_ACTION")
-        return self._execute(intent_id, tool, args, broker_action, link)
+        return self._execute(intent_id, tool, args, broker_action, link,
+                             exit_price=float(position.get("price_current") or position.get("price_open") or 0.0)
+                             if broker_action == "CLOSE" else None)
 
     # ---- fenced write --------------------------------------------------------------------------
     def _execute(self, intent_id: str, tool: str, args: dict[str, Any], broker_action: str,
-                 link: dict[str, Any]) -> ManagementOutcome:
+                 link: dict[str, Any], exit_price: float | None = None) -> ManagementOutcome:
         try:
             generation = self.w._acquire_generation()
         except Exception as exc:  # noqa: BLE001
@@ -251,6 +277,10 @@ class ManagementWorker:
             data = response.get("data") if isinstance(response.get("data"), dict) else response
             if data.get("ok") is True:
                 self._update(intent_id, status="APPLIED", broker_response=data, completed_at=datetime.now(timezone.utc))
+                if broker_action == "CLOSE":
+                    broker_price = data.get("actual_price") or data.get("close_price") or exit_price
+                    self._record_time_exit_outcome(link["managed_trade_id"],
+                                                   exit_price=float(broker_price) if broker_price else None)
                 return ManagementOutcome("APPLIED", intent_id)
             # A refusal (EA validation error) or a request the broker did not accept (sent=false) is
             # a definite rejection; sent-but-not-verifiably-applied falls through to reconciliation.
@@ -276,6 +306,10 @@ class ManagementWorker:
             if reached:
                 self._update(intent_id, status="APPLIED", reason="GOAL_STATE_RECONCILED",
                              broker_response={**evidence, "position": position}, completed_at=datetime.now(timezone.utc))
+                if broker_action == "CLOSE":
+                    self._record_time_exit_outcome(link["managed_trade_id"],
+                                                   exit_price=None if position is None else
+                                                   float(position.get("price_current") or position.get("price_open") or 0.0))
                 return ManagementOutcome("APPLIED", intent_id, "GOAL_STATE_RECONCILED")
         self._update(intent_id, status="UNKNOWN_RECONCILIATION_REQUIRED", reason="OUTCOME_UNKNOWN",
                      broker_response=evidence)
