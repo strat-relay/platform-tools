@@ -59,6 +59,13 @@ def _json_hash(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
+def _stable_record_hash(record: dict[str, Any]) -> str:
+    """Hash immutable observation content, not the time a worker retried it."""
+    identity = {key: value for key, value in record.items()
+                if key not in {"record_hash", "observed_at"}}
+    return _json_hash(identity)
+
+
 def _position_rows(state: dict[str, Any]) -> Iterable[dict[str, Any]]:
     if state.get("strategy_version") not in (None, STRATEGY_ID):
         raise ValueError("state is not a Context Structure Retrace state")
@@ -66,18 +73,107 @@ def _position_rows(state: dict[str, Any]) -> Iterable[dict[str, Any]]:
     for setup in (state.get("setups") or {}).values():
         for position in setup.get("opportunities", []):
             row = dict(position)
-            for field in ("symbol", "direction", "setup_id", "pattern"):
+            # Keep symbol provenance separate from the normalized position row.
+            # A setup-level default must not masquerade as a direct position symbol.
+            for field in ("direction", "setup_id", "pattern"):
                 row.setdefault(field, setup.get(field))
             key = str(row.get("economic_position_id") or row.get("entry_opportunity_id") or "")
             if key and key not in seen:
                 seen.add(key)
                 yield row
-    for position in (state.get("positions") or {}).values():
+    positions = state.get("positions") or {}
+    values = positions.values() if isinstance(positions, dict) else positions if isinstance(positions, list) else ()
+    for position in values:
+        if not isinstance(position, dict):
+            continue
         row = dict(position)
         key = str(row.get("economic_position_id") or row.get("entry_opportunity_id") or "")
         if key and key not in seen:
             seen.add(key)
             yield row
+
+
+def _related_rows(state: dict[str, Any], names: tuple[str, ...], identifiers: set[str]) -> Iterable[dict[str, Any]]:
+    """Yield state-backed provenance rows matching a stopped position identity."""
+    seen: set[int] = set()
+    for name in names:
+        container = state.get(name)
+        if isinstance(container, dict):
+            values = (container,) if any(key in container for key in (
+                "symbol", "provider_symbol", "instrument", "signal_id", "candidate_id", "intent_id", "attempt_id")) else container.values()
+        else:
+            values = container if isinstance(container, list) else ()
+        for value in values:
+            if not isinstance(value, dict) or id(value) in seen:
+                continue
+            identity_values = {str(value.get(key)) for key in (
+                "economic_position_id", "entry_opportunity_id", "entry_attempt_id", "signal_id",
+                "candidate_id", "setup_id", "intent_id", "execution_intent_id", "attempt_id",
+                "execution_attempt_id") if value.get(key) is not None}
+            if identity_values & identifiers:
+                seen.add(id(value))
+                yield value
+
+
+def _symbol_from_row(row: dict[str, Any]) -> str | None:
+    """Return an explicit symbol/instrument only; never derive one from prices."""
+    for key in ("symbol", "provider_symbol", "instrument", "canonical_instrument"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip() and value.strip().lower() not in {"none", "null"}:
+            return value.strip()
+    return None
+
+
+def resolve_symbol_provenance(position: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a stopped trade symbol using deterministic evidence precedence.
+
+    The order is intentionally explicit: position, broker result, execution attempt,
+    execution intent, signal, candidate, then setup opportunity.  Equal canonical
+    symbols with different provider suffixes are compatible; conflicting canonical
+    symbols are retained as diagnostics while the higher-precedence value wins.
+    """
+    identifiers = {str(position.get(key)) for key in (
+        "economic_position_id", "entry_opportunity_id", "entry_attempt_id", "signal_id",
+        "candidate_id", "setup_id", "intent_id", "execution_intent_id", "attempt_id",
+        "execution_attempt_id") if position.get(key) is not None}
+    rows: list[tuple[str, dict[str, Any]]] = [("position", position)]
+    for source, names in (
+        ("broker_result", ("broker_results", "broker_result", "execution_results")),
+        ("execution_attempt", ("execution_attempts", "execution_attempt")),
+        ("execution_intent", ("execution_intents", "execution_intent")),
+        ("signal", ("signals", "signal", "entry_signals")),
+        ("candidate", ("candidates", "candidate")),
+    ):
+        rows.extend((source, row) for row in _related_rows(state, names, identifiers))
+
+    setup_id = position.get("setup_id")
+    setup = (state.get("setups") or {}).get(setup_id) if isinstance(state.get("setups"), dict) else None
+    if isinstance(setup, dict):
+        for opportunity in setup.get("opportunities") or []:
+            if not isinstance(opportunity, dict):
+                continue
+            opportunity_ids = {str(opportunity.get(key)) for key in (
+                "economic_position_id", "entry_opportunity_id", "entry_attempt_id", "signal_id")
+                if opportunity.get(key) is not None}
+            if not identifiers or opportunity_ids & identifiers:
+                rows.append(("setup_opportunity", opportunity))
+
+    chosen: str | None = None
+    chosen_source: str | None = None
+    conflicts: list[dict[str, str]] = []
+    checked_sources: list[str] = []
+    for source, row in rows:
+        checked_sources.append(source)
+        symbol = _symbol_from_row(row)
+        if symbol is None:
+            continue
+        if chosen is None:
+            chosen, chosen_source = symbol, source
+            continue
+        if canonical_symbol(symbol) != canonical_symbol(chosen):
+            conflicts.append({"source": source, "symbol": symbol, "selected_symbol": chosen})
+    return {"symbol": chosen, "source": chosen_source, "conflicts": conflicts,
+            "checked_sources": checked_sources, "identifiers": sorted(identifiers)}
 
 
 def stopped_positions(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -176,7 +272,7 @@ def _summarize(position: dict[str, Any], timeframe: str, observations: list[dict
 
 
 def observe_stopped_trade(position: dict[str, Any], bars_by_timeframe: dict[str, list[dict[str, Any]]],
-                          contract: dict[str, Any]) -> dict[str, Any]:
+                          contract: dict[str, Any], symbol_provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a deterministic, read-only observation record from completed bars."""
     if not (position.get("status") == "STOPPED" or position.get("exit_reason") == "STOPPED"):
         raise ValueError("post-exit ledger accepts stopped trades only")
@@ -196,6 +292,8 @@ def observe_stopped_trade(position: dict[str, Any], bars_by_timeframe: dict[str,
         "signal_id": position.get("signal_id"),
         "symbol": canonical_symbol(position.get("symbol")),
         "provider_symbol": position.get("symbol"),
+        "symbol_provenance_source": (symbol_provenance or {}).get("source"),
+        "symbol_provenance_conflicts": (symbol_provenance or {}).get("conflicts", []),
         "direction": position.get("direction"),
         "setup_id": position.get("setup_id"),
         "pattern": position.get("pattern"),
@@ -221,7 +319,7 @@ def observe_stopped_trade(position: dict[str, Any], bars_by_timeframe: dict[str,
         "coverage_note": "M5/M15 bars begin after the exit candle to avoid pre-exit leakage; missing bars are not interpolated",
         "observed_at": datetime.now(timezone.utc).isoformat(),
     }
-    record["record_hash"] = _json_hash(record)
+    record["record_hash"] = _stable_record_hash(record)
     return record
 
 
@@ -287,6 +385,8 @@ class PostgresObservationLedger:
 
 
 def _cached_bars(store: Any, symbol: str) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]], str]:
+    if not symbol or symbol.strip().lower() in {"none", "null"}:
+        raise ValueError("MISSING_SYMBOL_PROVENANCE")
     for candidate in provider_symbols(symbol):
         metadata = store.metadata(candidate)
         bars = {timeframe: store.bars(candidate, timeframe) for timeframe in TIMEFRAMES}
@@ -304,23 +404,45 @@ def observe_state(state_path: Path, ledger_path: Path, store: Any) -> dict[str, 
     records = []
     gaps = []
     for position in stopped_positions(state):
+        provenance = resolve_symbol_provenance(position, state)
+        resolved_symbol = provenance["symbol"]
+        if resolved_symbol is None:
+            gap = {"schema": SCHEMA, "record_type": "CONTEXT_STOPPED_POST_EXIT_DATA_GAP",
+                   "research_only": True, "strategy_id": STRATEGY_ID,
+                   "trade_id": position.get("economic_position_id"), "signal_id": position.get("signal_id"),
+                   "symbol": None, "provider_symbol": None, "reason": "MISSING_SYMBOL_PROVENANCE",
+                   "symbol_provenance_source": None, "symbol_provenance_conflicts": provenance["conflicts"],
+                   "symbol_provenance_checked_sources": provenance["checked_sources"],
+                   "symbol_provenance_identifiers": provenance["identifiers"],
+                   "low_rr_diagnostic_cohort": ((position.get("geometry") or {}).get("target_R") is not None and
+                                                  float((position.get("geometry") or {}).get("target_R")) < LOW_RR_DIAGNOSTIC_THRESHOLD),
+                   "low_rr_diagnostic_only": True}
+            gap["record_hash"] = _stable_record_hash(gap)
+            ledger.append(gap)
+            gaps.append({"trade_id": gap["trade_id"], "symbol": None, "reason": gap["reason"]})
+            continue
         try:
-            contract, bars, provider = _cached_bars(store, str(position.get("symbol")))
-            record = observe_stopped_trade(position, bars, contract)
+            resolved_position = {**position, "symbol": resolved_symbol}
+            contract, bars, provider = _cached_bars(store, resolved_symbol)
+            record = observe_stopped_trade(resolved_position, bars, contract, provenance)
             record["provider_symbol"] = provider
-            record["record_hash"] = _json_hash({key: value for key, value in record.items() if key != "record_hash"})
-            ledger.append(record)
-            records.append(record)
+            record["record_hash"] = _stable_record_hash(record)
+            if ledger.append(record):
+                records.append(record)
         except Exception as exc:
             gap = {"schema": SCHEMA, "record_type": "CONTEXT_STOPPED_POST_EXIT_DATA_GAP",
                    "research_only": True, "strategy_id": STRATEGY_ID,
                    "trade_id": position.get("economic_position_id"), "signal_id": position.get("signal_id"),
                    "symbol": canonical_symbol(position.get("symbol")), "provider_symbol": position.get("symbol"),
                    "reason": f"{type(exc).__name__}: {exc}",
+                   "symbol_provenance_source": provenance["source"],
+                   "symbol_provenance_conflicts": provenance["conflicts"],
+                   "symbol_provenance_checked_sources": provenance["checked_sources"],
+                   "symbol_provenance_identifiers": provenance["identifiers"],
                    "low_rr_diagnostic_cohort": ((position.get("geometry") or {}).get("target_R") is not None and
                                                   float((position.get("geometry") or {}).get("target_R")) < LOW_RR_DIAGNOSTIC_THRESHOLD),
                    "low_rr_diagnostic_only": True}
-            gap["record_hash"] = _json_hash(gap)
+            gap["record_hash"] = _stable_record_hash(gap)
             ledger.append(gap)
             gaps.append({"trade_id": gap["trade_id"], "symbol": gap["provider_symbol"], "reason": gap["reason"]})
     return {"schema": SCHEMA, "research_only": True, "strategy_id": STRATEGY_ID,
