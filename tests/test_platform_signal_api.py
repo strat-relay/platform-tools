@@ -142,6 +142,14 @@ class FakeCursor:
                 (r["signal_id"], datetime.fromisoformat(str(r["decision_time"]).replace("Z", "+00:00")))
                 for r in self.connection.rows if r["signal_id"] in ids and r.get("decision_time")
             ]
+        elif "research.context_post_exit_observations" in sql:
+            signal_id, trade_id = params
+            match = next(
+                (r for r in self.connection.post_exit_rows
+                 if r.get("signal_id") == signal_id or r.get("trade_id") == trade_id),
+                None,
+            )
+            self.rows = [(match, match.get("record_type", ""))] if match else []
         else:
             raise AssertionError(f"unexpected SQL in test: {sql}")
 
@@ -153,7 +161,7 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, rows=(), *, schema_ready=True, audit_rows=(), audit_cutoff=None):
+    def __init__(self, rows=(), *, schema_ready=True, audit_rows=(), audit_cutoff=None, post_exit_rows=()):
         self.rows = list(rows)
         self.schema_ready = schema_ready
         self.statements = []
@@ -162,6 +170,7 @@ class FakeConnection:
         # those tests already assume (every signal is NOT_EVALUATED) without having to touch them.
         self.audit_rows = list(audit_rows)
         self.audit_cutoff = audit_cutoff
+        self.post_exit_rows = list(post_exit_rows)
 
     def __enter__(self):
         return self
@@ -174,9 +183,10 @@ class FakeConnection:
 
 
 class PlatformSignalApiTests(unittest.TestCase):
-    def make_api(self, rows=(CANONICAL_ROW,), *, schema_ready=True, audit_rows=(), audit_cutoff=None):
+    def make_api(self, rows=(CANONICAL_ROW,), *, schema_ready=True, audit_rows=(), audit_cutoff=None,
+                 post_exit_rows=()):
         self.connection = FakeConnection(rows, schema_ready=schema_ready, audit_rows=audit_rows,
-                                         audit_cutoff=audit_cutoff)
+                                         audit_cutoff=audit_cutoff, post_exit_rows=post_exit_rows)
         repository = CanonicalSignalRepository(lambda **_kwargs: self.connection)
         return PlatformSignalApi(repository)
 
@@ -341,24 +351,18 @@ class PlatformSignalApiTests(unittest.TestCase):
         row = {**CANONICAL_ROW, "strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1",
                "economic_position_id": "ep-context-1", "signal_id": "SIG_CONTEXT_RESEARCH"}
         research = {"record_type": "CONTEXT_STOPPED_POST_EXIT_OBSERVATION", "trade_id": "ep-context-1",
-                    "post_exit_mfe_r": 1.25, "original_target_after_stop": True}
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "context-research.jsonl"
-            path.write_text(json.dumps(research) + "\n", encoding="utf-8")
-            with patch.dict("os.environ", {"CONTEXT_POST_EXIT_RESEARCH_LEDGER": str(path)}):
-                api = self.make_api(rows=(row,))
-                status, body = api.execute("GET", "/api/v1/signals/SIG_CONTEXT_RESEARCH")
+                    "signal_id": "SIG_CONTEXT_RESEARCH", "post_exit_mfe_r": 1.25,
+                    "original_target_after_stop": True}
+        api = self.make_api(rows=(row,), post_exit_rows=(research,))
+        status, body = api.execute("GET", "/api/v1/signals/SIG_CONTEXT_RESEARCH")
         self.assertEqual(status, 200)
         self.assertEqual(body["data"]["postExitResearch"]["status"], "AVAILABLE")
+        self.assertEqual(body["data"]["postExitResearch"]["source"], "context_post_exit_db")
         self.assertEqual(body["data"]["postExitResearch"]["record"]["post_exit_mfe_r"], 1.25)
 
     def test_non_context_signal_detail_does_not_expose_context_research(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "context-research.jsonl"
-            path.write_text(json.dumps({"trade_id": "ep-liquidity"}) + "\n", encoding="utf-8")
-            with patch.dict("os.environ", {"CONTEXT_POST_EXIT_RESEARCH_LEDGER": str(path)}):
-                api = self.make_api()
-                status, body = api.execute("GET", f"/api/v1/signals/{CANONICAL_ROW['signal_id']}")
+        api = self.make_api()
+        status, body = api.execute("GET", f"/api/v1/signals/{CANONICAL_ROW['signal_id']}")
         self.assertEqual(status, 200)
         self.assertIsNone(body["data"].get("postExitResearch"))
 
