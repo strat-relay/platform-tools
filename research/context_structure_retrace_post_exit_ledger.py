@@ -250,6 +250,42 @@ class ObservationLedger:
         return True
 
 
+class PostgresObservationLedger:
+    """PostgreSQL-backed ledger. Idempotent via record_hash PRIMARY KEY + ON CONFLICT DO NOTHING."""
+
+    def __init__(self, dsn: str):
+        self._dsn = dsn
+
+    def _connect(self) -> Any:
+        try:
+            import psycopg
+        except ImportError as exc:
+            raise RuntimeError("psycopg is required for PostgresObservationLedger") from exc
+        return psycopg.connect(self._dsn, autocommit=False)
+
+    def append(self, record: dict[str, Any]) -> bool:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO research.context_post_exit_observations
+                           (record_hash, signal_id, trade_id, record_type, observed_at, payload)
+                       VALUES (%s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (record_hash) DO NOTHING
+                       RETURNING record_hash""",
+                    (
+                        record.get("record_hash", ""),
+                        record.get("signal_id"),
+                        record.get("trade_id"),
+                        record.get("record_type", ""),
+                        record.get("observed_at"),
+                        json.dumps(record, sort_keys=True, default=str),
+                    ),
+                )
+                inserted = cur.fetchone() is not None
+            conn.commit()
+        return inserted
+
+
 def _cached_bars(store: Any, symbol: str) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]], str]:
     for candidate in provider_symbols(symbol):
         metadata = store.metadata(candidate)
@@ -261,7 +297,10 @@ def _cached_bars(store: Any, symbol: str) -> tuple[dict[str, Any], dict[str, lis
 
 def observe_state(state_path: Path, ledger_path: Path, store: Any) -> dict[str, Any]:
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    ledger = ObservationLedger(ledger_path)
+    pg_dsn = os.environ.get("TRADING_POSTGRES_DSN", "")
+    ledger: ObservationLedger | PostgresObservationLedger = (
+        PostgresObservationLedger(pg_dsn) if pg_dsn else ObservationLedger(ledger_path)
+    )
     records = []
     gaps = []
     for position in stopped_positions(state):
