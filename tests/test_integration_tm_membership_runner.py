@@ -111,6 +111,59 @@ class MigrationChainTests(unittest.TestCase):
         finally:
             db.drop()
 
+    def test_database_at_037_upgrades_through_040_and_repairs_outbox(self):
+        """Run the real migration runner from the production pre-039 schema.
+
+        The legacy event type is seeded before 039 so this proves the repair uses
+        the canonical outbox column without rewriting payload/history.  The
+        second runner invocation proves checksum verification and idempotence.
+        """
+        db = FreshDatabase()
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                for sql in sorted(MIGRATIONS.glob("*.sql")):
+                    if sql.name[:3] <= "037":
+                        shutil.copy(sql, td)
+                with db.connect() as conn:
+                    applied = apply_migrations(conn, Path(td))
+                    self.assertEqual([name[:3] for name in applied][-1], "037")
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """INSERT INTO platform.outbox_events
+                               (event_id, event_type, aggregate_type, aggregate_id,
+                                schema_version, payload, occurred_at, publish_status,
+                                attempts, last_error)
+                            VALUES ('migration-039-regression', 'system.status_changed',
+                                    'execution_authority', 'current', 'event-envelope.v1',
+                                    '{\"preserved\": true}'::jsonb, now(), 'FAILED', 2,
+                                    'unknown subject')"""
+                        )
+                    conn.commit()
+
+                    upgraded = apply_migrations(conn)
+                    self.assertEqual([name[:3] for name in upgraded], ["038", "039", "040"])
+                    with conn.cursor() as cur:
+                        cur.execute("""SELECT event_type, payload, publish_status, attempts, last_error
+                                         FROM platform.outbox_events
+                                        WHERE event_id='migration-039-regression'""")
+                        self.assertEqual(cur.fetchone(),
+                                         ("system.status_changed.v1", {"preserved": True},
+                                          "FAILED", 2, "unknown subject"))
+                        cur.execute("""SELECT column_name FROM information_schema.columns
+                                        WHERE table_schema='trade_management'
+                                          AND table_name='managed_trade'
+                                          AND column_name IN ('time_exit_minutes', 'time_exit_at')
+                                        ORDER BY column_name""")
+                        self.assertEqual([row[0] for row in cur.fetchall()],
+                                         ["time_exit_at", "time_exit_minutes"])
+                        cur.execute("SELECT checksum_sha256 FROM platform.schema_migrations WHERE version='039'")
+                        self.assertEqual(cur.fetchone()[0], hashlib.sha256(
+                            (MIGRATIONS / "039_rename_system_status_changed_subject.sql").read_bytes()
+                        ).hexdigest())
+                    self.assertEqual(apply_migrations(conn), [])
+        finally:
+            db.drop()
+
 
 class _Publisher:
     def __init__(self):
