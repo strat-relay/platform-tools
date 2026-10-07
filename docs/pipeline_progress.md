@@ -74,9 +74,25 @@
 ## Tests
 - [x] tests/test_strategy_mgmt_pipeline.py
 
+## Console
+- [x] Updated StrategyOnboardingPage.tsx — 12-step guided flow, all AVAILABLE
+- [x] Added API client methods to TradingApi.ts, RealTradingApi.ts, MockTradingApi.ts
+- [x] Added src/types/strategyMgmt.ts with full pipeline types
+- [x] Updated ONBOARDING_STEPS in strategyInstances.ts
+- [x] Added patchJson to HttpClient
+- [x] Updated api/endpoints.ts with 13 new paths
+
+## Delivered
+
+- BACKEND_PR: https://github.com/strat-relay/platform-tools/pull/111
+- CONSOLE_PR: https://github.com/blissmen/trading-ops-console/pull/35
+- BRANCH: feat/dynamic-strategy-creation-pipeline
+- MIGRATIONS_ADDED: 042_strategy_mgmt_pipeline.sql
+- TEST_COUNTS: 41 unit tests (all pass), 1 integration test class (postgres-gated)
+
 ## Gaps / known issues
-- New pipeline uses `strategy_mgmt` schema (separate from existing `platform` schema) to avoid
-  disrupting live production tables
 - BacktestJobRunner runs in a thread pool from the API process; for now this is acceptable
   (no separate worker process needed for minimum viable pipeline)
-- Console UI changes are minimal scaffolding — the full wizard is wired but uses new API endpoints
+- Console has no interactive wizard yet — the onboarding page shows the steps + API endpoints;
+  a full form-based wizard is a follow-on
+- Integration test requires PostgreSQL; skipped in CI without TRADING_POSTGRES_DSN
