@@ -32,6 +32,7 @@ from .risk_policy_store import policy_fingerprint
 from .trace import emit as trace_emit
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
+RESEARCH_ONLY_STRATEGIES = frozenset({"CONTEXT_STRUCTURE_RETRACE_V2"})
 
 
 def _bridge_risk_diagnostics(risk_context: dict[str, Any]) -> dict[str, Any]:
@@ -163,6 +164,16 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                            (f"QUAR_{signal_id}", "NONE", "STILL_UNKNOWN",
                             canonical_bytes({"reason": "EVENT_HASH_MISMATCH", "signal_id": signal_id}).decode("utf-8")))
             return IntentResult(status="QUARANTINED", execution_intent_id=None, reason="EVENT_HASH_MISMATCH")
+
+        # Strategy-scoped boundary: research-only strategies must terminate before the
+        # execution-intent insert, regardless of global authority or risk-policy state.
+        # This is deliberately inside the canonical intent factory so no normal caller can
+        # accidentally turn a V2 research signal into a durable executable record.
+        if record.get("strategy_id") in RESEARCH_ONLY_STRATEGIES:
+            trace_emit("INTENT_RESEARCH_STRATEGY_REJECTED", signal_id=signal_id,
+                       strategy_id=record.get("strategy_id"), reason="STRATEGY_NOT_EXECUTION_ENABLED")
+            return IntentResult(status="BLOCKED", execution_intent_id=None,
+                                eligible=False, reason="STRATEGY_NOT_EXECUTION_ENABLED")
 
         eligibility = (EligibilityResult(False, blocked_reason) if blocked_reason else
                        check_eligibility(record, risk_policy=risk_policy, account_id=account_id, now_utc=now_utc))

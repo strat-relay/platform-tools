@@ -49,10 +49,11 @@ def policy(**overrides) -> RiskPolicy:
     return RiskPolicy(**fields)
 
 
-def seeded_conn(signal_id="SIG1", entry_signal_hash="hash-1") -> FakeConnection:
+def seeded_conn(signal_id="SIG1", entry_signal_hash="hash-1", strategy_id="STRAT1",
+                strategy_version=1, strategy_ref="strat-ref") -> FakeConnection:
     conn = FakeConnection()
-    conn.seed_entry_signal(signal_id=signal_id, strategy_id="STRAT1", strategy_version=1,
-                           strategy_ref="strat-ref", instrument="EURUSD", direction="LONG",
+    conn.seed_entry_signal(signal_id=signal_id, strategy_id=strategy_id, strategy_version=strategy_version,
+                           strategy_ref=strategy_ref, instrument="EURUSD", direction="LONG",
                            decision_time=NOW, signal_emitted_at=NOW, entry_price=1.1000, stop_price=1.0950,
                            target_price=1.1100, entry_signal_hash=entry_signal_hash)
     return conn
@@ -73,6 +74,21 @@ def run(worker: ExecutionWorker, conn: FakeConnection, broker: FakeBroker, signa
 
 
 class EndToEndTests(unittest.TestCase):
+    def test_research_only_v2_is_rejected_before_intent_or_broker_boundary(self):
+        conn = seeded_conn(strategy_id="CONTEXT_STRUCTURE_RETRACE_V2", strategy_version="V2",
+                           strategy_ref="CONTEXT_STRUCTURE_RETRACE_V2@V2")
+        broker = FakeBroker(mode="fill")
+        worker = make_worker(conn, broker=broker)
+
+        outcome = run(worker, conn, broker)
+
+        self.assertEqual(outcome.status, "BLOCKED")
+        self.assertEqual(outcome.detail, "STRATEGY_NOT_EXECUTION_ENABLED")
+        self.assertEqual(outcome.intent_result.execution_intent_id, None)
+        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 0)
+        self.assertEqual(len(conn.tables["execution_v2.execution_attempt"]), 0)
+        self.assertEqual(broker.calls, 0)
+
     def test_authorization_fingerprint_matches_canonical_wire_request(self):
         conn = seeded_conn()
         broker = FakeBroker(mode="fill")
