@@ -33,7 +33,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: localhost:5001/trading-platform-control-api@sha256:b14e79c030cd5c459d84658f2d1b3756c91fd70699295ab2ac436bda85231802
+          image: localhost:5001/trading-platform-control-api@sha256:719d0dbc33af8f0fcdcabe4978e3e7787c04b422a0055b4537c9acb2de6e337a
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -74,10 +74,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 96Mi
+              memory: 256Mi
             limits:
               cpu: 250m
-              memory: 192Mi
+              memory: 512Mi
           readinessProbe:
             httpGet:
               path: /readyz
