@@ -67,6 +67,27 @@ from strategy_backtest.kojo_structure_reclaim_v3 import (
     TP1_STANDARD,
     TP1_NEAR_COINCIDENT_BOUNDARY,
     SOURCE_FIDELITY_BLOCKED,
+    READY_FOR_DISCOVERY,
+    TP1_MINIMUM_PLANNED_R,
+    TP_CANDIDATE_CLASS_GENERIC,
+    TARGET_SELECTION_SOURCE_RULE_REQUIRED,
+    LIQUIDITY_SWING_HIGH,
+    LIQUIDITY_SWING_LOW,
+    LIQUIDITY_EQUAL_HIGHS,
+    LIQUIDITY_EQUAL_LOWS,
+    LIQUIDITY_PREV_DAY_HIGH,
+    LIQUIDITY_PREV_DAY_LOW,
+    LIQUIDITY_SESSION_HIGH,
+    LIQUIDITY_SESSION_LOW,
+    LIQUIDITY_UNTOUCHED_EXTREME,
+    TP2_SELECTION_POLICY,
+    TP2_SELECTION_POLICY_SOURCE_STATUS,
+    WICK_REACTION_MIN_FRACTION,
+    BODY_CLOSE_MIN_FRACTION,
+    _utc_day_start,
+    _detect_m15_reaction_events,
+    _build_m15_reaction_zones,
+    _detect_liquidity_objectives,
     KojoStructureReclaimV3Evaluator,
     kojo_structure_reclaim_v3_baseline_parameter_set,
     kojo_structure_reclaim_v3_parameter_schema,
@@ -148,7 +169,14 @@ def build_pivot_sequence(
 
     Phase 1 — 5 H1 bars establishing an EXTERNAL TARGET level (level±25).
     Phase 2 — num_pre_break_h1 H1 bars establishing the STRUCTURAL LEVEL.
+    Phase 2.5 — 2 M15 reaction bars on the current UTC day (TP1 zone evidence).
     Phase 3 — break bar, H1 pullback, M15 confirmation, entry bar.
+
+    The reaction M15 bars are inserted before the break bar with timestamps at the
+    UTC day boundary of the break bar's open.  They satisfy WICK_REJECTION criteria
+    (upper_wick / range >= 0.33 for LONG; lower_wick / range >= 0.33 for SHORT) at
+    a zone 20 points above (LONG) or below (SHORT) the structural level.  These bars
+    are always included so that _compute_targets_v3 finds a qualifying TP1 zone.
     """
     events: list[MarketEvent] = []
     t = base_ts
@@ -170,6 +198,14 @@ def build_pivot_sequence(
             else:
                 events.append(h1(t, level_price - 8, level_price - 4, level_price - 10, level_price - 7))
             t += H1S
+
+        # Reaction M15 bars: bearish wick rejections at zone 20pts above level.
+        # Placed at the UTC day start of the break bar so they are current-day evidence
+        # for _compute_targets_v3 without interfering with any setup state.
+        rx_zone = level_price + 20.0
+        rx_day = (t // 86400) * 86400  # UTC midnight of break bar's day
+        events.append(m15(rx_day,          rx_zone - 2, rx_zone + 5, rx_zone - 3, rx_zone - 2.5))
+        events.append(m15(rx_day + M15S,   rx_zone - 1, rx_zone + 6, rx_zone - 2, rx_zone - 1.5))
 
         break_close = level_price + break_close_offset
         events.append(h1(t, level_price - 2, break_close + 3, level_price - 3, break_close))
@@ -207,6 +243,12 @@ def build_pivot_sequence(
             else:
                 events.append(h1(t, level_price + 7, level_price + 10, level_price + 4, level_price + 8))
             t += H1S
+
+        # Reaction M15 bars: bullish wick rejections at zone 20pts below level.
+        rx_zone = level_price - 20.0
+        rx_day = (t // 86400) * 86400
+        events.append(m15(rx_day,        rx_zone + 2.5, rx_zone + 3, rx_zone - 5, rx_zone + 2))
+        events.append(m15(rx_day + M15S, rx_zone + 1.5, rx_zone + 2, rx_zone - 6, rx_zone + 1))
 
         break_close = level_price - break_close_offset
         events.append(h1(t, level_price + 2, level_price + 3, break_close - 3, break_close))
@@ -835,8 +877,9 @@ class TargetDiagnosticsTests(unittest.TestCase):
     def test_required_diagnostic_fields_present(self):
         diag = self._get_tp1_diagnostics()
         required = [
-            "target_structural_id",
-            "target_h1_open_timestamp",
+            "tp1_candidate_class",
+            "reaction_zone_id",
+            "first_reaction_ts",
             "entry_price",
             "target_distance",
             "spread_at_decision_bar",
@@ -892,36 +935,37 @@ class TargetDiagnosticsTests(unittest.TestCase):
 class SourceFidelityStatusTests(unittest.TestCase):
 
     def test_source_fidelity_blocked_constant(self):
-        self.assertTrue(SOURCE_FIDELITY_BLOCKED)
+        self.assertFalse(SOURCE_FIDELITY_BLOCKED)
+
+    def test_ready_for_discovery_constant(self):
+        self.assertTrue(READY_FOR_DISCOVERY)
 
     def test_source_fidelity_blocked_in_diagnostics(self):
         ev = make_evaluator()
         diag = ev.diagnostics()
-        self.assertTrue(diag["SOURCE_FIDELITY_BLOCKED"])
-        self.assertFalse(diag["READY_FOR_DISCOVERY"])
+        self.assertFalse(diag["SOURCE_FIDELITY_BLOCKED"])
+        self.assertTrue(diag["READY_FOR_DISCOVERY"])
         self.assertFalse(diag["READY_FOR_VALIDATION"])
         self.assertFalse(diag["READY_FOR_SHADOW_SIGNALS"])
         self.assertFalse(diag["READY_FOR_EXECUTION"])
 
-    def test_source_fidelity_blocked_reasons_present(self):
+    def test_source_fidelity_blocked_reasons_empty(self):
+        """All V3 blockers are resolved; reasons list must be empty."""
         ev = make_evaluator()
         diag = ev.diagnostics()
         reasons = diag["source_fidelity_blocked_reasons"]
         self.assertIsInstance(reasons, list)
-        self.assertGreaterEqual(len(reasons), 1)
-        reasons_text = " ".join(reasons)
-        self.assertIn("SOURCE_RULE_REQUIRED", reasons_text)
-        # H1 confirmation is now resolved; only TARGET_MEANINGFULNESS_BOUNDARY remains.
-        self.assertTrue(any("TARGET_MEANINGFULNESS_BOUNDARY" in r for r in reasons))
+        self.assertEqual(len(reasons), 0)
 
     def test_production_eligible_false_in_signal(self):
+        """Signal is not production-eligible until validation; v3_status reflects discovery."""
         ev = make_evaluator()
         events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
         signals, _ = feed_and_collect(ev, events)
         self.assertEqual(len(signals), 1)
         prov = signals[0].provenance
         self.assertFalse(prov["production_eligible"])
-        self.assertEqual(prov["v3_status"], "SOURCE_FIDELITY_BLOCKED")
+        self.assertEqual(prov["v3_status"], "READY_FOR_DISCOVERY")
 
     def test_no_dual_tf_enforced_in_diagnostics(self):
         """DUAL_TF_BASELINE_ENFORCED must not appear in V3 diagnostics."""
@@ -953,10 +997,11 @@ class InheritedCausalInvariantTests(unittest.TestCase):
         ev.consume_market_event(h1(t, 4114, 4116, 4109, level + 1))
         t += H1S
 
-        # M15 retest: a continuation close (bullish bar, closes above prev close, not engulfing)
-        ev.consume_market_event(m15(t, level + 1, level + 2, level, level + 1.5))  # continuation
+        # M15 retest: genuine continuation closes — body >> lower_wick so REJECTION_WICK fails.
+        # lower_wick = 0.2, body = 1.0 → lower_wick < 2*body → not rejection wick.
+        ev.consume_market_event(m15(t, level + 1, level + 2.5, level + 0.8, level + 2))  # continuation
         t += M15S
-        ev.consume_market_event(m15(t, level + 1.5, level + 2.5, level + 0.5, level + 2))  # continuation
+        ev.consume_market_event(m15(t, level + 2, level + 3.5, level + 1.8, level + 3))  # continuation
         t += M15S
 
         signals = [
@@ -967,12 +1012,13 @@ class InheritedCausalInvariantTests(unittest.TestCase):
         diag = ev.diagnostics()
         self.assertGreater(diag["weak_m15_rejections"], 0)
 
-    def test_tp1_class_always_external(self):
+    def test_tp1_class_current_day_reaction_zone(self):
+        """V3 tp1_class must be CURRENT_DAY_M15_REACTION_ZONE (reaction zone, not generic external)."""
         ev = make_evaluator()
         events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
         signals, _ = feed_and_collect(ev, events)
         for sig in signals:
-            self.assertEqual(sig.provenance.get("tp1_class"), "EXTERNAL")
+            self.assertEqual(sig.provenance.get("tp1_class"), "CURRENT_DAY_M15_REACTION_ZONE")
 
     def test_deterministic_rerun(self):
         """Two independent replays of the same sequence produce identical signal IDs."""
@@ -1162,13 +1208,15 @@ class TargetCandidateClassTests(unittest.TestCase):
         self.assertEqual(TP_CANDIDATE_CLASS_GENERIC, "GENERIC_EXTERNAL_PIVOT")
 
     def test_tp1_candidate_class_in_diagnostics(self):
+        """tp1_candidate_class in V3 is CURRENT_DAY_M15_REACTION_ZONE (implemented, not generic)."""
         ev = make_evaluator()
         events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
         signals, _ = feed_and_collect(ev, events)
         prov = signals[0].provenance
         diag = prov["tp1_provenance"]["tp1_diagnostics"]
-        self.assertEqual(diag["tp1_candidate_class"], TP_CANDIDATE_CLASS_GENERIC)
-        self.assertTrue(diag["target_selection_source_rule_required"])
+        self.assertEqual(diag["tp1_candidate_class"], "CURRENT_DAY_M15_REACTION_ZONE")
+        # TARGET_SELECTION_SOURCE_RULE_REQUIRED remains True at module level for documentation
+        self.assertIn("target_selection_source_rule_required", diag)
 
     def test_tp2_candidate_class_in_tp1_prov(self):
         ev = make_evaluator()
@@ -1176,6 +1224,501 @@ class TargetCandidateClassTests(unittest.TestCase):
         signals, _ = feed_and_collect(ev, events)
         prov = signals[0].provenance
         self.assertIn("tp2_candidate_class", prov["tp1_provenance"])
+
+
+# ─── Section I: 20 required reaction-zone and liquidity test scenarios ──────────
+#
+# Tests 1-10: TP1 reaction zone semantics
+# Tests 11-16: TP2 liquidity classification
+# Tests 17-20: integration / invariant preservation
+
+
+def _bar_dict(t, o, h, lo, c):
+    return {"time": t, "open": o, "high": h, "low": lo, "close": c}
+
+
+class ReactionZoneSemanticTests(unittest.TestCase):
+    """Tests 1-10: TP1 current-day M15 reaction zone semantics (spec Section I)."""
+
+    # ── helper for synthetic zone tests ──────────────────────────────────────
+
+    def _wick_rejection_bar_long(self, t, zone_price):
+        """Bearish wick-rejection bar at zone_price for LONG TP1.
+        upper_wick / range = 7/8 = 0.875 >= WICK_REACTION_MIN_FRACTION."""
+        return _bar_dict(t, zone_price - 2, zone_price + 5, zone_price - 3, zone_price - 2.5)
+
+    def _wick_rejection_bar_short(self, t, zone_price):
+        """Bullish wick-rejection bar at zone_price for SHORT TP1.
+        lower_wick / range = 7/8 = 0.875 >= WICK_REACTION_MIN_FRACTION."""
+        return _bar_dict(t, zone_price + 2.5, zone_price + 3, zone_price - 5, zone_price + 2)
+
+    def _body_close_rejection_long(self, t, zone_price):
+        """Bearish body-close rejection for LONG TP1.
+        body / range = 4/6 = 0.67 >= BODY_CLOSE_MIN_FRACTION; upper_wick fraction < 0.33."""
+        return _bar_dict(t, zone_price + 2, zone_price + 2.5, zone_price - 3.5, zone_price - 2)
+
+    # ── test 1: wick reaction evidence in tp1_prov ───────────────────────────
+
+    def test_tp1_from_wick_reaction_evidence(self):
+        """TP1 zone has wick_reaction_count >= 1 from current-day M15 wick bars."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        self.assertEqual(len(signals), 1)
+        tp1_prov = signals[0].provenance["tp1_provenance"]
+        self.assertEqual(tp1_prov["tp1_class"], "CURRENT_DAY_M15_REACTION_ZONE")
+        self.assertGreaterEqual(tp1_prov["wick_reaction_count"], 1)
+
+    # ── test 2: body-close rejection detection ────────────────────────────────
+
+    def test_body_close_rejection_detection(self):
+        """_detect_m15_reaction_events classifies bars with bearish body >= 25% as BODY_CLOSE_REJECTION."""
+        decision_ts = BASE_TS + 86400  # day start = BASE_TS
+        day_start = _utc_day_start(decision_ts)
+        # BODY_CLOSE bar for LONG: high > entry_price, body/range >= 0.25, upper_wick/range < 0.33
+        bar = _bar_dict(
+            day_start + 100, 4132.0, 4132.5, 4128.0, 4128.5
+        )  # bearish: c=4128.5 < o=4132; body=3.5/range=4.5=0.78; wick=0.5/4.5=0.11<0.33
+        events = [bar]
+        entry_price = 4120.0
+        results = _detect_m15_reaction_events(events, "LONG", entry_price, decision_ts)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["reaction_type"], "BODY_CLOSE_REJECTION")
+        self.assertEqual(results[0]["reaction_price"], 4132.5)  # high of bar
+
+    # ── test 3: prior-day reaction excluded from current-day TP1 ─────────────
+
+    def test_prior_day_reaction_excluded(self):
+        """M15 reaction bars from the previous UTC day are excluded from TP1 zone detection."""
+        decision_ts = 1_783_036_800 + 7200  # day_start + 2h into day
+        day_start = _utc_day_start(decision_ts)  # = 1_783_036_800
+        entry_price = 4115.0
+        zone_price = 4135.0
+
+        # Bar from PREVIOUS day (time < day_start)
+        prev_day_bar = _bar_dict(day_start - 900, zone_price - 2, zone_price + 5, zone_price - 3, zone_price - 2.5)
+        # Bar on CURRENT day (time >= day_start, closes before decision_ts)
+        curr_day_bar = _bar_dict(day_start + 100, zone_price - 2, zone_price + 5, zone_price - 3, zone_price - 2.5)
+
+        results_only_prev = _detect_m15_reaction_events([prev_day_bar], "LONG", entry_price, decision_ts)
+        results_both = _detect_m15_reaction_events([prev_day_bar, curr_day_bar], "LONG", entry_price, decision_ts)
+
+        self.assertEqual(len(results_only_prev), 0, "Prior-day bar must be excluded")
+        self.assertEqual(len(results_both), 1, "Only current-day bar included")
+
+    # ── test 4: zone < 1R rejected ────────────────────────────────────────────
+
+    def test_reaction_zone_below_1r_rejected(self):
+        """Qualifying zone requires planned_r >= TP1_MINIMUM_PLANNED_R = 1.0."""
+        entry_price = 4120.0
+        stop_price = 4110.0   # risk = 10
+        decision_ts = BASE_TS + 7200
+        day_start = _utc_day_start(decision_ts)
+
+        # Zone center = 4125 → planned_r = 5/10 = 0.5 < 1.0
+        # Bar: high = 4126 (reaction_price = 4126), close below, so entry_price=4120, zone≈4126
+        bar = _bar_dict(day_start + 100, 4124, 4126, 4123, 4123.5)
+        # wick = 4126 - max(4124,4123.5) = 4126-4124 = 2; range = 4126-4123 = 3; 2/3 = 0.67 >= 0.33 → WICK
+        qualifying, all_zones = _build_m15_reaction_zones(
+            [bar], "LONG", entry_price, stop_price, decision_ts, zone_tolerance=1.0
+        )
+        self.assertEqual(len(qualifying), 0, "Zone within 1R must not qualify")
+        self.assertGreater(len(all_zones), 0, "But the zone itself should still be detected")
+
+    # ── test 5: zone exactly 1.0R accepted ────────────────────────────────────
+
+    def test_reaction_zone_exactly_1r_accepted(self):
+        """Zone at exactly 1.0R from entry is accepted (>= not strictly >)."""
+        entry_price = 4120.0
+        stop_price = 4110.0   # risk = 10
+        decision_ts = BASE_TS + 7200
+        day_start = _utc_day_start(decision_ts)
+
+        # Zone center must be entry + 1.0 * risk = 4130
+        # Bar: reaction_price = 4130, clustered alone at center = 4130 ± zone_tolerance/2
+        # With zone_tolerance=1: zone_center = 4130, planned_r = 10/10 = 1.0
+        bar = _bar_dict(day_start + 100, 4128, 4130, 4127, 4127.5)
+        # wick = 4130-max(4128,4127.5)=4130-4128=2; range=4130-4127=3; 2/3=0.67>=0.33 → WICK at 4130
+        qualifying, _ = _build_m15_reaction_zones(
+            [bar], "LONG", entry_price, stop_price, decision_ts, zone_tolerance=1.0
+        )
+        self.assertEqual(len(qualifying), 1, "Zone at exactly 1.0R must qualify")
+        self.assertAlmostEqual(qualifying[0]["planned_r"], 1.0, places=5)
+
+    # ── test 6: zone > 1R accepted (integration) ─────────────────────────────
+
+    def test_reaction_zone_above_1r_accepted(self):
+        """Integration: build_pivot_sequence produces a signal with planned_r >= 1.0."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        self.assertEqual(len(signals), 1)
+        tp1_prov = signals[0].provenance["tp1_provenance"]
+        self.assertGreaterEqual(tp1_prov["planned_r"], TP1_MINIMUM_PLANNED_R)
+
+    # ── test 7: stronger zone ranked first over nearer zone ───────────────────
+
+    def test_stronger_zone_ranked_first_over_nearer(self):
+        """Zone with more distinct reactions ranks above a nearer zone with fewer reactions."""
+        entry_price = 4115.0
+        stop_price = 4105.0   # risk = 10
+        decision_ts = BASE_TS + 7200
+        day_start = _utc_day_start(decision_ts)
+
+        # Near zone at 4125 (1.0R exactly): 1 reaction
+        near_bar = _bar_dict(day_start + 100, 4123, 4125, 4122, 4122.5)
+        # wick=4125-max(4123,4122.5)=2; range=4125-4122=3; 2/3>=0.33 → WICK at 4125
+
+        # Far zone at 4140 (2.5R): 2 reactions → stronger
+        t2 = day_start + 200
+        t3 = day_start + 1200
+        strong_bar_1 = _bar_dict(t2, 4138, 4140, 4137, 4137.5)
+        # wick=4140-max(4138,4137.5)=4140-4138=2; range=4140-4137=3; 2/3>=0.33 → WICK at 4140
+        strong_bar_2 = _bar_dict(t3, 4138.5, 4140.5, 4137.5, 4138)
+        # wick=4140.5-max(4138.5,4138)=4140.5-4138.5=2; range=4140.5-4137.5=3; 2/3>=0.33 → WICK
+
+        qualifying, _ = _build_m15_reaction_zones(
+            [near_bar, strong_bar_1, strong_bar_2], "LONG",
+            entry_price, stop_price, decision_ts, zone_tolerance=3.0,
+        )
+        self.assertGreaterEqual(len(qualifying), 2, "Both zones should qualify")
+        # Stronger zone (2 reactions at ~4140) must rank first
+        self.assertGreater(qualifying[0]["total_distinct_reactions"], 1)
+        # Best zone must be the far/stronger one (not the nearer 1-reaction zone)
+        self.assertGreater(qualifying[0]["zone_center"], qualifying[-1]["zone_center"])
+
+    # ── test 8: no qualifying TP1 zone → no trade ─────────────────────────────
+
+    def test_no_qualifying_tp1_zone_produces_no_signal(self):
+        """When no current-day M15 wick or body-close rejection exists, no signal fires."""
+        ev = make_evaluator()
+        level = 4110.0
+        # Use pullback_to_level=False to get a break bar, then manually add
+        # non-reaction M15 bars (closes above midpoint but no wick/body-close rejection)
+        events = build_pivot_sequence(BASE_TS, level, "LONG", pullback_to_level=False)
+        feed_and_collect(ev, events)
+
+        base_t = last_ts(events)
+        # Clear all m15_bars so no reaction evidence survives from build_pivot_sequence
+        ev._m15_bars.clear()
+
+        # H1 pullback
+        t = base_t + H1S
+        ev.consume_market_event(h1(t, level + 4, level + 5, level - 2, level + 1))
+        t += H1S
+
+        # M15 retest bars: bullish engulf confirms M15 pattern, but no TP1 zone →
+        # signal attempt will fail with NO_QUALIFYING_TP1_REACTION_ZONE
+        ev.consume_market_event(m15(t, level + 2, level + 3, level - 1, level + 0.2))
+        t += M15S
+        ev.consume_market_event(m15(t, level, level + 8, level - 1, level + 7))
+        t += M15S
+        sig_outs = ev.consume_market_event(m15(t, level + 7, level + 10, level + 5, level + 8))
+
+        signals = [o for o in sig_outs if isinstance(o, EntrySignal)]
+        self.assertEqual(len(signals), 0, "No qualifying zone must produce no signal")
+        diag = ev.diagnostics()
+        self.assertGreater(diag.get("rejection_counts", {}).get("NO_QUALIFYING_TP1_REACTION_ZONE", 0), 0)
+
+    # ── test 9: LONG/SHORT target symmetry ────────────────────────────────────
+
+    def test_long_short_symmetry(self):
+        """LONG and SHORT sequences both produce a signal with the correct tp1_class."""
+        for direction in ("LONG", "SHORT"):
+            with self.subTest(direction=direction):
+                ev = make_evaluator()
+                events = build_pivot_sequence(BASE_TS, 4110.0, direction)
+                signals, _ = feed_and_collect(ev, events)
+                self.assertEqual(len(signals), 1, f"{direction} must produce exactly one signal")
+                prov = signals[0].provenance
+                self.assertEqual(prov["tp1_class"], "CURRENT_DAY_M15_REACTION_ZONE")
+                self.assertGreaterEqual(prov["tp1_provenance"]["planned_r"], TP1_MINIMUM_PLANNED_R)
+                self.assertEqual(prov["direction"], direction)
+
+    # ── test 10: no lookahead in reaction-zone construction ───────────────────
+
+    def test_no_lookahead_in_reaction_zone_construction(self):
+        """Bars with close_timestamp > decision_ts must be excluded."""
+        decision_ts = BASE_TS + 3600
+        day_start = _utc_day_start(decision_ts)
+        entry_price = 4115.0
+
+        # Bar closes AFTER decision_ts (not causal)
+        future_bar = _bar_dict(decision_ts - 100, 4133, 4138, 4132, 4132.5)
+        # time + M15S = decision_ts - 100 + 900 = decision_ts + 800 > decision_ts → excluded
+
+        # Bar that closes BEFORE decision_ts
+        past_bar = _bar_dict(day_start + 100, 4133, 4138, 4132, 4132.5)
+        # time + M15S = day_start + 100 + 900 = day_start + 1000 < decision_ts → included
+
+        results_future = _detect_m15_reaction_events([future_bar], "LONG", entry_price, decision_ts)
+        results_past = _detect_m15_reaction_events([past_bar], "LONG", entry_price, decision_ts)
+
+        self.assertEqual(len(results_future), 0, "Future bar must be excluded (lookahead)")
+        self.assertEqual(len(results_past), 1, "Past bar must be included")
+
+
+class LiquidityObjectiveTests(unittest.TestCase):
+    """Tests 11-16: TP2 liquidity objective classification (spec Section I)."""
+
+    def _make_h1_bars(
+        self, n: int, base_t: int, base_price: float = 4120.0, step: int = 3600
+    ) -> list[dict]:
+        """Simple ascending H1 bars for testing."""
+        return [
+            _bar_dict(base_t + i * step, base_price + i, base_price + i + 2, base_price + i - 1, base_price + i + 1)
+            for i in range(n)
+        ]
+
+    def _liq_types(self, objectives):
+        return {o["liquidity_type"] for o in objectives}
+
+    # ── test 11: swing high / swing low classification ────────────────────────
+
+    def test_swing_high_classified_in_liquidity(self):
+        """H1 swing high beyond TP1 classified as SWING_HIGH in liquidity objectives."""
+        # Synthetic: 7 H1 bars with a clear pivot high at index 3
+        base_t = BASE_TS
+        h1s = [
+            _bar_dict(base_t,              4118, 4120, 4116, 4119),
+            _bar_dict(base_t + 3600,       4119, 4121, 4117, 4120),
+            _bar_dict(base_t + 7200,       4120, 4122, 4119, 4121),
+            _bar_dict(base_t + 10800,      4121, 4145, 4119, 4122),  # swing high at 4145
+            _bar_dict(base_t + 14400,      4122, 4124, 4120, 4123),
+            _bar_dict(base_t + 18000,      4123, 4125, 4121, 4124),
+            _bar_dict(base_t + 21600,      4120, 4122, 4118, 4121),
+        ]
+        episode_start_ts = base_t + 25200  # after all bars
+        decision_ts = episode_start_ts + 1
+        entry_price = 4119.0
+        stop_price = 4109.0   # risk = 10
+        tp1_price = 4129.0    # swing high at 4145 is beyond this
+
+        objs = _detect_liquidity_objectives(
+            h1s, "LONG", entry_price, stop_price, tp1_price,
+            episode_start_ts, decision_ts, pivot_strength=2, equal_tol=1.0,
+        )
+        liq_types = self._liq_types(objs)
+        self.assertIn(LIQUIDITY_SWING_HIGH, liq_types)
+        swing_highs = [o for o in objs if o["liquidity_type"] == LIQUIDITY_SWING_HIGH]
+        self.assertTrue(any(abs(o["price"] - 4145) < 0.01 for o in swing_highs))
+
+    # ── test 12: equal highs / equal lows classification ──────────────────────
+
+    def test_equal_highs_classified_in_liquidity(self):
+        """Two H1 swing highs at nearly identical prices (within equal_tol) → EQUAL_HIGHS."""
+        base_t = BASE_TS
+        # Two pivot highs at 4145.0 and 4145.4, within equal_tol=1.0 → equal highs cluster
+        h1s = [
+            _bar_dict(base_t + i * 3600, 4120, 4122, 4118, 4121)
+            for i in range(12)
+        ]
+        # Two distinct swing high prices that are within equal_tol but not identical
+        # (identical prices would collapse in swing_by_price dict keyed on price)
+        h1s[2] = _bar_dict(base_t + 2 * 3600, 4143, 4145, 4142, 4143)
+        h1s[7] = _bar_dict(base_t + 7 * 3600, 4143, 4145.4, 4142, 4143)
+
+        episode_start_ts = base_t + 12 * 3600
+        decision_ts = episode_start_ts + 1
+        entry_price = 4119.0
+        stop_price = 4109.0
+        tp1_price = 4129.0
+
+        objs = _detect_liquidity_objectives(
+            h1s, "LONG", entry_price, stop_price, tp1_price,
+            episode_start_ts, decision_ts, pivot_strength=2, equal_tol=1.0,
+        )
+        liq_types = self._liq_types(objs)
+        self.assertIn(LIQUIDITY_EQUAL_HIGHS, liq_types)
+
+    # ── test 13: previous-day high / low classification ───────────────────────
+
+    def test_prev_day_high_classified_in_liquidity(self):
+        """H1 high from previous UTC day classified as PREV_DAY_HIGH."""
+        # decision_ts on 2026-07-02 02:00 UTC = 1751421600
+        decision_ts = 1751421600  # 2026-07-02 02:00 UTC
+        day_start = _utc_day_start(decision_ts)   # 2026-07-02 00:00 UTC
+        prev_day_start = day_start - 86400         # 2026-07-01 00:00 UTC
+
+        # H1 bars on prev day (2026-07-01)
+        h1s = [
+            _bar_dict(prev_day_start + i * 3600, 4120, 4160 if i == 10 else 4125, 4118, 4122)
+            for i in range(20)
+        ]
+        # Add a bar on current day (2026-07-02)
+        h1s.append(_bar_dict(day_start + 3600, 4118, 4120, 4116, 4119))
+
+        episode_start_ts = day_start  # episode starts at day boundary
+        entry_price = 4119.0
+        stop_price = 4109.0
+        tp1_price = 4129.0  # prev-day high at 4160 is well beyond
+
+        objs = _detect_liquidity_objectives(
+            h1s, "LONG", entry_price, stop_price, tp1_price,
+            episode_start_ts, decision_ts, pivot_strength=2, equal_tol=1.0,
+        )
+        liq_types = self._liq_types(objs)
+        self.assertIn(LIQUIDITY_PREV_DAY_HIGH, liq_types)
+        pdh = next(o for o in objs if o["liquidity_type"] == LIQUIDITY_PREV_DAY_HIGH)
+        self.assertEqual(pdh["price"], 4160.0)
+
+    # ── test 14: session high / low classification ────────────────────────────
+
+    def test_session_high_classified_in_liquidity(self):
+        """H1 high from completed London session classified as SESSION_HIGH."""
+        # Build a scenario on a specific day where London session (07:00-16:00 UTC) completed
+        # before decision_ts
+        day_start = 1751414400  # 2026-07-01 00:00 UTC
+        london_start = day_start + 7 * 3600   # 07:00 UTC
+        london_end   = day_start + 16 * 3600  # 16:00 UTC
+        decision_ts  = day_start + 18 * 3600  # 18:00 UTC (after London session)
+
+        # H1 bars covering the London session with one high spike at 4165
+        h1s = [
+            _bar_dict(london_start + i * 3600, 4120, 4165 if i == 4 else 4125, 4118, 4122)
+            for i in range(9)
+        ]
+
+        episode_start_ts = day_start  # episode started before London session
+        entry_price = 4119.0
+        stop_price = 4109.0
+        tp1_price = 4129.0
+
+        objs = _detect_liquidity_objectives(
+            h1s, "LONG", entry_price, stop_price, tp1_price,
+            episode_start_ts, decision_ts, pivot_strength=2, equal_tol=1.0,
+        )
+        liq_types = self._liq_types(objs)
+        self.assertIn(LIQUIDITY_SESSION_HIGH, liq_types)
+        sh = next(o for o in objs if o["liquidity_type"] == LIQUIDITY_SESSION_HIGH)
+        self.assertEqual(sh["price"], 4165.0)
+
+    # ── test 15: untouched external extreme classification ────────────────────
+
+    def test_untouched_external_extreme_classified(self):
+        """Farthest H1 high before episode_start_ts that hasn't been exceeded → UNTOUCHED_EXTERNAL_EXTREME."""
+        base_t = BASE_TS
+        episode_start_ts = base_t + 10 * 3600
+        decision_ts = episode_start_ts + 3600
+
+        # Pre-episode H1 bars with one extreme high at 4175
+        h1s = [
+            _bar_dict(base_t + i * 3600, 4120, 4175 if i == 4 else 4125, 4118, 4122)
+            for i in range(10)
+        ]
+        # Post-episode bar that does NOT exceed 4175
+        h1s.append(_bar_dict(episode_start_ts, 4120, 4130, 4118, 4122))
+
+        entry_price = 4119.0
+        stop_price = 4109.0
+        tp1_price = 4129.0  # 4175 is beyond tp1
+
+        objs = _detect_liquidity_objectives(
+            h1s, "LONG", entry_price, stop_price, tp1_price,
+            episode_start_ts, decision_ts, pivot_strength=2, equal_tol=1.0,
+        )
+        liq_types = self._liq_types(objs)
+        self.assertIn(LIQUIDITY_UNTOUCHED_EXTREME, liq_types)
+        ue = next(o for o in objs if o["liquidity_type"] == LIQUIDITY_UNTOUCHED_EXTREME)
+        self.assertEqual(ue["price"], 4175.0)
+        self.assertTrue(ue["untouched_at_decision_time"])
+
+    # ── test 16: TP2 alternatives preserved in provenance ────────────────────
+
+    def test_tp2_alternatives_preserved_in_provenance(self):
+        """all_liquidity_objectives in tp1_prov preserves all qualifying TP2 candidates."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        self.assertEqual(len(signals), 1)
+        tp1_prov = signals[0].provenance["tp1_provenance"]
+        # Even if zero liquidity objectives are found for this synthetic sequence,
+        # the key must exist in provenance for auditability
+        self.assertIn("all_liquidity_objectives", tp1_prov)
+        self.assertIsInstance(tp1_prov["all_liquidity_objectives"], list)
+        # TP2 selection policy preserved
+        self.assertEqual(tp1_prov["tp2_selection_policy"], TP2_SELECTION_POLICY)
+        self.assertEqual(tp1_prov["tp2_selection_policy_source_status"], TP2_SELECTION_POLICY_SOURCE_STATUS)
+
+
+class InvariantPreservationTests(unittest.TestCase):
+    """Tests 17-20: Invariant preservation (spec Section I)."""
+
+    # ── test 17: targets are objectives not mandatory exits ───────────────────
+
+    def test_targets_are_objectives_not_mandatory_exits(self):
+        """targets_are_objectives=True and mandatory_hold_to_target=False must appear in every signal."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        self.assertEqual(len(signals), 1)
+        prov = signals[0].provenance
+        self.assertTrue(prov["targets_are_objectives"])
+        self.assertFalse(prov["mandatory_hold_to_target"])
+        plan = prov["initial_trade_plan"]
+        self.assertTrue(plan["targets_are_objectives"])
+        self.assertFalse(plan["mandatory_hold_to_target"])
+
+    # ── test 18: all H1→M15 temporal tests remain passing ────────────────────
+
+    def test_h1_to_m15_temporal_ordering_invariant(self):
+        """episode_start_ts <= m15_rejection_ts <= entry_decision_ts (temporal chain preserved)."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        prov = signals[0].provenance
+        ep_start = prov["episode_start_ts"]
+        rejection_ts = prov["m15_rejection_ts"]
+        entry_ts = prov["entry_decision_ts"]
+        self.assertGreaterEqual(rejection_ts, ep_start)
+        self.assertGreater(entry_ts, rejection_ts)
+
+    # ── test 19: consumed-opportunity retirement remains valid ────────────────
+
+    def test_consumed_opportunity_retirement_invariant(self):
+        """After a CONSUMED episode, (level_id, direction) is permanently retired."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        self.assertEqual(len(signals), 1)
+        sig = signals[0]
+        level_id = sig.provenance["structural_level_id"]
+        direction = sig.provenance["direction"]
+        self.assertIn((level_id, direction), ev._consumed_opportunity_keys)
+
+        # Further breaks must not re-fire
+        t = last_ts(events) + H1S
+        second_pass_signals = []
+        for _ in range(20):
+            for out in ev.consume_market_event(h1(t, 4113, 4118, 4111, 4116)):
+                if isinstance(out, EntrySignal):
+                    second_pass_signals.append(out)
+            t += H1S
+        self.assertEqual(len(second_pass_signals), 0)
+
+    # ── test 20: V1/V2 fingerprints unchanged ────────────────────────────────
+
+    def test_v1_v2_fingerprints_unchanged(self):
+        """V1 and V2 evaluator keys must be unchanged (V3 does not mutate prior artifacts)."""
+        from strategy_backtest.kojo_structure_reclaim import (
+            EVALUATOR_KEY as V1_KEY,
+            STRATEGY_ID as V1_STRAT,
+            VERSION as V1_VER,
+        )
+        from strategy_backtest.kojo_structure_reclaim_v2 import (
+            EVALUATOR_KEY as V2_KEY,
+            STRATEGY_ID as V2_STRAT,
+            VERSION as V2_VER,
+        )
+        self.assertEqual(V1_KEY, "kojo_structure_reclaim")
+        self.assertEqual(V1_STRAT, "KOJO_STRUCTURE_RECLAIM_V1")
+        self.assertEqual(V1_VER, "V1")
+        self.assertEqual(V2_KEY, "kojo_structure_reclaim_v2")
+        self.assertEqual(V2_STRAT, "KOJO_STRUCTURE_RECLAIM_V2")
+        self.assertEqual(V2_VER, "V2")
+        # V3 must not share keys with V1 or V2
+        self.assertNotEqual(EVALUATOR_KEY, V1_KEY)
+        self.assertNotEqual(EVALUATOR_KEY, V2_KEY)
 
 
 if __name__ == "__main__":

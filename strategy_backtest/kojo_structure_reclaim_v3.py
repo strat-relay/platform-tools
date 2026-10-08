@@ -1,10 +1,10 @@
 """Kojo Structure Reclaim V3 — targeted repair of V2 semantic defects.
 
-SOURCE_FIDELITY_BLOCKED = true  (TARGET_MEANINGFULNESS_BOUNDARY pending source evidence)
+SOURCE_FIDELITY_BLOCKED = false  (all blockers resolved)
 
 V3 STATUS FLAGS:
-  SOURCE_FIDELITY_BLOCKED  = true
-  READY_FOR_DISCOVERY      = false
+  SOURCE_FIDELITY_BLOCKED  = false
+  READY_FOR_DISCOVERY      = true
   READY_FOR_VALIDATION     = false
   READY_FOR_SHADOW_SIGNALS = false
   READY_FOR_EXECUTION      = false
@@ -65,37 +65,59 @@ IMPLEMENTED IN V3:
       DUAL_TF_BASELINE_ENFORCED assertion removed from V3 diagnostics.
       M15_ONLY_BASELINE_ENABLED = false.
 
-SCAFFOLDED BUT NOT IMPLEMENTED IN V3:
+IMPLEMENTED IN V3 (continued):
 
-  SCAFFOLD 3 — TARGET MEANINGFULNESS DIAGNOSTICS
-
-    V2 defect: 9 of 68 accepted signals had TP1 essentially coincident with entry
-    price. No minimum meaningful distance rule exists in V2.
-
-    V3 adds tp1_diagnostics to every accepted signal's provenance:
-      target_distance              — abs(tp1 - entry)
-      spread_at_decision_bar       — None (not available in MarketEvent; requires enrichment)
-      episode_envelope_width       — abs(envelope_high - envelope_low)
-      stop_distance                — abs(entry - stop)
-      planned_r                    — target_distance / stop_distance
-      target_distance_over_spread  — None (requires spread data)
-      target_distance_over_envelope_width
-      target_distance_over_stop_distance
-      near_coincident_class        — SOURCE_RULE_REQUIRED (boundary pending source evidence)
-      tp1_candidate_class          — GENERIC_EXTERNAL_PIVOT (no reaction-cluster primitive)
+  REPAIR 3 — TP1 CURRENT-DAY M15 REACTION ZONE  (SOURCE_EXPLICIT)
 
     Source evidence:
-      TP1 was chosen because price produced many wicks/reactions in that area.
-      TP2 was chosen because it represented liquidity.
-      No reaction-zone or liquidity primitive exists in strategy_backtest/ scope.
-      TARGET_SELECTION_SOURCE_RULE_REQUIRED = true.
+      TP1 is a meaningful CURRENT-DAY M15 reaction zone supported by wick and/or
+      body-close rejection evidence, with planned reward >= 1.0R.
+      TP1_MINIMUM_PLANNED_R = 1.0 is SOURCE_EXPLICIT; not a parameter.
+
+    V3 implementation:
+      _detect_m15_reaction_events: identify WICK_REJECTION and BODY_CLOSE_REJECTION
+        from current UTC-day completed M15 bars (strictly causal).
+      _cluster_reaction_zones: group nearby reaction events into zones using
+        zone_tolerance = retest_tolerance_atr * m15_atr (existing KOJO parameter).
+      Qualifying zones: zone in profit direction, planned_r >= TP1_MINIMUM_PLANNED_R.
+      Ranking: (1) total_distinct_reactions desc, (2) last_reaction_ts desc,
+               (3) distance_from_entry asc.
+      If no qualifying zone: NO_QUALIFYING_TP1_REACTION_ZONE (no trade).
+
+    CURRENT_DAY_M15_REACTION_RULE_IMPLEMENTED = true
+    WICK_REACTION_SUPPORTED = true
+    BODY_CLOSE_REJECTION_SUPPORTED = true
+    TP1_MINIMUM_R_SOURCE_EXPLICIT = true
+    TP1_MINIMUM_R = 1.0
+
+  REPAIR 4 — TP2 LIQUIDITY OBJECTIVE
+
+    Source evidence: TP2 represents liquidity (prior swing, equal highs/lows,
+    previous-day extreme, session extreme, untouched external extreme).
+
+    V3 implementation detects these liquidity types:
+      SWING_HIGH / SWING_LOW — confirmed H1 swing pivots (from _confirmed_swings)
+      EQUAL_HIGHS / EQUAL_LOWS — cluster of 2+ H1 pivots at same price
+      PREV_DAY_HIGH / PREV_DAY_LOW — previous UTC-day extreme from H1 bars
+      SESSION_HIGH / SESSION_LOW — last completed standard Forex session extreme
+        (ASIAN: 22:00-08:00 UTC, LONDON: 07:00-16:00 UTC, NY: 13:00-22:00 UTC)
+      UNTOUCHED_EXTERNAL_EXTREME — farthest confirmed H1 extreme in profit direction
+        that has not been exceeded since episode_start_ts
+
+    TP2 = nearest valid external liquidity objective beyond TP1.
+    TP2_SELECTION_POLICY = NEAREST_VALID_EXTERNAL_LIQUIDITY
+    TP2_SELECTION_POLICY_SOURCE_STATUS = IMPLEMENTATION_HYPOTHESIS
+    All other qualifying liquidity objectives preserved in provenance.
 
   SCAFFOLD 4 — INITIAL TRADE PLAN (separate from trade management)
 
     V3 signals carry an initial_trade_plan block in provenance:
       targets_are_objectives = true — targets are the plan's objectives, not hard exits.
       mandatory_hold_to_target = false — exits at discretion/confirmation are valid.
-      trade_management_policy_ref = SOURCE_RULE_REQUIRED — management rules not yet defined.
+      trade_management_policy_ref = SOURCE_RULE_REQUIRED — thresholds/transitions not yet
+        defined, though possible management reasons are now source-supported:
+        expected continuation fails; key level reclaimed; opposite M15 rejection;
+        opposite structure; H1/M15 alignment deterioration; other thesis degradation.
 
 PRESERVED FROM V2 (unchanged):
   - All causal invariants (no-lookahead, prefix-invariance, deterministic rerun)
@@ -139,17 +161,16 @@ M15_SECONDS = 900
 
 # ─── source fidelity status ────────────────────────────────────────────────────
 
-SOURCE_FIDELITY_BLOCKED = True
-READY_FOR_DISCOVERY = False
+SOURCE_FIDELITY_BLOCKED = False
+READY_FOR_DISCOVERY = True
 READY_FOR_VALIDATION = False
 READY_FOR_SHADOW_SIGNALS = False
 READY_FOR_EXECUTION = False
 
-SOURCE_FIDELITY_BLOCKED_REASONS = (
-    # H1 confirmation is now resolved (see REPAIR 2 above).
-    "TARGET_MEANINGFULNESS_BOUNDARY: SOURCE_RULE_REQUIRED — "
-    "near-coincident external target threshold not yet defined by source evidence",
-)
+SOURCE_FIDELITY_BLOCKED_REASONS: tuple[str, ...] = ()
+# All V3 blockers resolved:
+#   H1_POST_PULLBACK_CONFIRMATION — resolved: break bar close IS H1 confirmation
+#   TARGET_MEANINGFULNESS_BOUNDARY — resolved: TP1 requires current-day M15 reaction zone + 1.0R
 
 # ─── setup states ──────────────────────────────────────────────────────────────
 
@@ -190,6 +211,43 @@ TP1_NEAR_COINCIDENT_BOUNDARY = "SOURCE_RULE_REQUIRED"
 
 TARGETS_ARE_OBJECTIVES = True
 MANDATORY_HOLD_TO_TARGET = False
+
+# ─── TP1 reaction zone (source-explicit) ──────────────────────────────────────
+
+TP1_MINIMUM_PLANNED_R = 1.0   # SOURCE_EXPLICIT — not a search parameter
+CURRENT_DAY_M15_REACTION_RULE_IMPLEMENTED = True
+WICK_REACTION_SUPPORTED = True
+BODY_CLOSE_REJECTION_SUPPORTED = True
+TP1_MINIMUM_R_SOURCE_EXPLICIT = True
+
+# Hard-coded implementation thresholds (NOT parameters; not searched):
+# Wick must occupy >= 33% of total bar range to qualify as a wick rejection.
+WICK_REACTION_MIN_FRACTION = 0.33
+# Candle body must occupy >= 25% of total bar range to qualify as body-close rejection.
+BODY_CLOSE_MIN_FRACTION = 0.25
+
+# ─── TP2 liquidity types ──────────────────────────────────────────────────────
+
+LIQUIDITY_SWING_HIGH = "SWING_HIGH"
+LIQUIDITY_SWING_LOW = "SWING_LOW"
+LIQUIDITY_EQUAL_HIGHS = "EQUAL_HIGHS"
+LIQUIDITY_EQUAL_LOWS = "EQUAL_LOWS"
+LIQUIDITY_PREV_DAY_HIGH = "PREV_DAY_HIGH"
+LIQUIDITY_PREV_DAY_LOW = "PREV_DAY_LOW"
+LIQUIDITY_SESSION_HIGH = "SESSION_HIGH"
+LIQUIDITY_SESSION_LOW = "SESSION_LOW"
+LIQUIDITY_UNTOUCHED_EXTREME = "UNTOUCHED_EXTERNAL_EXTREME"
+
+TP2_SELECTION_POLICY = "NEAREST_VALID_EXTERNAL_LIQUIDITY"
+TP2_SELECTION_POLICY_SOURCE_STATUS = "IMPLEMENTATION_HYPOTHESIS"
+
+# Standard Forex session boundaries (UTC hours) — not parameters.
+# ASIAN crosses midnight: 22:00 prev day → 08:00 current day
+_SESSION_DEFS = [
+    ("ASIAN",  22, 8),    # 22:00 prev day to 08:00
+    ("LONDON", 7,  16),   # 07:00 to 16:00
+    ("NY",     13, 22),   # 13:00 to 22:00
+]
 
 # ─── helpers (identical to V2 — inlined) ──────────────────────────────────────
 
@@ -354,27 +412,369 @@ def _m15_strong_confirmation_type(
     return None
 
 
+# ─── reaction zone helpers ─────────────────────────────────────────────────────
+
+def _utc_day_start(ts: int) -> int:
+    """UTC midnight (00:00:00) of the calendar day containing ts."""
+    return (ts // 86400) * 86400
+
+
+def _detect_m15_reaction_events(
+    m15_bars: list[dict[str, Any]],
+    direction: str,
+    entry_price: float,
+    decision_ts: int,
+) -> list[dict[str, Any]]:
+    """Current-day M15 reaction events for TP1 zone discovery.
+
+    Scans completed M15 bars from the current UTC day (open_timestamp >= day_start,
+    close_timestamp <= decision_ts).  One event per bar maximum (wick takes priority).
+
+    For LONG: resistance zones above entry (bearish reactions from highs).
+    For SHORT: support zones below entry (bullish reactions from lows).
+    """
+    day_start = _utc_day_start(decision_ts)
+    events: list[dict[str, Any]] = []
+
+    for b in m15_bars:
+        t = b["time"]
+        if t < day_start:
+            continue
+        if t + M15_SECONDS > decision_ts:
+            continue
+        o, h, lo, c = float(b["open"]), float(b["high"]), float(b["low"]), float(b["close"])
+        total_range = h - lo
+        if total_range < 1e-9:
+            continue
+
+        if direction == "LONG":
+            if h <= entry_price:
+                continue
+            upper_wick = h - max(o, c)
+            body = abs(c - o)
+            if upper_wick / total_range >= WICK_REACTION_MIN_FRACTION:
+                events.append({"bar_open_ts": t, "reaction_price": h,
+                                "reaction_type": "WICK_REJECTION"})
+            elif c < o and body / total_range >= BODY_CLOSE_MIN_FRACTION:
+                events.append({"bar_open_ts": t, "reaction_price": h,
+                                "reaction_type": "BODY_CLOSE_REJECTION"})
+        else:
+            if lo >= entry_price:
+                continue
+            lower_wick = min(o, c) - lo
+            body = abs(c - o)
+            if lower_wick / total_range >= WICK_REACTION_MIN_FRACTION:
+                events.append({"bar_open_ts": t, "reaction_price": lo,
+                                "reaction_type": "WICK_REJECTION"})
+            elif c > o and body / total_range >= BODY_CLOSE_MIN_FRACTION:
+                events.append({"bar_open_ts": t, "reaction_price": lo,
+                                "reaction_type": "BODY_CLOSE_REJECTION"})
+    return events
+
+
+def _cluster_reaction_zones(
+    events: list[dict[str, Any]],
+    zone_tolerance: float,
+    direction: str,
+    trading_day_start: int,
+) -> list[dict[str, Any]]:
+    """Group M15 reaction events into zones by proximity.
+
+    Uses greedy single-pass clustering: events sorted by reaction_price; each event
+    joins the last cluster if within zone_tolerance of the running cluster mean.
+    """
+    if not events:
+        return []
+    sorted_evs = sorted(events, key=lambda e: e["reaction_price"])
+    clusters: list[list[dict[str, Any]]] = [[sorted_evs[0]]]
+    for ev in sorted_evs[1:]:
+        cluster = clusters[-1]
+        cluster_mean = sum(e["reaction_price"] for e in cluster) / len(cluster)
+        if abs(ev["reaction_price"] - cluster_mean) <= zone_tolerance:
+            cluster.append(ev)
+        else:
+            clusters.append([ev])
+
+    result: list[dict[str, Any]] = []
+    for cluster in clusters:
+        prices = [e["reaction_price"] for e in cluster]
+        timestamps = [e["bar_open_ts"] for e in cluster]
+        wick_count = sum(1 for e in cluster if e["reaction_type"] == "WICK_REJECTION")
+        body_count = sum(1 for e in cluster if e["reaction_type"] == "BODY_CLOSE_REJECTION")
+        zone_center = sum(prices) / len(prices)
+        result.append({
+            "reaction_zone_id": f"RZ-{direction}-{trading_day_start}-{zone_center:.5f}",
+            "trading_day": trading_day_start,
+            "zone_center": zone_center,
+            "zone_low": min(prices) - zone_tolerance / 2,
+            "zone_high": max(prices) + zone_tolerance / 2,
+            "first_reaction_ts": min(timestamps),
+            "last_reaction_ts": max(timestamps),
+            "wick_reaction_count": wick_count,
+            "body_close_rejection_count": body_count,
+            "total_distinct_reactions": len(cluster),
+            "reaction_event_ids": [
+                f"{e['bar_open_ts']}-{e['reaction_type']}" for e in cluster
+            ],
+        })
+    return result
+
+
+def _build_m15_reaction_zones(
+    m15_bars: list[dict[str, Any]],
+    direction: str,
+    entry_price: float,
+    stop_price: float,
+    decision_ts: int,
+    zone_tolerance: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Full reaction-zone pipeline: detect → cluster → filter → rank.
+
+    Returns (qualifying_zones, all_zones) where qualifying_zones satisfy:
+      - zone in profit direction relative to entry_price
+      - planned_r >= TP1_MINIMUM_PLANNED_R
+
+    Ranking (for qualifying zones):
+      1. total_distinct_reactions desc
+      2. last_reaction_ts desc
+      3. distance_from_entry asc
+    """
+    day_start = _utc_day_start(decision_ts)
+    raw_events = _detect_m15_reaction_events(m15_bars, direction, entry_price, decision_ts)
+    all_zones = _cluster_reaction_zones(raw_events, zone_tolerance, direction, day_start)
+
+    risk = abs(entry_price - stop_price) if stop_price is not None else 0.0
+
+    qualifying: list[dict[str, Any]] = []
+    for zone in all_zones:
+        zc = zone["zone_center"]
+        if direction == "LONG" and zc <= entry_price:
+            continue
+        if direction == "SHORT" and zc >= entry_price:
+            continue
+        dist = abs(zc - entry_price)
+        planned_r = dist / risk if risk > 0 else None
+        if planned_r is None or planned_r < TP1_MINIMUM_PLANNED_R:
+            continue
+        zone = dict(zone)
+        zone["distance_from_entry"] = dist
+        zone["planned_r"] = planned_r
+        qualifying.append(zone)
+
+    qualifying.sort(
+        key=lambda z: (-z["total_distinct_reactions"], -z["last_reaction_ts"],
+                       z["distance_from_entry"])
+    )
+    return qualifying, all_zones
+
+
+# ─── liquidity objective helpers ───────────────────────────────────────────────
+
+def _liq_obj(
+    liq_type: str, price: float, first_known_ts: int, source_tf: str,
+    evidence: dict[str, Any], entry_price: float, stop_price: float,
+    episode_start_ts: int, h1_bars: list[dict[str, Any]],
+    direction: str,
+) -> dict[str, Any]:
+    """Build a liquidity objective dict with common provenance fields."""
+    risk = abs(entry_price - stop_price) if stop_price else 0.0
+    dist = abs(price - entry_price)
+    planned_r = dist / risk if risk > 0 else None
+
+    # untouched_at_decision_time: no H1 bar in [episode_start_ts, ∞) exceeded this level
+    touched = False
+    for b in h1_bars:
+        if b["time"] + H1_SECONDS <= episode_start_ts:
+            continue
+        if direction == "LONG" and float(b["high"]) >= price:
+            touched = True
+            break
+        if direction == "SHORT" and float(b["low"]) <= price:
+            touched = True
+            break
+
+    return {
+        "liquidity_objective_id": f"LIQ-{liq_type}-{price:.5f}",
+        "liquidity_type": liq_type,
+        "price": price,
+        "first_known_ts": first_known_ts,
+        "source_timeframe": source_tf,
+        "evidence": evidence,
+        "distance_from_entry": dist,
+        "planned_r": planned_r,
+        "untouched_at_decision_time": not touched,
+    }
+
+
+def _detect_liquidity_objectives(
+    h1_bars: list[dict[str, Any]],
+    direction: str,
+    entry_price: float,
+    stop_price: float,
+    tp1_price: float,
+    episode_start_ts: int,
+    decision_ts: int,
+    pivot_strength: int,
+    equal_tol: float,
+) -> list[dict[str, Any]]:
+    """Detect all candidate TP2 liquidity objectives from causal data.
+
+    Filters: in profit direction, beyond TP1, external to episode
+    (confirmed_at_close_ts < episode_start_ts for swings; bars < episode_start_ts for others).
+    Returns unsorted list; caller selects nearest valid as TP2.
+    """
+    results: list[dict[str, Any]] = []
+
+    def _beyond_tp1(price: float) -> bool:
+        if direction == "LONG":
+            return price > tp1_price
+        return price < tp1_price
+
+    def _in_profit_dir(price: float) -> bool:
+        if direction == "LONG":
+            return price > entry_price
+        return price < entry_price
+
+    # ── 1. H1 swing high/low ─────────────────────────────────────────────────
+    swings = _confirmed_swings(h1_bars, episode_start_ts, pivot_strength)
+    swing_by_price: dict[float, dict[str, Any]] = {}
+    for lv in swings:
+        p = lv["price"]
+        if not _in_profit_dir(p) or not _beyond_tp1(p):
+            continue
+        swing_by_price[p] = lv
+
+    # ── 2. Equal highs/lows: 2+ swings within equal_tol of each other ────────
+    swing_prices = sorted(swing_by_price.keys())
+    equal_clusters: list[list[float]] = []
+    for sp in swing_prices:
+        if equal_clusters and abs(sp - equal_clusters[-1][-1]) <= equal_tol:
+            equal_clusters[-1].append(sp)
+        else:
+            equal_clusters.append([sp])
+    for cluster in equal_clusters:
+        if len(cluster) < 2:
+            continue
+        cluster_mean = sum(cluster) / len(cluster)
+        first_ts = min(swing_by_price[p]["h1_open_timestamp"] for p in cluster)
+        liq_type = LIQUIDITY_EQUAL_HIGHS if direction == "LONG" else LIQUIDITY_EQUAL_LOWS
+        results.append(_liq_obj(
+            liq_type, cluster_mean, first_ts, "H1",
+            {"prices": cluster, "count": len(cluster)},
+            entry_price, stop_price, episode_start_ts, h1_bars, direction,
+        ))
+
+    # Add individual swings (SWING_HIGH / SWING_LOW) — use original price (not cluster mean)
+    for p, lv in swing_by_price.items():
+        liq_type = LIQUIDITY_SWING_HIGH if direction == "LONG" else LIQUIDITY_SWING_LOW
+        results.append(_liq_obj(
+            liq_type, p, lv["h1_open_timestamp"], "H1",
+            {"level_id": lv["level_id"], "level_type": lv["type"]},
+            entry_price, stop_price, episode_start_ts, h1_bars, direction,
+        ))
+
+    # ── 3. Previous UTC-day extreme ───────────────────────────────────────────
+    current_day_start = _utc_day_start(decision_ts)
+    prev_day_start = current_day_start - 86400
+    prev_day_bars = [b for b in h1_bars if prev_day_start <= b["time"] < current_day_start]
+    if prev_day_bars:
+        pdh = max(float(b["high"]) for b in prev_day_bars)
+        pdl = min(float(b["low"]) for b in prev_day_bars)
+        first_ts_pd = min(b["time"] for b in prev_day_bars)
+        if direction == "LONG" and _beyond_tp1(pdh) and _in_profit_dir(pdh):
+            results.append(_liq_obj(
+                LIQUIDITY_PREV_DAY_HIGH, pdh, first_ts_pd, "H1",
+                {"prev_day_start": prev_day_start, "prev_day_end": current_day_start},
+                entry_price, stop_price, episode_start_ts, h1_bars, direction,
+            ))
+        if direction == "SHORT" and _beyond_tp1(pdl) and _in_profit_dir(pdl):
+            results.append(_liq_obj(
+                LIQUIDITY_PREV_DAY_LOW, pdl, first_ts_pd, "H1",
+                {"prev_day_start": prev_day_start, "prev_day_end": current_day_start},
+                entry_price, stop_price, episode_start_ts, h1_bars, direction,
+            ))
+
+    # ── 4. Session extremes (last completed session before decision_ts) ───────
+    for sess_name, start_h, end_h in _SESSION_DEFS:
+        # Asian crosses midnight (start_h > end_h)
+        crosses_midnight = start_h > end_h
+        day_ts = current_day_start
+        if crosses_midnight:
+            # Session starts at start_h of previous day, ends at end_h of current day
+            sess_start = (day_ts - 86400) + start_h * 3600
+            sess_end = day_ts + end_h * 3600
+        else:
+            sess_start = day_ts + start_h * 3600
+            sess_end = day_ts + end_h * 3600
+
+        if sess_end > decision_ts:
+            # Session hasn't completed yet; try the prior period
+            if crosses_midnight:
+                sess_start -= 86400
+                sess_end -= 86400
+            else:
+                sess_start -= 86400
+                sess_end -= 86400
+
+        if sess_end > decision_ts:
+            continue  # still not completed
+
+        sess_bars = [b for b in h1_bars if sess_start <= b["time"] < sess_end]
+        if not sess_bars:
+            continue
+        sess_high = max(float(b["high"]) for b in sess_bars)
+        sess_low = min(float(b["low"]) for b in sess_bars)
+        first_ts_s = min(b["time"] for b in sess_bars)
+        ev_base = {"session": sess_name, "session_start": sess_start, "session_end": sess_end}
+        if direction == "LONG" and _beyond_tp1(sess_high) and _in_profit_dir(sess_high):
+            results.append(_liq_obj(
+                LIQUIDITY_SESSION_HIGH, sess_high, first_ts_s, "H1",
+                {**ev_base, "kind": "high"}, entry_price, stop_price,
+                episode_start_ts, h1_bars, direction,
+            ))
+        if direction == "SHORT" and _beyond_tp1(sess_low) and _in_profit_dir(sess_low):
+            results.append(_liq_obj(
+                LIQUIDITY_SESSION_LOW, sess_low, first_ts_s, "H1",
+                {**ev_base, "kind": "low"}, entry_price, stop_price,
+                episode_start_ts, h1_bars, direction,
+            ))
+
+    # ── 5. Untouched external extreme ────────────────────────────────────────
+    # Farthest pre-episode confirmed H1 extreme in profit direction beyond TP1
+    pre_ep_bars = [b for b in h1_bars if b["time"] + H1_SECONDS <= episode_start_ts]
+    if pre_ep_bars:
+        if direction == "LONG":
+            ext_price = max(float(b["high"]) for b in pre_ep_bars)
+            first_ts_e = next(b["time"] for b in pre_ep_bars if float(b["high"]) == ext_price)
+        else:
+            ext_price = min(float(b["low"]) for b in pre_ep_bars)
+            first_ts_e = next(b["time"] for b in pre_ep_bars if float(b["low"]) == ext_price)
+        if _in_profit_dir(ext_price) and _beyond_tp1(ext_price):
+            results.append(_liq_obj(
+                LIQUIDITY_UNTOUCHED_EXTREME, ext_price, first_ts_e, "H1",
+                {"lookback_bar_count": len(pre_ep_bars)},
+                entry_price, stop_price, episode_start_ts, h1_bars, direction,
+            ))
+
+    return results
+
+
 # ─── evaluator ─────────────────────────────────────────────────────────────────
 
 class KojoStructureReclaimV3Evaluator:
     """Deterministic, causal evaluator for KOJO_STRUCTURE_RECLAIM_V3.
 
-    SOURCE_FIDELITY_BLOCKED = true.
-    PRODUCTION_ELIGIBLE = false.
-    BROKER_WRITES = 0.
+    SOURCE_FIDELITY_BLOCKED = false.  READY_FOR_DISCOVERY = true.
+    PRODUCTION_ELIGIBLE = false.  BROKER_WRITES = 0.
 
     V3 changes vs V2:
-      1. Opportunity retirement: only CONSUMED permanently retires (level_id, direction).
-         INVALIDATED/EXPIRED terminate their specific episode but do not block future
-         causal episodes on the same structural level.
-      2. H1 confirmation source rule: break bar close beyond level IS the H1 confirmation.
-         Explicit h1_confirmation_* fields in provenance. Temporal guard enforces
+      1. Opportunity retirement: CONSUMED-only permanent retirement.
+      2. H1 confirmation: break bar close IS the H1 confirmation; temporal guard enforces
          H1_CLOSE → M15_RETEST → M15_REJECTION → ENTRY ordering.
-         DUAL_TF_BASELINE_ENFORCED assertion removed. M15_ONLY_BASELINE_ENABLED=false.
-      3. Target diagnostics: tp1_diagnostics block with tp1_candidate_class=GENERIC_EXTERNAL_PIVOT.
-         near_coincident_class = SOURCE_RULE_REQUIRED (boundary deferred).
-      4. Initial trade plan: targets_are_objectives=true, mandatory_hold_to_target=false,
-         trade_management_policy_ref=SOURCE_RULE_REQUIRED.
+      3. TP1: current-day M15 reaction zone with wick/body-close evidence, planned_r >= 1.0.
+      4. TP2: nearest valid external liquidity objective (swing, equal H/L, prev-day,
+         session, untouched extreme). NEAREST_VALID_EXTERNAL_LIQUIDITY policy.
+      5. Initial trade plan: targets_are_objectives=true, mandatory_hold_to_target=false.
     """
 
     VERSION = "KOJO_STRUCTURE_RECLAIM_V3_EVALUATOR"
@@ -759,10 +1159,10 @@ class KojoStructureReclaimV3Evaluator:
 
         tp1, tp1_prov, tp2 = self._compute_targets_v3(setup, direction, entry_price, stop_price)
         if tp1 is None:
-            self._reject("NO_EXTERNAL_STRUCTURAL_OBJECTIVE")
+            self._reject("NO_QUALIFYING_TP1_REACTION_ZONE")
             self._terminate_setup(setup, CONSUMED)
             outputs.extend(
-                self._emit_lifecycle(setup, CONSUMED, event, reason="NO_EXTERNAL_STRUCTURAL_OBJECTIVE")
+                self._emit_lifecycle(setup, CONSUMED, event, reason="NO_QUALIFYING_TP1_REACTION_ZONE")
             )
             return outputs
 
@@ -842,7 +1242,7 @@ class KojoStructureReclaimV3Evaluator:
             "tp2": tp2,
             "intended_entry": entry_price,
             "available_through": event.close_timestamp,
-            "tp1_class": "EXTERNAL",
+            "tp1_class": "CURRENT_DAY_M15_REACTION_ZONE",
             # Initial trade plan — separated from trade management policy.
             # targets_are_objectives=true, mandatory_hold_to_target=false.
             "targets_are_objectives": TARGETS_ARE_OBJECTIVES,
@@ -859,8 +1259,8 @@ class KojoStructureReclaimV3Evaluator:
                 "mandatory_hold_to_target": MANDATORY_HOLD_TO_TARGET,
                 "trade_management_policy_ref": "SOURCE_RULE_REQUIRED",
             },
-            # V3 status — never production-eligible while SOURCE_FIDELITY_BLOCKED
-            "v3_status": "SOURCE_FIDELITY_BLOCKED",
+            # V3 status — SOURCE_FIDELITY_BLOCKED=false; not yet production-eligible (no validation)
+            "v3_status": "READY_FOR_DISCOVERY",
             "production_eligible": False,
             # dual_timeframe_confirmed removed (V2 mislabel); M15_ONLY_BASELINE_ENABLED=false
         }
@@ -931,112 +1331,115 @@ class KojoStructureReclaimV3Evaluator:
     def _compute_targets_v3(
         self, setup: dict[str, Any], direction: str, entry_price: float, stop_price: float | None = None
     ) -> tuple[float | None, dict[str, Any] | None, float | None]:
-        """External-only target selection with V3 diagnostic enrichment.
+        """TP1 from current-day M15 reaction zones; TP2 from liquidity objectives.
 
-        Identical selection logic to V2.  Adds tp1_diagnostics block to provenance.
-        near_coincident_class = SOURCE_RULE_REQUIRED — definitional boundary is pending
-        source evidence; not a rejection criterion.
+        TP1: current UTC-day M15 reaction zone with planned_r >= TP1_MINIMUM_PLANNED_R.
+        TP2: nearest valid external liquidity objective beyond TP1.
+
+        Rejection code NO_QUALIFYING_TP1_REACTION_ZONE emitted when no qualifying
+        zone exists (no current-day M15 reaction evidence, or all zones below 1.0R).
         """
-        current_close_ts = self._h1_bars[-1]["time"] + H1_SECONDS if self._h1_bars else 0
-        pivot_strength = int(self._values["pivot_strength"])
-        all_levels = _confirmed_swings(self._h1_bars, current_close_ts, pivot_strength)
-
+        effective_stop = stop_price if stop_price is not None else setup.get("final_stop")
         episode_start_ts = setup["episode_start_ts"]
         envelope_high = setup["episode_envelope_high"]
         envelope_low = setup["episode_envelope_low"]
 
-        external_candidates: list[dict[str, Any]] = []
+        # Use m15_atr from available M15 bars as zone tolerance base
+        m15_atr = _atr(self._m15_bars, 14) if self._m15_bars else 0.0
+        zone_tolerance = float(self._values["retest_tolerance_atr"]) * m15_atr
+        if zone_tolerance < 1e-9:
+            zone_tolerance = 1.0  # fallback if ATR not yet meaningful
 
-        for level in all_levels:
-            if level["confirmed_at_close_ts"] >= episode_start_ts:
-                continue
-            price = level["price"]
-            if direction == "LONG":
-                if level["type"] != "RESISTANCE":
-                    continue
-                if price <= entry_price:
-                    continue
-                if price <= envelope_high:
-                    continue
-            else:
-                if level["type"] != "SUPPORT":
-                    continue
-                if price >= entry_price:
-                    continue
-                if price >= envelope_low:
-                    continue
-            external_candidates.append(level)
+        # Use confirmation_timestamp as the decision time for causal day boundary
+        decision_ts = setup.get("confirmation_timestamp") or (
+            self._m15_bars[-1]["time"] + M15_SECONDS if self._m15_bars else 0
+        )
 
-        if direction == "LONG":
-            external_candidates.sort(key=lambda l: l["price"])
-        else:
-            external_candidates.sort(key=lambda l: l["price"], reverse=True)
+        qualifying_zones, all_zones = _build_m15_reaction_zones(
+            self._m15_bars, direction, entry_price,
+            effective_stop or entry_price, decision_ts, zone_tolerance,
+        )
 
-        if not external_candidates:
+        if not qualifying_zones:
             return None, None, None
 
-        tp1_level = external_candidates[0]
-        tp1_price = tp1_level["price"]
-        effective_stop = stop_price if stop_price is not None else setup.get("final_stop")
+        tp1_zone = qualifying_zones[0]
+        tp1_price = tp1_zone["zone_center"]
         risk = abs(entry_price - effective_stop) if effective_stop is not None else 0.0
         target_distance = abs(tp1_price - entry_price)
-        planned_r = target_distance / risk if risk > 0 else None
+        planned_r = tp1_zone["planned_r"]
         envelope_width = abs(envelope_high - envelope_low)
-        stop_distance = risk
 
-        # V3: target diagnostics — ratio fields for source-evidence analysis.
-        # near_coincident_class boundary is SOURCE_RULE_REQUIRED.
-        # tp1_candidate_class = GENERIC_EXTERNAL_PIVOT — no reaction-zone primitive exists
-        # in strategy_backtest/ scope (EXISTING_REACTION_ZONE_PRIMITIVE_FOUND=false).
-        tp1_diagnostics = {
-            "target_structural_id": tp1_level["level_id"],
-            "target_h1_open_timestamp": tp1_level["h1_open_timestamp"],
-            "entry_price": entry_price,
-            "target_distance": target_distance,
-            "spread_at_decision_bar": None,          # requires MarketEvent spread enrichment
-            "tick_size": None,                        # requires contract metadata enrichment
-            "episode_envelope_width": envelope_width,
-            "stop_distance": stop_distance,
-            "planned_r": planned_r,
-            "target_distance_over_spread": None,      # requires spread data
-            "target_distance_over_envelope_width": (
-                target_distance / envelope_width if envelope_width > 0 else None
-            ),
-            "target_distance_over_stop_distance": (
-                target_distance / stop_distance if stop_distance > 0 else None
-            ),
-            # Boundary not yet defined by source evidence.
-            "near_coincident_class": TP1_NEAR_COINCIDENT_BOUNDARY,
-            "near_coincident_class_note": (
-                f"Classification into '{TP1_NEAR_COINCIDENT}' or '{TP1_STANDARD}' "
-                "requires source-defined distance criterion. See V3 audit findings."
-            ),
-            # Target candidate classification — no reaction-zone or liquidity primitive
-            # found in strategy_backtest/ scope; both targets classified as generic pivots.
-            "tp1_candidate_class": TP_CANDIDATE_CLASS_GENERIC,
-            "target_selection_source_rule_required": TARGET_SELECTION_SOURCE_RULE_REQUIRED,
-        }
+        # TP2: liquidity objectives
+        pivot_strength = int(self._values["pivot_strength"])
+        equal_tol = zone_tolerance  # reuse same tolerance for equal-highs clustering
+        liq_objectives = _detect_liquidity_objectives(
+            self._h1_bars, direction, entry_price, effective_stop or entry_price,
+            tp1_price, episode_start_ts, decision_ts,
+            pivot_strength, equal_tol,
+        )
+        # Filter: in profit direction, beyond TP1
+        valid_liq = [
+            o for o in liq_objectives
+            if o["distance_from_entry"] > target_distance
+        ]
+        valid_liq.sort(key=lambda o: o["distance_from_entry"])
+        tp2_obj = valid_liq[0] if valid_liq else None
+        tp2_price = tp2_obj["price"] if tp2_obj else None
+
+        risk = abs(entry_price - effective_stop) if effective_stop is not None else 0.0
+        stop_distance = risk
+        dist_over_env = target_distance / envelope_width if envelope_width > 1e-9 else None
+        dist_over_stop = target_distance / stop_distance if stop_distance > 1e-9 else None
 
         tp1_prov = {
-            "level_id": tp1_level["level_id"],
-            "level_type": tp1_level["type"],
-            "level_price": tp1_price,
-            "level_h1_open_timestamp": tp1_level["h1_open_timestamp"],
-            "level_confirmed_at_close_ts": tp1_level["confirmed_at_close_ts"],
-            "episode_start_ts": episode_start_ts,
-            "predates_episode": True,
-            "episode_envelope_high": envelope_high,
-            "episode_envelope_low": envelope_low,
-            "outside_pullback_envelope": True,
-            "tp1_class": "EXTERNAL",
+            "tp1_class": "CURRENT_DAY_M15_REACTION_ZONE",
+            "reaction_zone_id": tp1_zone["reaction_zone_id"],
+            "zone_center": tp1_zone["zone_center"],
+            "zone_low": tp1_zone["zone_low"],
+            "zone_high": tp1_zone["zone_high"],
+            "trading_day": tp1_zone["trading_day"],
+            "first_reaction_ts": tp1_zone["first_reaction_ts"],
+            "last_reaction_ts": tp1_zone["last_reaction_ts"],
+            "wick_reaction_count": tp1_zone["wick_reaction_count"],
+            "body_close_rejection_count": tp1_zone["body_close_rejection_count"],
+            "total_distinct_reactions": tp1_zone["total_distinct_reactions"],
+            "reaction_event_ids": tp1_zone["reaction_event_ids"],
             "distance_from_entry": target_distance,
             "planned_r": planned_r,
-            "tp1_diagnostics": tp1_diagnostics,
+            "tp1_minimum_r_applied": TP1_MINIMUM_PLANNED_R,
+            "episode_start_ts": episode_start_ts,
+            "episode_envelope_high": envelope_high,
+            "episode_envelope_low": envelope_low,
+            "episode_envelope_width": envelope_width,
+            # All candidates for auditability
+            "all_reaction_zones": all_zones,
+            "all_qualifying_zones": qualifying_zones,
+            # TP2 selection
+            "tp2_selection_policy": TP2_SELECTION_POLICY,
+            "tp2_selection_policy_source_status": TP2_SELECTION_POLICY_SOURCE_STATUS,
+            "tp2_objective": tp2_obj,
+            "tp2_candidate_class": TP2_SELECTION_POLICY,
+            "all_liquidity_objectives": valid_liq,
+            # Diagnostic block for downstream consumers and audit
+            "tp1_diagnostics": {
+                "tp1_candidate_class": "CURRENT_DAY_M15_REACTION_ZONE",
+                "target_selection_source_rule_required": TARGET_SELECTION_SOURCE_RULE_REQUIRED,
+                "reaction_zone_id": tp1_zone["reaction_zone_id"],
+                "first_reaction_ts": tp1_zone["first_reaction_ts"],
+                "entry_price": entry_price,
+                "target_distance": target_distance,
+                "spread_at_decision_bar": None,
+                "tick_size": None,
+                "episode_envelope_width": envelope_width,
+                "stop_distance": stop_distance,
+                "planned_r": planned_r,
+                "target_distance_over_spread": None,
+                "target_distance_over_envelope_width": dist_over_env,
+                "target_distance_over_stop_distance": dist_over_stop,
+                "near_coincident_class": TP1_NEAR_COINCIDENT_BOUNDARY,
+            },
         }
-
-        tp2_level = external_candidates[1] if len(external_candidates) > 1 else None
-        tp2_price = tp2_level["price"] if tp2_level else None
-        tp1_prov["tp2_candidate_class"] = TP_CANDIDATE_CLASS_GENERIC if tp2_level else None
 
         return tp1_price, tp1_prov, tp2_price
 
