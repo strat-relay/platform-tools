@@ -39,6 +39,8 @@ def register_builtin_evaluators(registry: StrategyEvaluatorRegistry) -> Strategy
     registry.register(KSR_KEY, KojoStructureReclaimEvaluator)
     from .kojo_structure_reclaim_v2 import EVALUATOR_KEY as KSR_V2_KEY, KojoStructureReclaimV2Evaluator
     registry.register(KSR_V2_KEY, KojoStructureReclaimV2Evaluator)
+    from .kojo_structure_reclaim_v3 import EVALUATOR_KEY as KSR_V3_KEY, KojoStructureReclaimV3Evaluator
+    registry.register(KSR_V3_KEY, KojoStructureReclaimV3Evaluator)
     from .raw_ohlc_adapters import register_raw_ohlc_evaluators
     register_raw_ohlc_evaluators(registry)
     return registry
