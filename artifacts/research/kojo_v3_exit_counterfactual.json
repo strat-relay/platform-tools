@@ -1,0 +1,1286 @@
+{
+  "study_type": "EXIT_COUNTERFACTUAL_OBSERVATIONAL",
+  "v3_entry_commit": "c82d290",
+  "post_entry_study_commit": "1e321fe",
+  "post_entry_artifact_fingerprint": "2e51c1e71aeadb0bf2b9a78c720e4026e60f27aaeea2d6dc696a752b698a6a31",
+  "discovery_boundary": {
+    "start": "2026-07-01T00:00:00+00:00",
+    "end": "2026-08-09T23:59:59+00:00"
+  },
+  "policies_studied": [
+    "STATIC_BASELINE",
+    "EXIT_ON_KEY_LEVEL_RECLAIM",
+    "EXIT_ON_H1_ALIGNMENT_DETERIORATION",
+    "EXIT_ON_FIRST_OF_THE_TWO"
+  ],
+  "methodology": {
+    "exit_price_basis": "CLOSE of triggering completed bar (M15 or H1)",
+    "sl_floor_applied": "signal exit capped at -1.0R; bars breaching SL intrabar result in static -1.0R",
+    "same_bar_policy": "CONSERVATIVE_STOP_FIRST (existing V3 policy)",
+    "level_reclaim_definition": "COMPLETED_M15_CLOSE_CROSSES_STRUCTURAL_LEVEL",
+    "h1_deterioration_definition": "H1_CLOSE_RECROSSES_STRUCTURAL_LEVEL (same test as V3 initial H1 confirmation)",
+    "trade_sequence_for_drawdown": "chronological by decision_timestamp",
+    "no_threshold_tuned": true,
+    "no_exit_optimized": true,
+    "m15_opposite_rejection_excluded": true
+  },
+  "comparison_table": [
+    {
+      "policy": "STATIC_BASELINE",
+      "win_rate_pct": 31.58,
+      "expectancy_r": -0.0759,
+      "total_r": -2.8828,
+      "profit_factor": 0.8891,
+      "max_drawdown_r": 12.6764,
+      "signal_fired_count": 0,
+      "static_winners_converted": 0,
+      "net_r_delta_vs_baseline": 0.0
+    },
+    {
+      "policy": "EXIT_ON_KEY_LEVEL_RECLAIM",
+      "win_rate_pct": 28.95,
+      "expectancy_r": -0.0864,
+      "total_r": -3.2845,
+      "profit_factor": 0.8695,
+      "max_drawdown_r": 11.7315,
+      "signal_fired_count": 9,
+      "static_winners_converted": 1,
+      "net_r_delta_vs_baseline": -0.0105
+    },
+    {
+      "policy": "EXIT_ON_H1_ALIGNMENT_DETERIORATION",
+      "win_rate_pct": 31.58,
+      "expectancy_r": -0.0676,
+      "total_r": -2.5694,
+      "profit_factor": 0.9,
+      "max_drawdown_r": 12.363,
+      "signal_fired_count": 8,
+      "static_winners_converted": 0,
+      "net_r_delta_vs_baseline": 0.0083
+    },
+    {
+      "policy": "EXIT_ON_FIRST_OF_THE_TWO",
+      "win_rate_pct": 28.95,
+      "expectancy_r": -0.0953,
+      "total_r": -3.6228,
+      "profit_factor": 0.858,
+      "max_drawdown_r": 12.0308,
+      "signal_fired_count": 9,
+      "static_winners_converted": 1,
+      "net_r_delta_vs_baseline": -0.0194
+    }
+  ],
+  "policy_aggregates": {
+    "STATIC_BASELINE": {
+      "policy": "STATIC_BASELINE",
+      "total_trades": 38,
+      "win_count": 12,
+      "loss_count": 26,
+      "win_rate_pct": 31.58,
+      "expectancy_r": -0.0759,
+      "total_r": -2.8828,
+      "profit_factor": 0.8891,
+      "max_drawdown_r": 12.6764,
+      "realized_r_median": -1.0,
+      "realized_r_p25": -1.0,
+      "realized_r_p75": 1.3715,
+      "signal_fired_count": 0,
+      "signal_fired_pct": 0.0,
+      "capped_to_sl_count": 0,
+      "vs_static": {
+        "improved_count": 0,
+        "degraded_count": 0,
+        "neutral_count": 0,
+        "static_winners_converted_to_loss": 0,
+        "net_r_delta_vs_static": 0,
+        "improvements": [],
+        "degradations": [],
+        "neutral": []
+      }
+    },
+    "EXIT_ON_KEY_LEVEL_RECLAIM": {
+      "policy": "EXIT_ON_KEY_LEVEL_RECLAIM",
+      "total_trades": 38,
+      "win_count": 11,
+      "loss_count": 27,
+      "win_rate_pct": 28.95,
+      "expectancy_r": -0.0864,
+      "total_r": -3.2845,
+      "profit_factor": 0.8695,
+      "max_drawdown_r": 11.7315,
+      "realized_r_median": -1.0,
+      "realized_r_p25": -1.0,
+      "realized_r_p75": 1.3715,
+      "signal_fired_count": 9,
+      "signal_fired_pct": 23.68,
+      "capped_to_sl_count": 2,
+      "vs_static": {
+        "improved_count": 6,
+        "degraded_count": 1,
+        "neutral_count": 2,
+        "static_winners_converted_to_loss": 1,
+        "net_r_delta_vs_static": -0.4017,
+        "improvements": [
+          {
+            "signal_id": "KSRV3_SIG_e9a28ddf06286e619ef7e3c1",
+            "static_r": -1.0,
+            "policy_r": -0.961,
+            "delta_r": 0.039,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          },
+          {
+            "signal_id": "KSRV3_SIG_82c534f022ebb6a79943f970",
+            "static_r": -1.0,
+            "policy_r": -0.9052,
+            "delta_r": 0.0948,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          },
+          {
+            "signal_id": "KSRV3_SIG_300c7c29211576980f0fb412",
+            "static_r": -1.0,
+            "policy_r": -0.7626,
+            "delta_r": 0.2374,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          },
+          {
+            "signal_id": "KSRV3_SIG_ea5891d97e6a42bc21828d99",
+            "static_r": -1.0,
+            "policy_r": -0.9551,
+            "delta_r": 0.0449,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          },
+          {
+            "signal_id": "KSRV3_SIG_e5351c33ac4fb37b133b7781",
+            "static_r": -1.0,
+            "policy_r": -0.7509,
+            "delta_r": 0.2491,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          },
+          {
+            "signal_id": "KSRV3_SIG_34e0031a0dedfdf1c3437b7c",
+            "static_r": -1.0,
+            "policy_r": -0.6813,
+            "delta_r": 0.3187,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          }
+        ],
+        "degradations": [
+          {
+            "signal_id": "KSRV3_SIG_2bce852e2e56071b0fee8714",
+            "static_r": 1.2239,
+            "policy_r": -0.1617,
+            "delta_r": -1.3856,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          }
+        ],
+        "neutral": [
+          {
+            "signal_id": "KSRV3_SIG_0ad0e579a652a602d7634038",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          },
+          {
+            "signal_id": "KSRV3_SIG_66f046e85d1b547ee81e8dec",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          }
+        ]
+      }
+    },
+    "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+      "policy": "EXIT_ON_H1_ALIGNMENT_DETERIORATION",
+      "total_trades": 38,
+      "win_count": 12,
+      "loss_count": 26,
+      "win_rate_pct": 31.58,
+      "expectancy_r": -0.0676,
+      "total_r": -2.5694,
+      "profit_factor": 0.9,
+      "max_drawdown_r": 12.363,
+      "realized_r_median": -1.0,
+      "realized_r_p25": -1.0,
+      "realized_r_p75": 1.3715,
+      "signal_fired_count": 8,
+      "signal_fired_pct": 21.05,
+      "capped_to_sl_count": 5,
+      "vs_static": {
+        "improved_count": 3,
+        "degraded_count": 0,
+        "neutral_count": 5,
+        "static_winners_converted_to_loss": 0,
+        "net_r_delta_vs_static": 0.3134,
+        "improvements": [
+          {
+            "signal_id": "KSRV3_SIG_ea5891d97e6a42bc21828d99",
+            "static_r": -1.0,
+            "policy_r": -0.9551,
+            "delta_r": 0.0449,
+            "exit_source": "H1_ALIGNMENT_DETERIORATION"
+          },
+          {
+            "signal_id": "KSRV3_SIG_e5351c33ac4fb37b133b7781",
+            "static_r": -1.0,
+            "policy_r": -0.7509,
+            "delta_r": 0.2491,
+            "exit_source": "H1_ALIGNMENT_DETERIORATION"
+          },
+          {
+            "signal_id": "KSRV3_SIG_34e0031a0dedfdf1c3437b7c",
+            "static_r": -1.0,
+            "policy_r": -0.9806,
+            "delta_r": 0.0194,
+            "exit_source": "H1_ALIGNMENT_DETERIORATION"
+          }
+        ],
+        "degradations": [],
+        "neutral": [
+          {
+            "signal_id": "KSRV3_SIG_0ad0e579a652a602d7634038",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          },
+          {
+            "signal_id": "KSRV3_SIG_66f046e85d1b547ee81e8dec",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          },
+          {
+            "signal_id": "KSRV3_SIG_e9a28ddf06286e619ef7e3c1",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          },
+          {
+            "signal_id": "KSRV3_SIG_82c534f022ebb6a79943f970",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          },
+          {
+            "signal_id": "KSRV3_SIG_300c7c29211576980f0fb412",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          }
+        ]
+      }
+    },
+    "EXIT_ON_FIRST_OF_THE_TWO": {
+      "policy": "EXIT_ON_FIRST_OF_THE_TWO",
+      "total_trades": 38,
+      "win_count": 11,
+      "loss_count": 27,
+      "win_rate_pct": 28.95,
+      "expectancy_r": -0.0953,
+      "total_r": -3.6228,
+      "profit_factor": 0.858,
+      "max_drawdown_r": 12.0308,
+      "realized_r_median": -1.0,
+      "realized_r_p25": -1.0,
+      "realized_r_p75": 1.3715,
+      "signal_fired_count": 9,
+      "signal_fired_pct": 23.68,
+      "capped_to_sl_count": 3,
+      "vs_static": {
+        "improved_count": 5,
+        "degraded_count": 1,
+        "neutral_count": 3,
+        "static_winners_converted_to_loss": 1,
+        "net_r_delta_vs_static": -0.74,
+        "improvements": [
+          {
+            "signal_id": "KSRV3_SIG_82c534f022ebb6a79943f970",
+            "static_r": -1.0,
+            "policy_r": -0.9052,
+            "delta_r": 0.0948,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          },
+          {
+            "signal_id": "KSRV3_SIG_300c7c29211576980f0fb412",
+            "static_r": -1.0,
+            "policy_r": -0.7626,
+            "delta_r": 0.2374,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          },
+          {
+            "signal_id": "KSRV3_SIG_ea5891d97e6a42bc21828d99",
+            "static_r": -1.0,
+            "policy_r": -0.9551,
+            "delta_r": 0.0449,
+            "exit_source": "H1_ALIGNMENT_DETERIORATION"
+          },
+          {
+            "signal_id": "KSRV3_SIG_e5351c33ac4fb37b133b7781",
+            "static_r": -1.0,
+            "policy_r": -0.7509,
+            "delta_r": 0.2491,
+            "exit_source": "H1_ALIGNMENT_DETERIORATION"
+          },
+          {
+            "signal_id": "KSRV3_SIG_34e0031a0dedfdf1c3437b7c",
+            "static_r": -1.0,
+            "policy_r": -0.9806,
+            "delta_r": 0.0194,
+            "exit_source": "H1_ALIGNMENT_DETERIORATION"
+          }
+        ],
+        "degradations": [
+          {
+            "signal_id": "KSRV3_SIG_2bce852e2e56071b0fee8714",
+            "static_r": 1.2239,
+            "policy_r": -0.1617,
+            "delta_r": -1.3856,
+            "exit_source": "KEY_LEVEL_RECLAIM"
+          }
+        ],
+        "neutral": [
+          {
+            "signal_id": "KSRV3_SIG_0ad0e579a652a602d7634038",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          },
+          {
+            "signal_id": "KSRV3_SIG_66f046e85d1b547ee81e8dec",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          },
+          {
+            "signal_id": "KSRV3_SIG_e9a28ddf06286e619ef7e3c1",
+            "static_r": -1.0,
+            "policy_r": -1.0,
+            "delta_r": 0.0
+          }
+        ]
+      }
+    }
+  },
+  "per_trade_breakdown": [
+    {
+      "signal_id": "KSRV3_SIG_8d89ef58d65e84354b7b9104",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 1.2239,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 1.2239,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 1.2239,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 1.2239,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_2bce852e2e56071b0fee8714",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 1.2239,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -0.1617,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": -1.3856
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 1.2239,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -0.1617,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": -1.3856
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_c55171f633969025cda07e97",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 2.2623,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 2.2623,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 2.2623,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 2.2623,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_0ad0e579a652a602d7634038",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_c6b99c2398a5383b286375c6",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 1.964,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 1.964,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 1.964,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 1.964,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_28e3901f073e3539c2869770",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_39ae480bebbdb6b74460ae28",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 2.3345,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 2.3345,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 2.3345,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 2.3345,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_b16f436f71c08868d599aee1",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_cd699147edec18fec43b5328",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_7c2583404b38538b67671657",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 2.0358,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 2.0358,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 2.0358,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 2.0358,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_8180f5a7a6f695bd58cf9903",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 1.3715,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 1.3715,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 1.3715,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 1.3715,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_890f000eda4d95a79704d3fa",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 1.3715,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 1.3715,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 1.3715,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 1.3715,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_66f046e85d1b547ee81e8dec",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_4000eefd919c52071f2ebb09",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_e9a28ddf06286e619ef7e3c1",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -0.961,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.039
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_c4a9bde8019ac712c800b0e0",
+      "direction": "LONG",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 1.5031,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 1.5031,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 1.5031,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 1.5031,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_a04d51f5752a7f49c182c99c",
+      "direction": "LONG",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 1.5031,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 1.5031,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 1.5031,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 1.5031,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_82c534f022ebb6a79943f970",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -0.9052,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.0948
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -0.9052,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.0948
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_c435edabccc1df673b530969",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_f90a0e21bbbbbb90df869d25",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_a1005f5728612ab66a1d51bd",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_61ab5723b842eb592b716f66",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_300c7c29211576980f0fb412",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -0.7626,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.2374
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -0.7626,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.2374
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_ea5891d97e6a42bc21828d99",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -0.9551,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.0449
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -0.9551,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0449
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -0.9551,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0449
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_d7f44efb0165172e9579ba09",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_af4b35f0e709bc333b17749b",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 3.1618,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 3.1618,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 3.1618,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 3.1618,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_db2f86e399d30f03f8125ff2",
+      "direction": "SHORT",
+      "static_status": "TARGET_HIT",
+      "static_realized_r": 3.1618,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": 3.1618,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": 3.1618,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": 3.1618,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_ee859417dada5baba30a856e",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_676a24d58db163b4ab23656c",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_046af76bc08182a6524fd635",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_a49dd939cc4f021407f3cc3c",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_28a5022a8429e72c3be04c56",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_e3e4d992168e75fb010fb118",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_5ef5cc39704a2f4618f29cdb",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_e5351c33ac4fb37b133b7781",
+      "direction": "LONG",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -0.7509,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.2491
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -0.7509,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.2491
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -0.7509,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.2491
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_34e0031a0dedfdf1c3437b7c",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -0.6813,
+        "exit_source": "KEY_LEVEL_RECLAIM",
+        "signal_fired": true,
+        "delta_r": 0.3187
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -0.9806,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0194
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -0.9806,
+        "exit_source": "H1_ALIGNMENT_DETERIORATION",
+        "signal_fired": true,
+        "delta_r": 0.0194
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_a9d3164d12b49d2589fdb71c",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    },
+    {
+      "signal_id": "KSRV3_SIG_a5f6c4f82ab1f375b0012d8f",
+      "direction": "SHORT",
+      "static_status": "STOPPED",
+      "static_realized_r": -1.0,
+      "EXIT_ON_KEY_LEVEL_RECLAIM": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_H1_ALIGNMENT_DETERIORATION": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      },
+      "EXIT_ON_FIRST_OF_THE_TWO": {
+        "realized_r": -1.0,
+        "exit_source": "STATIC",
+        "signal_fired": false,
+        "delta_r": 0.0
+      }
+    }
+  ],
+  "no_management_policy_created": true,
+  "no_exit_rule_optimized": true,
+  "no_parameter_search": true,
+  "validation_outcomes_accessed": false,
+  "entry_evaluator_changed": false,
+  "target_evaluator_changed": false,
+  "production_changed": false,
+  "broker_writes": 0,
+  "artifact_fingerprint": "47176d9b05e986be29a59de277908b21cf3840e17ce08a486821aa81f2a02d7d"
+}
