@@ -757,10 +757,34 @@ class H1EvidenceScaffoldTests(unittest.TestCase):
         self.assertIn("h1_context_evidence", prov)
         self.assertIsInstance(prov["h1_context_evidence"], dict)
 
-    def test_h1_post_pullback_confirmation_evidence_is_source_rule_required(self):
+    def test_h1_confirmation_fields_present(self):
+        """H1 confirmation source rule: explicit fields replacing scaffold."""
         prov = self._get_signal_provenance()
-        self.assertIn("h1_post_pullback_confirmation_evidence", prov)
-        self.assertEqual(prov["h1_post_pullback_confirmation_evidence"], "SOURCE_RULE_REQUIRED")
+        self.assertNotIn("h1_post_pullback_confirmation_evidence", prov)
+        for field in (
+            "h1_key_level_id",
+            "h1_confirmation_open_ts",
+            "h1_confirmation_close_ts",
+            "h1_confirmation_open",
+            "h1_confirmation_high",
+            "h1_confirmation_low",
+            "h1_confirmation_close",
+            "h1_confirmation_relation_to_level",
+        ):
+            self.assertIn(field, prov, f"Missing H1 confirmation field: {field}")
+
+    def test_h1_confirmation_relation_to_level_long(self):
+        prov = self._get_signal_provenance(direction="LONG")
+        self.assertEqual(prov["h1_confirmation_relation_to_level"], "CLOSE_BEYOND")
+
+    def test_h1_confirmation_close_ts_equals_episode_start_ts(self):
+        """H1 confirmation close timestamp must equal episode_start_ts (the break bar)."""
+        prov = self._get_signal_provenance()
+        self.assertEqual(prov["h1_confirmation_close_ts"], prov["episode_start_ts"])
+
+    def test_h1_key_level_id_matches_structural_level(self):
+        prov = self._get_signal_provenance()
+        self.assertEqual(prov["h1_key_level_id"], prov["structural_level_id"])
 
     def test_m15_confirmation_evidence_present(self):
         prov = self._get_signal_provenance()
@@ -783,7 +807,9 @@ class H1EvidenceScaffoldTests(unittest.TestCase):
     def test_short_direction_h1_evidence_fields(self):
         prov = self._get_signal_provenance(direction="SHORT")
         self.assertIn("h1_context_evidence", prov)
-        self.assertEqual(prov["h1_post_pullback_confirmation_evidence"], "SOURCE_RULE_REQUIRED")
+        self.assertIn("h1_confirmation_open_ts", prov)
+        self.assertEqual(prov["h1_confirmation_relation_to_level"], "CLOSE_BELOW")
+        self.assertNotIn("h1_post_pullback_confirmation_evidence", prov)
         self.assertNotIn("dual_timeframe_confirmed", prov)
 
 
@@ -882,9 +908,11 @@ class SourceFidelityStatusTests(unittest.TestCase):
         diag = ev.diagnostics()
         reasons = diag["source_fidelity_blocked_reasons"]
         self.assertIsInstance(reasons, list)
-        self.assertGreaterEqual(len(reasons), 2)
+        self.assertGreaterEqual(len(reasons), 1)
         reasons_text = " ".join(reasons)
         self.assertIn("SOURCE_RULE_REQUIRED", reasons_text)
+        # H1 confirmation is now resolved; only TARGET_MEANINGFULNESS_BOUNDARY remains.
+        self.assertTrue(any("TARGET_MEANINGFULNESS_BOUNDARY" in r for r in reasons))
 
     def test_production_eligible_false_in_signal(self):
         ev = make_evaluator()
@@ -968,6 +996,186 @@ class InheritedCausalInvariantTests(unittest.TestCase):
         sigs_rest, _ = feed_and_collect(ev_prefix, events[mid:])
 
         self.assertEqual([s.signal_id for s in sigs_full], [s.signal_id for s in sigs_rest])
+
+
+# ─── H1 confirmation source rule (TASK 1) ────────────────────────────────────
+
+from strategy_backtest.kojo_structure_reclaim_v3 import (
+    H1_CLOSE_BEYOND_LEVEL_REQUIRED,
+    H1_CONFIRMATION_IS_COMPLETED_BAR,
+    H1_CONFIRMATION_PRECEDES_M15_RETEST,
+    M15_ONLY_BASELINE_ENABLED,
+)
+
+
+class H1ConfirmationSourceRuleTests(unittest.TestCase):
+
+    def test_h1_confirmation_constants_defined(self):
+        self.assertTrue(H1_CLOSE_BEYOND_LEVEL_REQUIRED)
+        self.assertTrue(H1_CONFIRMATION_IS_COMPLETED_BAR)
+        self.assertTrue(H1_CONFIRMATION_PRECEDES_M15_RETEST)
+        self.assertFalse(M15_ONLY_BASELINE_ENABLED)
+
+    def test_temporal_guard_rejects_premature_m15(self):
+        """M15 bars with open_timestamp < episode_start_ts must not create RETEST_SEEN.
+
+        Feeds events only through the break bar (SETUP_DETECTED), then injects M15 bars
+        with timestamps strictly before episode_start_ts. The temporal guard must skip them.
+        """
+        ev = make_evaluator()
+        level = 4110.0
+        events = build_pivot_sequence(BASE_TS, level, "LONG", num_pre_break_h1=6)
+
+        # Feed until SETUP_DETECTED fires, capture episode_start_ts from the break bar
+        episode_start = None
+        for e in events:
+            outs = list(ev.consume_market_event(e))
+            for out in outs:
+                if isinstance(out, SetupLifecycleEvent) and out.status == "SETUP_DETECTED":
+                    episode_start = e.close_timestamp
+                    break
+            if episode_start is not None:
+                break
+
+        self.assertIsNotNone(episode_start, "SETUP_DETECTED must fire")
+
+        # Inject 3 M15 bars strictly before episode_start_ts: open_ts = ep-3, ep-2, ep-1*M15S
+        stale_t = episode_start - M15S * 3
+        for _ in range(3):
+            outs = list(ev.consume_market_event(
+                m15(stale_t, level - 1, level + 1, level - 2, level)
+            ))
+            stale_t += M15S
+            for out in outs:
+                self.assertNotIsInstance(out, EntrySignal, "Stale M15 must not produce signal")
+                if isinstance(out, SetupLifecycleEvent):
+                    self.assertNotEqual(out.status, "RETEST_SEEN",
+                                        "Stale M15 must not create RETEST_SEEN")
+
+    def test_temporal_ordering_in_provenance(self):
+        """episode_start_ts <= m15_retest_first_ts <= m15_rejection_ts <= entry_decision_ts."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        self.assertEqual(len(signals), 1)
+        prov = signals[0].provenance
+
+        ep_start = prov["episode_start_ts"]
+        entry_ts = prov["entry_decision_ts"]
+        rejection_ts = prov["m15_rejection_ts"]
+
+        self.assertIsNotNone(ep_start)
+        self.assertIsNotNone(entry_ts)
+        self.assertIsNotNone(rejection_ts)
+
+        self.assertGreater(entry_ts, rejection_ts,
+                           "Entry decision must come after M15 rejection")
+        self.assertGreaterEqual(rejection_ts, ep_start,
+                                "M15 rejection must not precede H1 confirmation close")
+
+    def test_m15_retest_level_id_matches_structural_level(self):
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        prov = signals[0].provenance
+        self.assertEqual(prov["m15_retest_level_id"], prov["structural_level_id"])
+
+
+# ─── initial trade plan (TASK 3) ─────────────────────────────────────────────
+
+from strategy_backtest.kojo_structure_reclaim_v3 import (
+    TARGETS_ARE_OBJECTIVES,
+    MANDATORY_HOLD_TO_TARGET,
+)
+
+
+class InitialTradePlanTests(unittest.TestCase):
+
+    def _get_provenance(self):
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        self.assertEqual(len(signals), 1)
+        return signals[0].provenance
+
+    def test_initial_trade_plan_present(self):
+        prov = self._get_provenance()
+        self.assertIn("initial_trade_plan", prov)
+        plan = prov["initial_trade_plan"]
+        self.assertIsInstance(plan, dict)
+
+    def test_initial_trade_plan_required_fields(self):
+        prov = self._get_provenance()
+        plan = prov["initial_trade_plan"]
+        for field in ("planned_entry", "initial_stop", "planned_tp1", "planned_tp1_reason",
+                      "planned_tp2", "planned_tp2_reason",
+                      "targets_are_objectives", "mandatory_hold_to_target",
+                      "trade_management_policy_ref"):
+            self.assertIn(field, plan, f"initial_trade_plan missing: {field}")
+
+    def test_targets_are_objectives_true(self):
+        self.assertTrue(TARGETS_ARE_OBJECTIVES)
+        prov = self._get_provenance()
+        self.assertTrue(prov["targets_are_objectives"])
+        self.assertTrue(prov["initial_trade_plan"]["targets_are_objectives"])
+
+    def test_mandatory_hold_to_target_false(self):
+        self.assertFalse(MANDATORY_HOLD_TO_TARGET)
+        prov = self._get_provenance()
+        self.assertFalse(prov["mandatory_hold_to_target"])
+        self.assertFalse(prov["initial_trade_plan"]["mandatory_hold_to_target"])
+
+    def test_trade_management_source_rule_required(self):
+        prov = self._get_provenance()
+        self.assertEqual(prov["trade_management_policy_ref"], "SOURCE_RULE_REQUIRED")
+        self.assertEqual(prov["initial_trade_plan"]["trade_management_policy_ref"],
+                         "SOURCE_RULE_REQUIRED")
+
+    def test_initial_trade_plan_prices_match_signal(self):
+        """planned_entry / initial_stop / planned_tp1 must match signal top-level prices."""
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        sig = signals[0]
+        plan = sig.provenance["initial_trade_plan"]
+        self.assertEqual(plan["planned_entry"], sig.entry_price)
+        self.assertEqual(plan["initial_stop"], sig.stop_price)
+        self.assertEqual(plan["planned_tp1"], sig.target_price)
+
+
+# ─── target candidate classification (TASK 2) ────────────────────────────────
+
+from strategy_backtest.kojo_structure_reclaim_v3 import (
+    TP_CANDIDATE_CLASS_GENERIC,
+    TARGET_SELECTION_SOURCE_RULE_REQUIRED,
+    EXISTING_REACTION_ZONE_PRIMITIVE_FOUND,
+    EXISTING_LIQUIDITY_PRIMITIVE_FOUND,
+)
+
+
+class TargetCandidateClassTests(unittest.TestCase):
+
+    def test_primitive_not_found_constants(self):
+        self.assertFalse(EXISTING_REACTION_ZONE_PRIMITIVE_FOUND)
+        self.assertFalse(EXISTING_LIQUIDITY_PRIMITIVE_FOUND)
+        self.assertTrue(TARGET_SELECTION_SOURCE_RULE_REQUIRED)
+        self.assertEqual(TP_CANDIDATE_CLASS_GENERIC, "GENERIC_EXTERNAL_PIVOT")
+
+    def test_tp1_candidate_class_in_diagnostics(self):
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        prov = signals[0].provenance
+        diag = prov["tp1_provenance"]["tp1_diagnostics"]
+        self.assertEqual(diag["tp1_candidate_class"], TP_CANDIDATE_CLASS_GENERIC)
+        self.assertTrue(diag["target_selection_source_rule_required"])
+
+    def test_tp2_candidate_class_in_tp1_prov(self):
+        ev = make_evaluator()
+        events = build_pivot_sequence(BASE_TS, 4110.0, "LONG")
+        signals, _ = feed_and_collect(ev, events)
+        prov = signals[0].provenance
+        self.assertIn("tp2_candidate_class", prov["tp1_provenance"])
 
 
 if __name__ == "__main__":

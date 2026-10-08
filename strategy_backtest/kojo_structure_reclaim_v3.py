@@ -1,26 +1,13 @@
 """Kojo Structure Reclaim V3 — targeted repair of V2 semantic defects.
 
-SOURCE_FIDELITY_BLOCKED = true
-
-This evaluator implements only the source-supported repairs identified in the
-V2 semantic fidelity audit.  Two findings remain unresolved and are scaffolded
-but NOT implemented:
-
-  H1_POST_PULLBACK_CONFIRMATION_EVIDENCE:
-    SOURCE_RULE_REQUIRED — no deterministic source-supported definition exists yet
-    for what H1 candle/pattern/action constitutes a post-pullback H1 confirmation.
-    The evaluator exposes the scaffold field but leaves it unresolved.
-
-  TARGET_MEANINGFULNESS_BOUNDARY:
-    SOURCE_RULE_REQUIRED — no source-supported minimum target distance rule exists.
-    Near-coincident external targets are classified in diagnostics but not rejected.
+SOURCE_FIDELITY_BLOCKED = true  (TARGET_MEANINGFULNESS_BOUNDARY pending source evidence)
 
 V3 STATUS FLAGS:
-  SOURCE_FIDELITY_BLOCKED = true
-  READY_FOR_DISCOVERY     = false
-  READY_FOR_VALIDATION    = false
+  SOURCE_FIDELITY_BLOCKED  = true
+  READY_FOR_DISCOVERY      = false
+  READY_FOR_VALIDATION     = false
   READY_FOR_SHADOW_SIGNALS = false
-  READY_FOR_EXECUTION     = false
+  READY_FOR_EXECUTION      = false
 
 IMPLEMENTED IN V3:
 
@@ -29,8 +16,8 @@ IMPLEMENTED IN V3:
     V2 defect: _consumed_level_keys grew on ALL terminal states (CONSUMED,
     INVALIDATED, EXPIRED), permanently blocking new episodes on structural levels
     whose only prior episode was a failed retest (INVALIDATED) or timeout (EXPIRED).
-    Source evidence item 4: "If an original entry is missed, a NEW simple pullback
-    can create a later valid opportunity."
+    Source evidence: "If an original entry is missed, a NEW simple pullback can create
+    a later valid opportunity."
 
     V3 correction: explicit separation of two identities:
 
@@ -43,26 +30,42 @@ IMPLEMENTED IN V3:
         new, structurally distinct episode on the same level.
 
     New-causal-break guard: a new episode on a structural level is only created when
-    the current H1 bar is the FIRST bar to close on the break side of the level (i.e.,
-    the previous H1 bar's close was on the non-break side). This prevents stale
-    continuation bars from creating duplicate episodes after an INVALIDATED or EXPIRED
-    episode without requiring an arbitrary time cooldown.
+    the current H1 bar is the FIRST bar to close on the break side of the level (i.e.
+    the previous H1 bar's close was on the non-break side). Prevents stale continuation
+    bars from creating duplicates after INVALIDATED/EXPIRED without a time cooldown.
 
-SCAFFOLDED BUT NOT IMPLEMENTED IN V3:
-
-  SCAFFOLD 2 — H1 POST-PULLBACK CONFIRMATION EVIDENCE
+  REPAIR 2 — H1 CONFIRMATION SOURCE RULE  (H1_CLOSE_BEYOND_LEVEL_REQUIRED)
 
     V2 defect: h1_confirmation_evidence was permanently set to the break bar at setup
     creation time and never updated. The DUAL_TF_BASELINE_ENFORCED=true assertion was
-    therefore semantically mislabeled — it counted H1 structural context as H1
-    confirmation.
+    semantically mislabeled — it counted H1 structural context as H1 confirmation.
 
-    V3 adds three distinct fields:
-      h1_context_evidence     — the original H1 break bar (always available)
-      h1_post_pullback_confirmation_evidence — placeholder, value = SOURCE_RULE_REQUIRED
-      m15_confirmation_evidence — unchanged from V2
+    Source evidence:
+      H1_CLOSE → M15_RETEST → M15_REJECTION → ENTRY temporal ordering required.
+      H1 wick-only penetration is NOT confirmation.
+      An unfinished H1 candle is NOT confirmation.
+      An M15 rejection that occurs before the qualifying H1 close is NOT valid.
+      M15-only entry is a rare/aggressive exception; NOT included in V3 baseline.
 
-    The DUAL_TF_BASELINE_ENFORCED assertion is removed from V3 diagnostics.
+    V3 resolution:
+      The qualifying H1 bar = the completed H1 bar that closes BEYOND the structural
+      level (i.e. the break bar itself).  This IS the H1 confirmation; no separate
+      post-pullback H1 event is required by source.
+
+      Provenance carries explicit H1 confirmation fields:
+        h1_key_level_id                   — the structural level ID broken
+        h1_confirmation_open_ts           — break bar open timestamp
+        h1_confirmation_close_ts          — break bar close timestamp (= episode_start_ts)
+        h1_confirmation_open/high/low/close
+        h1_confirmation_relation_to_level — "CLOSE_BEYOND" (LONG) / "CLOSE_BELOW" (SHORT)
+
+      Temporal guard: M15 bars with open_timestamp < episode_start_ts are skipped in
+      WAITING_FOR_RETEST, enforcing the H1_CLOSE → M15_RETEST ordering at runtime.
+
+      DUAL_TF_BASELINE_ENFORCED assertion removed from V3 diagnostics.
+      M15_ONLY_BASELINE_ENABLED = false.
+
+SCAFFOLDED BUT NOT IMPLEMENTED IN V3:
 
   SCAFFOLD 3 — TARGET MEANINGFULNESS DIAGNOSTICS
 
@@ -79,6 +82,20 @@ SCAFFOLDED BUT NOT IMPLEMENTED IN V3:
       target_distance_over_envelope_width
       target_distance_over_stop_distance
       near_coincident_class        — SOURCE_RULE_REQUIRED (boundary pending source evidence)
+      tp1_candidate_class          — GENERIC_EXTERNAL_PIVOT (no reaction-cluster primitive)
+
+    Source evidence:
+      TP1 was chosen because price produced many wicks/reactions in that area.
+      TP2 was chosen because it represented liquidity.
+      No reaction-zone or liquidity primitive exists in strategy_backtest/ scope.
+      TARGET_SELECTION_SOURCE_RULE_REQUIRED = true.
+
+  SCAFFOLD 4 — INITIAL TRADE PLAN (separate from trade management)
+
+    V3 signals carry an initial_trade_plan block in provenance:
+      targets_are_objectives = true — targets are the plan's objectives, not hard exits.
+      mandatory_hold_to_target = false — exits at discretion/confirmation are valid.
+      trade_management_policy_ref = SOURCE_RULE_REQUIRED — management rules not yet defined.
 
 PRESERVED FROM V2 (unchanged):
   - All causal invariants (no-lookahead, prefix-invariance, deterministic rerun)
@@ -129,8 +146,7 @@ READY_FOR_SHADOW_SIGNALS = False
 READY_FOR_EXECUTION = False
 
 SOURCE_FIDELITY_BLOCKED_REASONS = (
-    "H1_POST_PULLBACK_CONFIRMATION_EVIDENCE: SOURCE_RULE_REQUIRED — "
-    "no deterministic source-supported definition for post-pullback H1 confirmation",
+    # H1 confirmation is now resolved (see REPAIR 2 above).
     "TARGET_MEANINGFULNESS_BOUNDARY: SOURCE_RULE_REQUIRED — "
     "near-coincident external target threshold not yet defined by source evidence",
 )
@@ -148,11 +164,32 @@ INVALIDATED = "INVALIDATED"
 
 TERMINAL_STATES = {CONSUMED, EXPIRED, INVALIDATED}
 
+# ─── H1 confirmation invariants (source-confirmed) ────────────────────────────
+
+H1_CLOSE_BEYOND_LEVEL_REQUIRED = True
+H1_CONFIRMATION_IS_COMPLETED_BAR = True
+H1_CONFIRMATION_PRECEDES_M15_RETEST = True
+M15_ONLY_BASELINE_ENABLED = False
+
+# ─── target semantics ──────────────────────────────────────────────────────────
+
+TARGET_SELECTION_SOURCE_RULE_REQUIRED = True
+# No reaction-zone or liquidity primitive found in strategy_backtest/ scope.
+# Candidates are classified as GENERIC_EXTERNAL_PIVOT only.
+EXISTING_REACTION_ZONE_PRIMITIVE_FOUND = False
+EXISTING_LIQUIDITY_PRIMITIVE_FOUND = False
+TP_CANDIDATE_CLASS_GENERIC = "GENERIC_EXTERNAL_PIVOT"
+
 # ─── near-coincident classification ───────────────────────────────────────────
 
 TP1_NEAR_COINCIDENT = "EXTERNAL_BUT_NEAR_COINCIDENT_WITH_ENTRY"
 TP1_STANDARD = "EXTERNAL_STANDARD"
 TP1_NEAR_COINCIDENT_BOUNDARY = "SOURCE_RULE_REQUIRED"
+
+# ─── trade plan semantics ──────────────────────────────────────────────────────
+
+TARGETS_ARE_OBJECTIVES = True
+MANDATORY_HOLD_TO_TARGET = False
 
 # ─── helpers (identical to V2 — inlined) ──────────────────────────────────────
 
@@ -330,11 +367,14 @@ class KojoStructureReclaimV3Evaluator:
       1. Opportunity retirement: only CONSUMED permanently retires (level_id, direction).
          INVALIDATED/EXPIRED terminate their specific episode but do not block future
          causal episodes on the same structural level.
-      2. H1 evidence scaffold: h1_context_evidence (break bar) and
-         h1_post_pullback_confirmation_evidence (SOURCE_RULE_REQUIRED) are separate fields.
-         DUAL_TF_BASELINE_ENFORCED assertion removed.
-      3. Target diagnostics: tp1_diagnostics block in every signal provenance.
+      2. H1 confirmation source rule: break bar close beyond level IS the H1 confirmation.
+         Explicit h1_confirmation_* fields in provenance. Temporal guard enforces
+         H1_CLOSE → M15_RETEST → M15_REJECTION → ENTRY ordering.
+         DUAL_TF_BASELINE_ENFORCED assertion removed. M15_ONLY_BASELINE_ENABLED=false.
+      3. Target diagnostics: tp1_diagnostics block with tp1_candidate_class=GENERIC_EXTERNAL_PIVOT.
          near_coincident_class = SOURCE_RULE_REQUIRED (boundary deferred).
+      4. Initial trade plan: targets_are_objectives=true, mandatory_hold_to_target=false,
+         trade_management_policy_ref=SOURCE_RULE_REQUIRED.
     """
 
     VERSION = "KOJO_STRUCTURE_RECLAIM_V3_EVALUATOR"
@@ -502,9 +542,22 @@ class KojoStructureReclaimV3Evaluator:
             "confirmation_timestamp": None,
             "confirmation_m15_index": None,
             "confirmation_type": None,
-            # V3 SCAFFOLD: separate context from (unresolved) post-pullback H1 confirmation
-            "h1_context_evidence": _event_evidence(break_event),          # break bar; always available
-            "h1_post_pullback_confirmation_evidence": None,                # SOURCE_RULE_REQUIRED
+            # H1 confirmation = the completed H1 bar that closes beyond the structural level
+            # (the break bar itself). H1_CLOSE_BEYOND_LEVEL_REQUIRED=true.
+            "h1_context_evidence": _event_evidence(break_event),
+            "h1_key_level_id": level["level_id"],
+            "h1_confirmation_open_ts": break_event.open_timestamp,
+            "h1_confirmation_close_ts": break_event.close_timestamp,
+            "h1_confirmation_open": float(break_event.open),
+            "h1_confirmation_high": float(break_event.high),
+            "h1_confirmation_low": float(break_event.low),
+            "h1_confirmation_close": float(break_event.close),
+            "h1_confirmation_relation_to_level": (
+                "CLOSE_BEYOND" if direction == "LONG" else "CLOSE_BELOW"
+            ),
+            # M15 temporal tracking (set when transitions occur)
+            "m15_retest_first_open_ts": None,
+            "m15_rejection_open_ts": None,
             "m15_confirmation_evidence": None,
             "state": WAITING_FOR_RETEST,
             "stop_basis": None,
@@ -594,6 +647,11 @@ class KojoStructureReclaimV3Evaluator:
         values = self._values
 
         if state == WAITING_FOR_RETEST:
+            # Temporal invariant: M15 retest must occur AFTER the H1 confirmation close.
+            # H1_CLOSE → M15_RETEST → M15_REJECTION → ENTRY
+            if event.open_timestamp < setup["episode_start_ts"]:
+                return outputs
+
             m15_atr = _atr(self._m15_bars, 14)
             tolerance = float(values["retest_tolerance_atr"]) * m15_atr
             retest = False
@@ -606,6 +664,7 @@ class KojoStructureReclaimV3Evaluator:
             if retest:
                 setup["retest_timestamp"] = event.close_timestamp
                 setup["retest_m15_index"] = m15_index
+                setup["m15_retest_first_open_ts"] = event.open_timestamp
                 setup["state"] = RETEST_SEEN
                 setup["confirmation_expiry_m15_count"] = int(values["max_confirmation_wait_m15_bars"])
                 setup["retest_m15_bars_seen"] = 0
@@ -652,6 +711,7 @@ class KojoStructureReclaimV3Evaluator:
                 setup["confirmation_timestamp"] = event.close_timestamp
                 setup["confirmation_m15_index"] = m15_index
                 setup["confirmation_type"] = conf_type
+                setup["m15_rejection_open_ts"] = event.open_timestamp
                 setup["m15_confirmation_evidence"] = _event_evidence(event)
                 setup["state"] = CONFIRMED_PENDING_NEXT_OPEN
                 outputs.extend(self._emit_lifecycle(setup, CONFIRMED, event, confirmation_type=conf_type))
@@ -752,9 +812,22 @@ class KojoStructureReclaimV3Evaluator:
             "break_timestamp": setup["break_timestamp"],
             "break_direction": setup["break_direction"],
             "break_h1_evidence": setup["break_h1_evidence"],
-            # V3 SCAFFOLD: three distinct evidence fields
+            # H1 confirmation source rule: break bar close beyond level is the H1 confirmation.
+            # H1_CLOSE_BEYOND_LEVEL_REQUIRED=true, H1_CONFIRMATION_IS_COMPLETED_BAR=true.
             "h1_context_evidence": setup["h1_context_evidence"],
-            "h1_post_pullback_confirmation_evidence": "SOURCE_RULE_REQUIRED",
+            "h1_key_level_id": setup["h1_key_level_id"],
+            "h1_confirmation_open_ts": setup["h1_confirmation_open_ts"],
+            "h1_confirmation_close_ts": setup["h1_confirmation_close_ts"],
+            "h1_confirmation_open": setup["h1_confirmation_open"],
+            "h1_confirmation_high": setup["h1_confirmation_high"],
+            "h1_confirmation_low": setup["h1_confirmation_low"],
+            "h1_confirmation_close": setup["h1_confirmation_close"],
+            "h1_confirmation_relation_to_level": setup["h1_confirmation_relation_to_level"],
+            # M15 temporal ordering: H1_CLOSE → M15_RETEST → M15_REJECTION → ENTRY
+            "m15_retest_first_ts": setup["m15_retest_first_open_ts"],
+            "m15_retest_level_id": setup["structural_level_id"],
+            "m15_rejection_ts": setup["m15_rejection_open_ts"],
+            "entry_decision_ts": decision_ts,
             "m15_confirmation_evidence": setup["m15_confirmation_evidence"],
             "retest_timestamp": setup["retest_timestamp"],
             "confirmation_timestamp": setup["confirmation_timestamp"],
@@ -770,10 +843,26 @@ class KojoStructureReclaimV3Evaluator:
             "intended_entry": entry_price,
             "available_through": event.close_timestamp,
             "tp1_class": "EXTERNAL",
+            # Initial trade plan — separated from trade management policy.
+            # targets_are_objectives=true, mandatory_hold_to_target=false.
+            "targets_are_objectives": TARGETS_ARE_OBJECTIVES,
+            "mandatory_hold_to_target": MANDATORY_HOLD_TO_TARGET,
+            "trade_management_policy_ref": "SOURCE_RULE_REQUIRED",
+            "initial_trade_plan": {
+                "planned_entry": entry_price,
+                "initial_stop": stop_price,
+                "planned_tp1": tp1,
+                "planned_tp1_reason": "EXTERNAL_STRUCTURAL_OBJECTIVE",
+                "planned_tp2": tp2,
+                "planned_tp2_reason": "EXTERNAL_STRUCTURAL_OBJECTIVE",
+                "targets_are_objectives": TARGETS_ARE_OBJECTIVES,
+                "mandatory_hold_to_target": MANDATORY_HOLD_TO_TARGET,
+                "trade_management_policy_ref": "SOURCE_RULE_REQUIRED",
+            },
             # V3 status — never production-eligible while SOURCE_FIDELITY_BLOCKED
             "v3_status": "SOURCE_FIDELITY_BLOCKED",
             "production_eligible": False,
-            # dual_timeframe_confirmed removed; see h1_post_pullback_confirmation_evidence
+            # dual_timeframe_confirmed removed (V2 mislabel); M15_ONLY_BASELINE_ENABLED=false
         }
 
         self._terminate_setup(setup, CONSUMED)
@@ -895,8 +984,10 @@ class KojoStructureReclaimV3Evaluator:
         envelope_width = abs(envelope_high - envelope_low)
         stop_distance = risk
 
-        # V3 SCAFFOLD: target diagnostics — all ratio fields exposed for source-evidence
-        # analysis.  near_coincident_class boundary is SOURCE_RULE_REQUIRED.
+        # V3: target diagnostics — ratio fields for source-evidence analysis.
+        # near_coincident_class boundary is SOURCE_RULE_REQUIRED.
+        # tp1_candidate_class = GENERIC_EXTERNAL_PIVOT — no reaction-zone primitive exists
+        # in strategy_backtest/ scope (EXISTING_REACTION_ZONE_PRIMITIVE_FOUND=false).
         tp1_diagnostics = {
             "target_structural_id": tp1_level["level_id"],
             "target_h1_open_timestamp": tp1_level["h1_open_timestamp"],
@@ -914,13 +1005,16 @@ class KojoStructureReclaimV3Evaluator:
             "target_distance_over_stop_distance": (
                 target_distance / stop_distance if stop_distance > 0 else None
             ),
-            # Boundary for near-coincident classification not yet defined by source evidence.
-            # All external targets receive SOURCE_RULE_REQUIRED until the boundary is specified.
+            # Boundary not yet defined by source evidence.
             "near_coincident_class": TP1_NEAR_COINCIDENT_BOUNDARY,
             "near_coincident_class_note": (
                 f"Classification into '{TP1_NEAR_COINCIDENT}' or '{TP1_STANDARD}' "
                 "requires source-defined distance criterion. See V3 audit findings."
             ),
+            # Target candidate classification — no reaction-zone or liquidity primitive
+            # found in strategy_backtest/ scope; both targets classified as generic pivots.
+            "tp1_candidate_class": TP_CANDIDATE_CLASS_GENERIC,
+            "target_selection_source_rule_required": TARGET_SELECTION_SOURCE_RULE_REQUIRED,
         }
 
         tp1_prov = {
@@ -942,6 +1036,7 @@ class KojoStructureReclaimV3Evaluator:
 
         tp2_level = external_candidates[1] if len(external_candidates) > 1 else None
         tp2_price = tp2_level["price"] if tp2_level else None
+        tp1_prov["tp2_candidate_class"] = TP_CANDIDATE_CLASS_GENERIC if tp2_level else None
 
         return tp1_price, tp1_prov, tp2_price
 
