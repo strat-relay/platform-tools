@@ -54,6 +54,22 @@ class RiskDecision:
     risk_amount: float | None = None
 
 
+def decision_to_emission_age_seconds(record: Mapping[str, Any]) -> float | None:
+    """Measure signal age as strategy decision time to signal emission time."""
+    decision_at, emitted_at = record.get("decision_time"), record.get("signal_emitted_at")
+    if decision_at is None or emitted_at is None:
+        return None
+    decision = (decision_at if isinstance(decision_at, datetime)
+                else datetime.fromisoformat(str(decision_at).replace("Z", "+00:00")))
+    emitted = (emitted_at if isinstance(emitted_at, datetime)
+               else datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00")))
+    if decision.tzinfo is None:
+        decision = decision.replace(tzinfo=timezone.utc)
+    if emitted.tzinfo is None:
+        emitted = emitted.replace(tzinfo=timezone.utc)
+    return (emitted - decision).total_seconds()
+
+
 _REQUIRED_BOUNDS = (
     "risk_per_trade", "max_volume", "max_signal_age_seconds", "max_daily_loss",
     "max_concurrent_positions", "max_concurrent_orders", "max_account_exposure",
@@ -192,13 +208,9 @@ def evaluate_candidate(record: Mapping[str, Any], *, policy: RiskPolicy, account
     entry, stop = record.get("entry_price"), record.get("stop_price")
     if entry is None or stop is None or float(entry) <= 0 or float(stop) <= 0:
         return RiskDecision(False, "INVALID_GEOMETRY")
-    signal_emitted_at = record.get("signal_emitted_at")
-    if signal_emitted_at is None:
-        return RiskDecision(False, "MISSING_SIGNAL_EMITTED_AT")
-    emitted = signal_emitted_at if isinstance(signal_emitted_at, datetime) else datetime.fromisoformat(str(signal_emitted_at).replace("Z", "+00:00"))
-    if emitted.tzinfo is None:
-        emitted = emitted.replace(tzinfo=timezone.utc)
-    age = (now_utc - emitted).total_seconds()
+    age = decision_to_emission_age_seconds(record)
+    if age is None:
+        return RiskDecision(False, "MISSING_DECISION_OR_EMISSION_TIME")
     if age > policy.max_signal_age_seconds:
         return RiskDecision(False, "STALE_SIGNAL")
     if "equity" not in account or any(key not in broker for key in ("tick_size", "tick_value", "volume_min", "volume_max", "volume_step")):

@@ -35,7 +35,6 @@ from .trace import elapsed_ms, emit as trace_emit
 
 TOOL = "mt5_canonical_order_send"
 RESULT_EVENT_TYPE = "execution.result.recorded.v1"
-MAX_SIGNAL_TO_BROKER_SECONDS = 60.0
 MAX_INTENT_TO_ATTEMPT_MS = 500.0
 
 _TERMINAL_ATTEMPT_STATES = frozenset({"CONFIRMED", "REJECTED", "FAILED", "FENCED", "CANCELLED", "NOT_SENT"})
@@ -241,10 +240,19 @@ class ExecutionWorker:
                 pass
         return intent
 
-    @staticmethod
-    def _signal_too_old(intent: dict[str, Any]) -> bool:
-        age = elapsed_ms(intent.get("signal_emitted_at"))
-        return age is not None and age > MAX_SIGNAL_TO_BROKER_SECONDS * 1000
+    def _execution_age_seconds(self, intent: dict[str, Any], *, now_utc: datetime) -> float | None:
+        emitted_at = intent.get("signal_emitted_at")
+        if emitted_at is None:
+            return None
+        if not isinstance(emitted_at, datetime):
+            emitted_at = datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00"))
+        if emitted_at.tzinfo is None:
+            emitted_at = emitted_at.replace(tzinfo=timezone.utc)
+        return (now_utc - emitted_at).total_seconds()
+
+    def _signal_too_old(self, intent: dict[str, Any], *, now_utc: datetime) -> bool:
+        age = self._execution_age_seconds(intent, now_utc=now_utc)
+        return age is not None and age > self.risk_policy.max_signal_age_seconds
 
     def _reservation(self, action: str, intent_id: str, reason: str = "") -> bool:
         """Move this intent's risk reservation with the execution outcome. Only `submit` gates the
@@ -328,8 +336,10 @@ class ExecutionWorker:
         trace_emit("INTENT_CREATED", signal_id=signal_id, intent_id=execution_intent_id,
                    signal_emitted_at=intent.get("signal_emitted_at"), outcome=intent_result.status)
         phase("INTENT_ROW_LOADED", phase_clock)
-        if self._signal_too_old(intent):
-            detail = "signal exceeded 60-second signal-to-broker SLO before attempt claim"
+        execution_age = self._execution_age_seconds(intent, now_utc=now_utc)
+        if self._signal_too_old(intent, now_utc=now_utc):
+            detail = (f"emission-to-execution age {execution_age:.3f}s exceeded policy limit "
+                      f"{self.risk_policy.max_signal_age_seconds:.3f}s before attempt claim")
             trace_emit("STALE_BEFORE_SUBMISSION", signal_id=signal_id, intent_id=execution_intent_id,
                        signal_emitted_at=intent.get("signal_emitted_at"), outcome="BLOCKED", error=detail)
             with transaction(self.conn):
@@ -458,11 +468,15 @@ class ExecutionWorker:
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None,
                                     "execution authority was disabled before broker submission")
 
-        if self._signal_too_old(intent):
-            detail = "signal exceeded 60-second signal-to-broker SLO before bridge submission"
+        execution_age = self._execution_age_seconds(intent, now_utc=now_utc)
+        if self._signal_too_old(intent, now_utc=now_utc):
+            detail = (f"emission-to-execution age {execution_age:.3f}s exceeded policy limit "
+                      f"{self.risk_policy.max_signal_age_seconds:.3f}s before bridge submission")
             self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                  outcome="BLOCKED", attempt_terminal_state="NOT_SENT",
-                                 broker_response={"reason": "SIGNAL_TO_BROKER_SLO_EXCEEDED"})
+                                 broker_response={"reason": "SIGNAL_TO_BROKER_SLO_EXCEEDED",
+                                                  "execution_age_seconds": execution_age,
+                                                  "max_signal_age_seconds": self.risk_policy.max_signal_age_seconds})
             trace_emit("BROKER_SUBMISSION_BLOCKED", signal_id=signal_id, intent_id=execution_intent_id,
                        attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),
                        outcome="BLOCKED", error=detail)

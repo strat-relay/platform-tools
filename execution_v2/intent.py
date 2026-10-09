@@ -27,12 +27,13 @@ from core.strategies.evaluation import canonical_bytes
 from postgres.db import transaction
 
 from .ids import execution_intent_id as _execution_intent_id
-from .risk import RiskPolicy, evaluate_candidate
+from .risk import RiskPolicy, decision_to_emission_age_seconds, evaluate_candidate
 from .risk_policy_store import policy_fingerprint
 from .trace import emit as trace_emit
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
 RESEARCH_ONLY_STRATEGIES = frozenset({"CONTEXT_STRUCTURE_RETRACE_V2"})
+TERMINAL_SIGNAL_OUTCOMES = frozenset({"TARGET_HIT", "STOPPED", "TIME_EXIT", "INVALIDATED"})
 
 
 def _bridge_risk_diagnostics(risk_context: dict[str, Any]) -> dict[str, Any]:
@@ -75,6 +76,17 @@ class IntentResult:
     reason: str | None = None
 
 
+def signal_age_seconds(record: dict[str, Any], *, now_utc: datetime) -> float | None:
+    """Return the canonical decision-to-emission age used by the stale-signal gate.
+
+    Keeping this calculation in one place prevents the eligibility decision and its persisted
+    diagnostics from disagreeing about which timestamp was used. ``now_utc`` remains in the
+    signature for call-site compatibility; signal age is independent of wall-clock execution
+    time and measures publication latency.
+    """
+    return decision_to_emission_age_seconds(record)
+
+
 def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, account_id: str,
                       now_utc: datetime) -> EligibilityResult:
     """Pure. No wall-clock side effect beyond the passed-in `now_utc`, no I/O - every reason a
@@ -107,13 +119,9 @@ def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, accoun
             return EligibilityResult(False, "INVALID_TARGET_GEOMETRY")
         if record["direction"] == "SHORT" and target_price >= entry_price:
             return EligibilityResult(False, "INVALID_TARGET_GEOMETRY")
-    emitted_at = record.get("signal_emitted_at")
-    if emitted_at is None:
-        return EligibilityResult(False, "MISSING_SIGNAL_EMITTED_AT")
-    emitted = emitted_at if isinstance(emitted_at, datetime) else datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00"))
-    if emitted.tzinfo is None:
-        emitted = emitted.replace(tzinfo=timezone.utc)
-    age_seconds = (now_utc - emitted).total_seconds()
+    age_seconds = signal_age_seconds(record, now_utc=now_utc)
+    if age_seconds is None:
+        return EligibilityResult(False, "MISSING_DECISION_OR_EMISSION_TIME")
     if age_seconds > risk_policy.max_signal_age_seconds:
         return EligibilityResult(False, "STALE_SIGNAL")
     return EligibilityResult(True, None)
@@ -121,16 +129,22 @@ def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, accoun
 
 def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
-        cur.execute("""SELECT signal_id, strategy_id, strategy_version, strategy_ref, instrument,
-                             direction, decision_time, signal_emitted_at, entry_price, stop_price, target_price,
-                             entry_signal_hash
-                      FROM strategy.entry_signals WHERE signal_id=%s""", (signal_id,))
+        cur.execute("""SELECT strategy.entry_signals.signal_id, strategy.entry_signals.strategy_id,
+                             strategy.entry_signals.strategy_version, strategy.entry_signals.strategy_ref,
+                             strategy.entry_signals.instrument, strategy.entry_signals.direction,
+                             strategy.entry_signals.decision_time, strategy.entry_signals.signal_emitted_at,
+                             strategy.entry_signals.entry_price, strategy.entry_signals.stop_price,
+                             strategy.entry_signals.target_price, strategy.entry_signals.entry_signal_hash,
+                             outcome.status, outcome.exit_timestamp
+                      FROM strategy.entry_signals
+                      LEFT JOIN strategy.entry_signal_outcomes AS outcome USING (signal_id)
+                      WHERE strategy.entry_signals.signal_id=%s""", (signal_id,))
         row = cur.fetchone()
     if row is None:
         return None
     keys = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
             "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
-            "entry_signal_hash")
+            "entry_signal_hash", "outcome_status", "outcome_exit_timestamp")
     return dict(zip(keys, row))
 
 
@@ -175,22 +189,49 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
             return IntentResult(status="BLOCKED", execution_intent_id=None,
                                 eligible=False, reason="STRATEGY_NOT_EXECUTION_ENABLED")
 
+        diagnostics: dict[str, Any] = {}
+        outcome_status = record.get("outcome_status")
+        outcome_exit_timestamp = record.get("outcome_exit_timestamp")
+        outcome_already_settled = (outcome_status in TERMINAL_SIGNAL_OUTCOMES and
+                                   outcome_exit_timestamp is not None and
+                                   outcome_exit_timestamp <= now_utc)
         eligibility = (EligibilityResult(False, blocked_reason) if blocked_reason else
                        check_eligibility(record, risk_policy=risk_policy, account_id=account_id, now_utc=now_utc))
+        if outcome_already_settled and not blocked_reason:
+            eligibility = EligibilityResult(False, "STALE_SIGNAL")
+            diagnostics.update({
+                "stale_cause": "CANONICAL_OUTCOME_ALREADY_SETTLED",
+                "outcome_status": outcome_status,
+                "outcome_exit_timestamp": outcome_exit_timestamp,
+            })
+        measured_signal_age = signal_age_seconds(record, now_utc=now_utc)
+        if measured_signal_age is not None:
+            emitted_at = record["signal_emitted_at"]
+            emitted = (emitted_at if isinstance(emitted_at, datetime)
+                       else datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00")))
+            if emitted.tzinfo is None:
+                emitted = emitted.replace(tzinfo=timezone.utc)
+            diagnostics.update({
+                "signal_age_seconds": measured_signal_age,
+                "max_signal_age_seconds": risk_policy.max_signal_age_seconds,
+                "signal_age_exceeded": measured_signal_age > risk_policy.max_signal_age_seconds,
+                "signal_age_source": "strategy.entry_signals.decision_time_to_signal_emitted_at",
+                "emission_to_intent_seconds": (now_utc - emitted).total_seconds(),
+            })
         intent_id = _execution_intent_id(entry_signal_id=signal_id, account_id=account_id)
         status = "PENDING" if eligibility.eligible else "BLOCKED"
         volume = 0.0
         risk_fraction = None
         risk_context = None
         risk_decision = None
-        diagnostics: dict[str, Any] = {}
         reserved_here = False
         if not blocked_reason and eligibility.eligible and risk_policy.risk_per_trade > 0 and risk_gate is not None:
             # RISK_CONTEXT_SOURCE=REDIS: cached snapshot + atomic reservation, no broker reads.
             gate_result = risk_gate.evaluate_and_reserve(record, policy=risk_policy, account_id=account_id,
                                                          intent_id=intent_id, now_utc=now_utc)
             risk_context, risk_decision = gate_result.context, gate_result.decision
-            diagnostics, reserved_here = gate_result.diagnostics, gate_result.reserved
+            diagnostics.update(gate_result.diagnostics)
+            reserved_here = gate_result.reserved
             if not risk_decision.permitted:
                 if retryable_risk_state and diagnostics.get("risk_context_failure", {}).get("retryable"):
                     trace_emit("INTENT_RISK_STATE_RETRYABLE", signal_id=signal_id,
@@ -321,8 +362,7 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                 "daily_loss_used": risk_context.get("state", {}).get("daily_loss"),
                 "concurrent_positions_used": risk_context.get("state", {}).get("concurrent_positions"),
                 "concurrent_orders_used": risk_context.get("state", {}).get("concurrent_orders"),
-                "signal_age_seconds": (now_utc - (record["signal_emitted_at"] if isinstance(record["signal_emitted_at"], datetime)
-                                                   else datetime.fromisoformat(str(record["signal_emitted_at"]).replace("Z", "+00:00")))).total_seconds(),
+                "signal_age_seconds": measured_signal_age,
                 "max_signal_age_seconds": risk_policy.max_signal_age_seconds,
                 "canary_consumed": risk_context.get("state", {}).get("canary_used"),
                 "canary_max": risk_policy.canary_max_new_executions,

@@ -22,7 +22,7 @@ class StaleFencingGeneration(RuntimeError):
 
 _ENTRY_SIGNAL_COLUMNS = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
                         "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
-                        "entry_signal_hash")
+                        "entry_signal_hash", "outcome_status", "outcome_exit_timestamp")
 
 _INTENT_COLUMNS = ("execution_intent_id", "entry_signal_id", "entry_signal_hash", "strategy_id",
                   "strategy_version", "strategy_ref", "instrument", "direction", "order_type",
@@ -74,6 +74,10 @@ class FakeCursor:
         raise AssertionError(f"FakeCursor cannot handle statement: {sql[:100]}")
 
     def _select(self, upper: str, sql: str, params: Any) -> None:
+        if "SELECT SIGNAL_EMITTED_AT FROM STRATEGY.ENTRY_SIGNALS" in upper:
+            row = self.conn.entry_signals.get(params[0])
+            self._result = (row["signal_emitted_at"],) if row else None
+            return
         if "STRATEGY.ENTRY_SIGNALS" in upper:
             row = self.conn.entry_signals.get(params[0])
             self._result = tuple(row[k] for k in _ENTRY_SIGNAL_COLUMNS) if row else None

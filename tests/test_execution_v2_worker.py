@@ -74,6 +74,17 @@ def run(worker: ExecutionWorker, conn: FakeConnection, broker: FakeBroker, signa
 
 
 class EndToEndTests(unittest.TestCase):
+    def test_worker_stale_gate_uses_current_policy_limit(self):
+        conn = seeded_conn()
+        broker = FakeBroker(mode="fill")
+        intent = {"signal_emitted_at": NOW - timedelta(seconds=61)}
+
+        strict = make_worker(conn, broker=broker, risk_policy=policy(max_signal_age_seconds=60.0))
+        relaxed = make_worker(conn, broker=broker, risk_policy=policy(max_signal_age_seconds=120.0))
+
+        self.assertTrue(strict._signal_too_old(intent, now_utc=NOW))  # noqa: SLF001
+        self.assertFalse(relaxed._signal_too_old(intent, now_utc=NOW))  # noqa: SLF001
+
     def test_research_only_v2_is_rejected_before_intent_or_broker_boundary(self):
         conn = seeded_conn(strategy_id="CONTEXT_STRUCTURE_RETRACE_V2", strategy_version="V2",
                            strategy_ref="CONTEXT_STRUCTURE_RETRACE_V2@V2")
