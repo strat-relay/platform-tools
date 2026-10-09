@@ -41,6 +41,7 @@ from typing import Any, Awaitable, Callable
 from infrastructure.messaging.contracts import EventEnvelope
 from migration.signal import CanonicalSignalIdentityConflict, canonical_signal, ingest_signal
 from postgres.foundation import claim_inbox, mark_inbox_processed
+from execution_v2.trace import emit as trace_emit
 
 
 @dataclass
@@ -80,14 +81,25 @@ class SignalPersistenceProjector:
         created; False for every duplicate/no-op outcome. Raises SignalProjectionConflict for
         a genuine content mismatch (never silently overwritten)."""
         self.metrics.received += 1
+        payload = envelope.payload
+        trace_emit("SIGNAL_PROJECTOR_RECEIVED", signal_id=envelope.aggregate_id,
+                   event_id=envelope.event_id, decision_time=payload.get("decision_time"),
+                   signal_emitted_at=payload.get("signal_emitted_at"), created_at=payload.get("created_at"),
+                   transport="NATS_FIRST", projector=self.consumer_name)
         conn = self.conn_factory()
         try:
             if not claim_inbox(conn, self.consumer_name, envelope.event_id):
                 conn.commit()
                 self.metrics.processed_duplicate_inbox += 1
+                trace_emit("SIGNAL_PROJECTOR_DUPLICATE_INBOX", signal_id=envelope.aggregate_id,
+                           event_id=envelope.event_id, decision_time=payload.get("decision_time"),
+                           signal_emitted_at=payload.get("signal_emitted_at"), outcome="DUPLICATE")
                 return False
             if self.on_begin is not None:
                 self.on_begin()
+            trace_emit("SIGNAL_PROJECTOR_DB_BEGIN", signal_id=envelope.aggregate_id,
+                       event_id=envelope.event_id, decision_time=payload.get("decision_time"),
+                       signal_emitted_at=payload.get("signal_emitted_at"), outcome="CLAIMED")
             canonical = canonical_signal(envelope.payload, runtime_version="signal-orchestrator.v1",
                                          evaluator_version="nats-first-signal-publisher.v1",
                                          stage_id="orchestrator_acceptance", primitive_id="orchestrator.strategy_signal")
@@ -100,6 +112,9 @@ class SignalPersistenceProjector:
             conn.commit()
             if self.on_commit is not None:
                 self.on_commit()
+            trace_emit("SIGNAL_PROJECTOR_DB_COMMITTED", signal_id=envelope.aggregate_id,
+                       event_id=envelope.event_id, decision_time=payload.get("decision_time"),
+                       signal_emitted_at=payload.get("signal_emitted_at"), outcome="INSERTED" if inserted else "DUPLICATE")
             if inserted:
                 self.metrics.processed_new += 1
             else:
@@ -107,10 +122,16 @@ class SignalPersistenceProjector:
             return inserted
         except SignalProjectionConflict:
             conn.rollback()
+            trace_emit("SIGNAL_PROJECTOR_FAILED", signal_id=envelope.aggregate_id,
+                       event_id=envelope.event_id, decision_time=payload.get("decision_time"),
+                       signal_emitted_at=payload.get("signal_emitted_at"), outcome="CONFLICT", error="identity conflict")
             raise
         except Exception:
             conn.rollback()
             self.metrics.failures += 1
+            trace_emit("SIGNAL_PROJECTOR_FAILED", signal_id=envelope.aggregate_id,
+                       event_id=envelope.event_id, decision_time=payload.get("decision_time"),
+                       signal_emitted_at=payload.get("signal_emitted_at"), outcome="FAILED")
             raise
 
     async def run_forever(self, consume: Callable[[Callable[[EventEnvelope], Awaitable[bool]]], Awaitable[Any]]) -> Any:

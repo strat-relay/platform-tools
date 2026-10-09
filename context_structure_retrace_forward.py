@@ -31,6 +31,7 @@ from context_structure_retrace.replay import feature_snapshot
 from paper_runner import call_bridge
 from context_structure_retrace_compact_state import project_state
 from strategy_report_format import format_standard_report
+from execution_v2.trace import emit as trace_emit
 
 ROOT = Path(__file__).resolve().parent
 VERSION = "CONTEXT_STRUCTURE_RETRACE_V1"
@@ -449,6 +450,12 @@ def _fill(state: dict[str, Any], setup: dict[str, Any], bar: dict[str, Any], ind
     opportunity = {"entry_opportunity_id": opportunity_id, "entry_attempt_id": hashlib.sha256(f"{opportunity_id}|attempt|1".encode()).hexdigest()[:20], "economic_position_id": position_id, "symbol": setup["symbol"], "direction": direction, "setup_id": setup["setup_id"], "fill_timestamp": decision_epoch, "fill_timestamp_iso": iso(decision_epoch), "fill_candle_number": fill_candle_number, "entry_mechanisms": mechanisms, "theoretical_entry": level, "executable_paper_entry": executable, "spread_at_fill": spread, "stop": geom["stop"], "target": geom["effective_target"], "geometry": geom, "leg_a": {"allocation_R": 0.5, "status": "OPEN"}, "leg_b": {"allocation_R": 0.5, "status": "OPEN", "runner_hypotheses": ["+1R", "+1.5R", "+2R", "+3R", "LOWER_TF_STRUCTURE_TRAIL", "EMA_STRUCTURE_EXIT", "OPPOSITE_PRICE_ACTION_EXIT"]}, "status": "OPEN", "mfe_price": 0.0, "mae_price": 0.0, "entry_bar": bar, "reentry_type": "INITIAL" if number == 1 else "REENTRY_BEFORE_TARGET_COMPLETION"}
     setup["opportunities"].append(opportunity); setup["status"] = "FILLED"; setup["retrace_state"] = "FILLED"; state["positions"][position_id] = opportunity; state["counters"]["opportunities"] += 1; state["counters"]["positions"] += 1
     append_event({"type": "FILLED", "source": setup["provenance"]["source"], "symbol": setup["symbol"], "setup_id": setup["setup_id"], "market_event_id": setup["market_event_id"], "entry_opportunity_id": opportunity_id, "economic_position_id": position_id, "entry": executable, "stop": geom["stop"], "target": geom["effective_target"], "entry_mechanisms": mechanisms}, state)
+    trace_emit("CONTEXT_OPPORTUNITY_CREATED", signal_id=None,
+               decision_time=opportunity["fill_timestamp_iso"],
+               created_at=now_iso(), strategy_id=VERSION,
+               strategy_instance_id="phase6", instrument=setup["symbol"],
+               economic_position_id=position_id,
+               entry_opportunity_id=opportunity_id, producer="context_runner")
 
 
 def _evaluate_open_position(state: dict[str, Any], symbol: str, setup: dict[str, Any] | None, position: dict[str, Any], direction: str, bar: dict[str, Any], source: str) -> None:
