@@ -10,6 +10,7 @@ import os
 from typing import Any
 
 from context_structure_retrace_forward import _geometry as v1_geometry
+from context_structure_retrace_v2_config import DEFAULTS, PARAMETER_FIELDS, PARAMETER_SCHEMA_ID
 from strategy_backtest.models import fingerprint
 
 STRATEGY_ID = "CONTEXT_STRUCTURE_RETRACE_V2"
@@ -20,7 +21,7 @@ MIN_PLANNED_R = 1.0
 # values.  They are intentionally independent of the source commit so a report
 # can distinguish semantic drift from a rebuild of the same contract.
 V2_CONTRACT_HASH = "4430542fb8d249d6338ead1fb745664a2e44836c4123e16f069b0c48bd69e107"
-V2_PARAMETER_HASH = "dc72c5d03e547fc02e1c80c91fb244e2b153a0bd32a8b9a8f3df200c71a61394"
+V2_PARAMETER_HASH = "ad897dff76e5b119d52fe7f05203d25d214b61c1dff69be18b9e8f784284335f"
 
 
 def research_contract() -> dict[str, Any]:
@@ -35,15 +36,13 @@ def research_contract() -> dict[str, Any]:
 def research_strategy_version() -> Any:
     from strategy_backtest.models import ParameterSchema, StrategyVersion
     return StrategyVersion(STRATEGY_ID, VERSION, "context_structure_retrace_v2_research",
-                           ParameterSchema("context-structure-retrace-v2-research-v1", {
-                               "max_hold_minutes": {"required": True, "minimum": 1},
-                           }), lifecycle="RESEARCH_ONLY")
+                           ParameterSchema(PARAMETER_SCHEMA_ID, PARAMETER_FIELDS), lifecycle="RESEARCH_ONLY")
 
 
 def research_parameter_set() -> Any:
     from strategy_backtest.models import ParameterSet
     return ParameterSet("context-v2-research-default", f"{STRATEGY_ID}@{VERSION}",
-                        "context-structure-retrace-v2-research-v1", {"max_hold_minutes": 1440},
+                        PARAMETER_SCHEMA_ID, dict(DEFAULTS),
                         {"research_only": True, "broker_writes": False})
 
 
@@ -76,7 +75,7 @@ def select_target_candidates(base: dict[str, Any], direction: str, entry: float)
 
 
 def v2_geometry(event_bar: dict[str, Any], direction: str, snapshot: dict[str, Any], entry: float,
-                spread: float, atr_value: float | None) -> dict[str, Any]:
+                spread: float, atr_value: float | None, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
     base = v1_geometry(event_bar, direction, snapshot, entry, spread, atr_value)
     risk = float(base["stop_distance"])
     if risk <= 0:
@@ -88,13 +87,14 @@ def v2_geometry(event_bar: dict[str, Any], direction: str, snapshot: dict[str, A
     for candidate in candidates:
         signed = (candidate["target"] - entry) if direction == "LONG" else (entry - candidate["target"])
         candidate.update({"reward_distance": signed, "planned_r": signed / risk})
-    eligible = [row for row in candidates if row["planned_r"] >= MIN_PLANNED_R]
+    minimum_required_r = float((parameters or {}).get("minimum_required_r", MIN_PLANNED_R))
+    eligible = [row for row in candidates if row["planned_r"] >= minimum_required_r]
     # Preserve V1's nearest-structural-target hierarchy among candidates that satisfy V2.
     selected = (min(eligible, key=lambda row: row["target"]) if direction == "LONG"
                 else max(eligible, key=lambda row: row["target"])) if eligible else None
     rejected = [row for row in candidates if selected is None or row["target"] != selected["target"]]
     result = {**base, "target_candidates": candidates, "rejected_target_candidates": rejected,
-              "minimum_required_r": MIN_PLANNED_R}
+              "minimum_required_r": minimum_required_r}
     if selected is None:
         result.update({"v2_eligible": False, "rejection_reason": "RR_BELOW_MINIMUM",
                        "best_structural_target": (max(candidates, key=lambda row: row["planned_r"])["target"]

@@ -19,10 +19,13 @@ class ContextStructureRetraceAdapter:
     strategy_version = "V1"
 
     def __init__(self, root: Path, freeze_timestamp: str, instance: dict[str, Any] | None = None,
-                 *, max_signal_age_seconds: float | None = ...):
+                 *, max_signal_age_seconds: float | None = ..., strategy_id: str | None = None,
+                 strategy_version: str | None = None, state_dir_env: str = "CONTEXT_RUNNER_STATE_DIR"):
         self.root = root
         self.freeze_timestamp = freeze_timestamp
         self.instance = instance or {}
+        self.strategy_id = strategy_id or self.strategy_id
+        self.strategy_version = strategy_version or self.strategy_version
         self.policy = self.instance.get("instance_policy") or {}
         # An opportunity discovered long after its originating decision is not
         # a fresh entry signal. Keep the guard at this strategy boundary so an
@@ -40,9 +43,11 @@ class ContextStructureRetraceAdapter:
         # back to the removed legacy full-state file: doing so hides a live
         # source failure as an empty/old pipeline.
         # The runner's artifacts live in CONTEXT_RUNNER_STATE_DIR when it runs from a release image.
-        state_dir = Path(os.environ.get("CONTEXT_RUNNER_STATE_DIR") or root)
-        self.state_path = state_dir / "context_structure_retrace_forward_state_compact.json"
-        self.manifest_path = state_dir / "context_structure_retrace_forward_manifest.json"
+        state_dir = Path(os.environ.get(state_dir_env) or root)
+        artifact_prefix = ("context_structure_retrace_forward" if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V1"
+                           else "context_structure_retrace_v2_forward")
+        self.state_path = state_dir / f"{artifact_prefix}_state_compact.json"
+        self.manifest_path = state_dir / f"{artifact_prefix}_manifest.json"
 
     @staticmethod
     def _epoch(value: Any) -> int:
@@ -132,20 +137,28 @@ class ContextStructureRetraceAdapter:
                     entry_mechanism=tuple(position.get("entry_mechanisms", [])),
                     strategy_metadata={"pattern": pattern, "reentry_type": position.get("reentry_type"),
                                        "v1_status": position.get("status"),
+                                       "parameter_set_id": self.instance.get("parameter_set_id"),
+                                       "parameter_fingerprint": self.instance.get("parameter_fingerprint"),
                                        "instance_policy_revision": self.policy.get("revision", 0),
                                        "time_exit_minutes": self.policy.get("time_exit_minutes"),
                                        "net_profit_target_usd": self.policy.get("net_profit_target_usd"),
                                        "profit_target_pips": self.policy.get("profit_target_pips"),
                                        "profit_target_r": self.policy.get("profit_target_r"),
+                                       "max_hold_minutes": (self.instance.get("parameter_values") or {}).get("max_hold_minutes"),
+                                       "v2_parameter_values": self.instance.get("parameter_values"),
                                        # Optional explicit broker pip size.  When absent, the
                                        # execution boundary must obtain symbol metadata; no
                                        # decimal-place heuristic is inferred here.
                                        "pip_size": self.policy.get("pip_size")},
                     decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     signal_emitted_at=created,
-                    provenance={"source_process": "context_structure_retrace_forward.py", "source_pid": None,
+                    provenance={"source_process": ("context_structure_retrace_v2_forward.py"
+                                                    if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V2"
+                                                    else "context_structure_retrace_forward.py"), "source_pid": None,
                                 "source_state_reference": str(self.state_path), "source_strategy_fingerprint": "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc",
-                                "source_config_hash": "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e",
+                                "source_config_hash": (self.instance.get("parameter_fingerprint")
+                                                        if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V2"
+                                                        else "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e"),
                                 "instance_policy_revision": self.policy.get("revision", 0),
                                 "instance_policy_fingerprint": self.policy.get("fingerprint"),
                                 "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",
