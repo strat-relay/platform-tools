@@ -110,8 +110,12 @@ class ServiceLoopTests(unittest.TestCase):
                 mock.patch.object(svc.time, "sleep", side_effect=sleeps.append):
             with self.assertRaises(KeyboardInterrupt):
                 svc.main()
-        self.assertEqual([e for e, _ in audits], ["runner_started", "tick_failed", "tick_failed"])
-        self.assertEqual(sleeps, [5.0, 10.0, 5.0])                          # backoff, then reset
+        self.assertEqual([e for e, _ in audits], [
+            "runner_started", "tick_failed", "runner_cycle_scheduled",
+            "tick_failed", "runner_cycle_scheduled", "runner_cycle_scheduled",
+        ])
+        for actual, expected in zip(sleeps, [1.0, 2.0, 1.0]):               # backoff, then reset
+            self.assertAlmostEqual(actual, expected, delta=0.02)
 
     def test_configuration_errors_still_stop_the_process(self):
         import liquidity_live_service as svc

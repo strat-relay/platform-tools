@@ -677,8 +677,10 @@ def persist_new_opportunity_provenance(state: dict[str, Any], before_opportuniti
 
 
 def poll(state: dict[str, Any], symbols: tuple[str, ...], mcp_url: str, limit: int) -> None:
+    cycle_started = time.perf_counter()
     state["last_poll_at"] = now_iso(); state["runner_status"] = "ACTIVE"
     for symbol in symbols:
+        symbol_started = time.perf_counter()
         try:
             contract, quote, bars, producer_provenance = read_symbol(symbol, mcp_url, limit, include_provenance=True)
             evaluation_timestamp = now_iso()
@@ -707,10 +709,26 @@ def poll(state: dict[str, Any], symbols: tuple[str, ...], mcp_url: str, limit: i
             state["symbols"].setdefault(symbol, {})["last_quote"] = quote
             state["symbols"][symbol]["contract"] = contract
             state["last_successful_read_at"] = now_iso()
+            print(json.dumps({"audit": "strategy", "event": "context_symbol_poll_completed",
+                              "runner": "context-structure-retrace", "symbol": symbol,
+                              "evaluation_timestamp": evaluation_timestamp,
+                              "source_market_data_timestamp": producer_provenance.get("source_market_data_timestamp"),
+                              "source_data_age": producer_provenance.get("source_data_age"),
+                              "elapsed_ms": round((time.perf_counter() - symbol_started) * 1000, 3)},
+                             sort_keys=True, default=str), flush=True)
         except Exception as exc:
             state["symbols"].setdefault(symbol, {})["last_error"] = str(exc)
             append_event({"type": "READ_ERROR", "symbol": symbol, "error": str(exc), "source": "LIVE_FORWARD"}, state)
+            print(json.dumps({"audit": "strategy", "event": "context_symbol_poll_failed",
+                              "runner": "context-structure-retrace", "symbol": symbol,
+                              "error_type": type(exc).__name__, "error": str(exc)[:300],
+                              "elapsed_ms": round((time.perf_counter() - symbol_started) * 1000, 3)},
+                             sort_keys=True, default=str), flush=True)
     save_state(state); write_heartbeat(state)
+    print(json.dumps({"audit": "strategy", "event": "context_poll_completed",
+                      "runner": "context-structure-retrace", "symbol_count": len(symbols),
+                      "elapsed_ms": round((time.perf_counter() - cycle_started) * 1000, 3)},
+                     sort_keys=True, default=str), flush=True)
 
 
 def summary(state: dict[str, Any]) -> str:
@@ -1126,7 +1144,9 @@ def run(args: argparse.Namespace) -> None:
         stopping["value"] = True
     signal.signal(signal.SIGINT, stop_handler); signal.signal(signal.SIGTERM, stop_handler)
     try:
+        next_cycle = time.monotonic()
         while not stopping["value"] and not STOP_FILE.exists():
+            cycle_started = time.monotonic()
             if time.monotonic() - last_membership_refresh >= MEMBERSHIP_REFRESH_SECONDS:
                 membership_symbols, membership_revision = load_active_membership(args)
                 state["instrument_membership_revision"] = membership_revision
@@ -1135,9 +1155,18 @@ def run(args: argparse.Namespace) -> None:
             poll(state, membership_symbols, args.mcp_url, args.limit)
             _project_entry_only_outcomes(state)
             if args.once: break
-            for _ in range(max(1, args.interval)):
-                if stopping["value"] or STOP_FILE.exists(): break
-                time.sleep(1)
+            next_cycle = cycle_started + max(0.25, float(args.interval))
+            delay = next_cycle - time.monotonic()
+            if delay <= 0:
+                delay = max(0.25, float(args.interval))
+            print(json.dumps({"audit": "strategy", "event": "context_cycle_scheduled",
+                              "runner": "context-structure-retrace",
+                              "cycle_elapsed_ms": round((time.monotonic() - cycle_started) * 1000, 3),
+                              "configured_interval_ms": round(max(0.25, float(args.interval)) * 1000, 3),
+                              "next_cycle_delay_ms": round(delay * 1000, 3)},
+                             sort_keys=True), flush=True)
+            if stopping["value"] or STOP_FILE.exists(): break
+            time.sleep(delay)
     finally:
         state["runner_status"] = "STOPPED"; state["stopped_at"] = now_iso(); save_state(state); write_heartbeat(state, "STOPPED"); SUMMARY.write_text(summary(state) + "\n", encoding="utf-8"); release_lock()
         print("CONTEXT_STRUCTURE_RETRACE_V1 paper runner stopped cleanly")
@@ -1188,7 +1217,7 @@ def main() -> None:
     sub.add_parser("stop")
     sub.add_parser("audit-order-isolation")
     r = sub.add_parser("report"); r.add_argument("--symbol", choices=DEFAULT_SYMBOLS); r.add_argument("--recent", type=int)
-    s = sub.add_parser("start"); s.add_argument("--interval", type=int, default=15); s.add_argument("--limit", type=int, default=320); s.add_argument("--once", action="store_true"); s.add_argument("--mcp-url", default="http://127.0.0.1:22347/mcp"); s.add_argument("--symbols", nargs="+", default=list(DEFAULT_SYMBOLS))
+    s = sub.add_parser("start"); s.add_argument("--interval", type=float, default=1); s.add_argument("--limit", type=int, default=320); s.add_argument("--once", action="store_true"); s.add_argument("--mcp-url", default="http://127.0.0.1:22347/mcp"); s.add_argument("--symbols", nargs="+", default=list(DEFAULT_SYMBOLS))
     args = p.parse_args()
     if args.command == "freeze": print(json.dumps(freeze(), indent=2)); return
     if args.command in ("status", "health"): status(); return
