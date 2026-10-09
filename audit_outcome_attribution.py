@@ -39,7 +39,9 @@ SELECT * FROM facts ORDER BY decision_time, signal_id
 
 def _row_dict(cur: Any, row: Any) -> dict[str, Any]:
     names = [column.name if hasattr(column, "name") else column[0] for column in cur.description]
-    return dict(zip(names, row, strict=True))
+    if len(names) != len(row):
+        raise ValueError(f"column/row length mismatch: {len(names)} names vs {len(row)} values")
+    return dict(zip(names, row))
 
 
 def audit(connect_fn=connect) -> dict[str, Any]:

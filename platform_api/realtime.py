@@ -193,7 +193,10 @@ async def main_async() -> None:
         with pg.cursor() as cur:
             cur.execute(sql, params)
             columns = [c.name if hasattr(c, "name") else c[0] for c in cur.description]
-            return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
+            fetched = cur.fetchall()
+            if fetched and len(columns) != len(fetched[0]):
+                raise ValueError(f"column/row length mismatch: {len(columns)} vs {len(fetched[0])}")
+            return [dict(zip(columns, row)) for row in fetched]
 
     poller = BoundedChangePoller(hub, query_fn)
     poller_task = asyncio.ensure_future(poller.run_forever())

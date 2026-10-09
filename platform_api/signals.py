@@ -96,7 +96,9 @@ def _row_dict(cursor: Any, row: Any) -> dict[str, Any]:
         return dict(row)
     names = [column.name if hasattr(column, "name") else column[0]
              for column in cursor.description]
-    return dict(zip(names, row, strict=True))
+    if len(names) != len(row):
+        raise ValueError(f"column/row length mismatch: {len(names)} names vs {len(row)} values")
+    return dict(zip(names, row))
 
 
 def _project(row: dict[str, Any]) -> dict[str, Any]:
@@ -294,7 +296,7 @@ class CanonicalSignalRepository:
                                WHERE i.entry_signal_id = ANY(%s)
                                ORDER BY i.entry_signal_id, i.account_id""", (signal_ids,))
                     names = [column.name if hasattr(column, "name") else column[0] for column in cur.description]
-                    rows = [dict(zip(names, row, strict=True)) for row in cur.fetchall()]
+                    rows = [_row_dict(cur, row) for row in cur.fetchall()]
                     cur.execute("SELECT signal_id, decision_time FROM strategy.entry_signals WHERE signal_id = ANY(%s)",
                                 (signal_ids,))
                     signal_times = {row[0]: row[1] for row in cur.fetchall()}

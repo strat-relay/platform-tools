@@ -25,7 +25,7 @@ class ContextRetraceWindowTests(unittest.TestCase):
     def test_hash_chain_and_report_keep_rejected_denominator(self):
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / "decisions.jsonl"
-            ledger = DecisionLedger(path, capture_hash="cap")
+            ledger = DecisionLedger(path, capture_hash="cap", t0="2026-01-01T00:00:00Z")
             ledger.append(row("CONTEXT_STRUCTURE_RETRACE_V1", "c1", "s1", outcome="STOPPED", realized=-1))
             ledger.append(row("CONTEXT_STRUCTURE_RETRACE_V1", "c2", "s2", planned=.15, outcome="TARGET_HIT", realized=.15))
             ledger.append(row("CONTEXT_STRUCTURE_RETRACE_V2", "c1", "s1", outcome="STOPPED", realized=-1))

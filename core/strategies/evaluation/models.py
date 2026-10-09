@@ -66,13 +66,13 @@ def _timestamp(value: datetime | date | str) -> str:
 def _json_value(value: Any) -> Any:
     if isinstance(value, _ValueEnum):
         return value.value
-    if isinstance(value, datetime | date):
+    if isinstance(value, (datetime, date)):
         return _timestamp(value)
     if isinstance(value, Mapping):
         return {str(key): _json_value(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
         return [_json_value(item) for item in value]
-    if isinstance(value, set | frozenset):
+    if isinstance(value, (set, frozenset)):
         return sorted((_json_value(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
     if isinstance(value, float) and not math.isfinite(value):
         raise ValueError("canonical values cannot contain NaN or infinity")

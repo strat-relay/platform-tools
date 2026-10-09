@@ -100,7 +100,7 @@ class ParameterSchema:
         if unknown:
             raise ValueError(f"unknown parameter(s): {sorted(unknown)}")
         for name, spec in self.fields.items():
-            if spec.get("required", False) and name not in values:
+            if spec.get("required", False) and name not in values and "default" not in spec:
                 raise ValueError(f"missing required parameter: {name}")
             if name not in values:
                 continue

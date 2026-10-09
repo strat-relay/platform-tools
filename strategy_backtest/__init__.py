@@ -28,6 +28,18 @@ from .kojo_structure_reclaim import (
     kojo_structure_reclaim_baseline_parameter_set,
     kojo_structure_reclaim_parameter_schema,
 )
+from .kojo_structure_reclaim_v2 import (
+    EVALUATOR_KEY as KOJO_STRUCTURE_RECLAIM_V2_EVALUATOR_KEY,
+    KojoStructureReclaimV2Evaluator,
+    kojo_structure_reclaim_v2_baseline_parameter_set,
+    kojo_structure_reclaim_v2_parameter_schema,
+)
+from .kojo_structure_reclaim_v3 import (
+    EVALUATOR_KEY as KOJO_STRUCTURE_RECLAIM_V3_EVALUATOR_KEY,
+    KojoStructureReclaimV3Evaluator,
+    kojo_structure_reclaim_v3_baseline_parameter_set,
+    kojo_structure_reclaim_v3_parameter_schema,
+)
 from .parity import assert_live_replay_parity
 
 __all__ = [
@@ -39,4 +51,8 @@ __all__ = [
     "kojo_wedge_diagnostic_artifact", "write_kojo_wedge_diagnostic_artifact",
     "KOJO_STRUCTURE_RECLAIM_EVALUATOR_KEY", "KojoStructureReclaimEvaluator",
     "kojo_structure_reclaim_parameter_schema", "kojo_structure_reclaim_baseline_parameter_set",
+    "KOJO_STRUCTURE_RECLAIM_V2_EVALUATOR_KEY", "KojoStructureReclaimV2Evaluator",
+    "kojo_structure_reclaim_v2_parameter_schema", "kojo_structure_reclaim_v2_baseline_parameter_set",
+    "KOJO_STRUCTURE_RECLAIM_V3_EVALUATOR_KEY", "KojoStructureReclaimV3Evaluator",
+    "kojo_structure_reclaim_v3_parameter_schema", "kojo_structure_reclaim_v3_baseline_parameter_set",
 ]
