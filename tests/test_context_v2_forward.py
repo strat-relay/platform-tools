@@ -37,7 +37,9 @@ class ContextV2ForwardTests(unittest.TestCase):
             state_path = Path(directory) / "context_structure_retrace_v2_forward_state_compact.json"
             state_path.write_text(json.dumps({"setups": {}}))
             with patch.dict(os.environ, {"CONTEXT_V2_RUNNER_STATE_DIR": directory}), \
-                    patch("orchestration.adapters.context_structure_retrace.EPOCH_PATH", Path(directory) / "missing.json"):
+                    patch("orchestration.adapters.context_structure_retrace.EPOCH_PATH", Path(directory) / "missing.json"), \
+                    patch("orchestration.adapters.context_structure_retrace.ContextV2DatabaseState") as store:
+                store.return_value.load.return_value = ({"setups": {}, "positions": {}}, {})
                 adapter = ContextStructureRetraceAdapter(
                     Path(directory), "2026-01-01T00:00:00Z",
                     strategy_id="CONTEXT_STRUCTURE_RETRACE_V2", strategy_version="V2",

@@ -12,6 +12,7 @@ from outcome_attribution import target_distance
 from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
 from execution_v2.trace import emit as trace_emit
 from observability.strategy_audit import audit
+from context_v2_database_state import ContextV2DatabaseState
 
 
 class ContextStructureRetraceAdapter:
@@ -63,7 +64,16 @@ class ContextStructureRetraceAdapter:
 
     def discover_new_signals(self, seen_signal_ids: set[str]) -> list[StrategySignal]:
         scan_started = time.perf_counter()
-        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V2":
+            store = ContextV2DatabaseState(self.instance.get("instance_id") or "context-v2-research")
+            try:
+                state, _ = store.load({"setups": {}, "positions": {}})
+            finally:
+                store.close()
+            state_source_reference = "postgresql:strategy.context_v2_runner_state"
+        else:
+            state = json.loads(self.state_path.read_text(encoding="utf-8"))
+            state_source_reference = str(self.state_path)
         result = []
         boundary = self._epoch(self.freeze_timestamp)
         # This is invariant for the whole scan. Loading the replay watermark
@@ -155,7 +165,7 @@ class ContextStructureRetraceAdapter:
                     provenance={"source_process": ("context_structure_retrace_v2_forward.py"
                                                     if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V2"
                                                     else "context_structure_retrace_forward.py"), "source_pid": None,
-                                "source_state_reference": str(self.state_path), "source_strategy_fingerprint": "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc",
+                                "source_state_reference": state_source_reference, "source_strategy_fingerprint": "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc",
                                 "source_config_hash": (self.instance.get("parameter_fingerprint")
                                                         if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V2"
                                                         else "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e"),

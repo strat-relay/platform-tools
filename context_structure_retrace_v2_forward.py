@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from context_structure_retrace_v2 import V2_CONTRACT_HASH, V2_PARAMETER_HASH
 from context_structure_retrace_v2_config import DEFAULTS, INSTANCE_ID, load_from_database
+from context_v2_database_state import ContextV2DatabaseState
 
 
 def _load_runtime_module():
@@ -55,6 +56,7 @@ PARAMETER_IDENTITY: dict[str, object] = {
     "revision": 0,
     "source": "LOCAL_DEFAULTS",
 }
+DB_STATE: ContextV2DatabaseState | None = None
 
 
 def _source_hash() -> str:
@@ -264,8 +266,13 @@ def _configure_runtime() -> None:
 def runtime_identity() -> dict:
     """Persist current V2 identity without freezing or rejecting later changes."""
     _configure_runtime()
+    global DB_STATE
     existing = {}
-    if _v1.MANIFEST.exists():
+    db_configured = bool(os.getenv("TRADING_POSTGRES_DSN") or os.getenv("PGHOST"))
+    if db_configured:
+        DB_STATE = ContextV2DatabaseState(INSTANCE_ID)
+        _, existing = DB_STATE.load(_v1.empty_state())
+    elif _v1.MANIFEST.exists():
         existing = json.loads(_v1.MANIFEST.read_text(encoding="utf-8"))
     activation = existing.get("activation_timestamp") or datetime.now(timezone.utc).isoformat()
     manifest = {
@@ -285,7 +292,13 @@ def runtime_identity() -> dict:
                                  "allowed_bridge_tools": sorted(_v1.READ_ONLY_BRIDGE_TOOLS),
                                  "broker_order_submission": False},
     }
-    _v1.atomic_json(_v1.MANIFEST, manifest)
+    if db_configured:
+        # Persist the manifest through the same database-only state path during
+        # the first runner save; no V2 manifest file is created.
+        state, _ = DB_STATE.load(_v1.empty_state())
+        DB_STATE.save(state, manifest)
+    else:
+        _v1.atomic_json(_v1.MANIFEST, manifest)
     return manifest
 
 
@@ -297,6 +310,15 @@ def run(args: argparse.Namespace) -> None:
     """V2 runner loop with a runtime identity, not a freeze assertion."""
     global PARAMETER_VALUES, PARAMETER_IDENTITY
     manifest = runtime_identity()
+    if DB_STATE is None:
+        raise RuntimeError("Context V2 requires PostgreSQL-backed state; JSON state fallback is disabled")
+    _v1.load_state = lambda: DB_STATE.load(_v1.empty_state())[0]
+    _v1.save_state = lambda state: DB_STATE.save(state)
+    _v1.append_event = lambda event, state: DB_STATE.append_event(state, event)
+    _v1.write_heartbeat = lambda state, status="ACTIVE": DB_STATE.save(
+        {**state, "runner_status": status}, manifest)
+    _v1.acquire_lock = lambda: None
+    _v1.release_lock = lambda: DB_STATE.close()
     _v1.acquire_lock()
     _v1.STOP_FILE.unlink(missing_ok=True)
     state = _v1.load_state()
@@ -342,7 +364,6 @@ def run(args: argparse.Namespace) -> None:
         state["stopped_at"] = _v1.now_iso()
         _v1.save_state(state)
         _v1.write_heartbeat(state, "STOPPED")
-        _v1.SUMMARY.write_text(_v1.summary(state) + "\n", encoding="utf-8")
         _v1.release_lock()
         print("CONTEXT_STRUCTURE_RETRACE_V2 research runner stopped cleanly")
 
@@ -366,7 +387,16 @@ def main() -> None:
     start.add_argument("--symbols", nargs="+", default=list(_v1.DEFAULT_SYMBOLS))
     args = parser.parse_args()
     if args.command in ("status", "health"):
-        _v1.status()
+        if DB_STATE is not None:
+            state, manifest = DB_STATE.load(_v1.empty_state())
+            print(json.dumps({"strategy": VERSION, "manifest": manifest,
+                              "runner_status": state.get("runner_status"),
+                              "last_poll": state.get("last_poll_at"),
+                              "last_successful_read": state.get("last_successful_read_at"),
+                              "symbols": state.get("symbols"), "counters": state.get("counters"),
+                              "paper_only": True, "broker_order_submission": False}, indent=2, default=str))
+        else:
+            _v1.status()
     elif args.command == "stop":
         _v1.stop()
     elif args.command == "audit-order-isolation":
