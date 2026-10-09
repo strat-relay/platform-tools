@@ -10,8 +10,9 @@ fallback. The router has no application-level trading logic.
 CORS is applied once at this boundary for `https://console.stratrelay.app`,
 including credentialed browser requests. The router does not reflect arbitrary
 origins and hides upstream CORS headers to prevent duplicate/conflicting
-headers. Preflight requests are answered here; API behavior is otherwise
-unchanged.
+headers. Preflight requests advertise GET, POST, and PATCH; each upstream API
+still enforces whether a specific route accepts the method. API behavior is
+otherwise unchanged.
 
 The ClusterIP service listens on port `22351`. Network policy permits ingress
 from the in-namespace `cloudflared` pod and egress only to the platform API,
