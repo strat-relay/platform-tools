@@ -137,20 +137,28 @@ class ContextStructureRetraceAdapter:
                     entry_mechanism=tuple(position.get("entry_mechanisms", [])),
                     strategy_metadata={"pattern": pattern, "reentry_type": position.get("reentry_type"),
                                        "v1_status": position.get("status"),
+                                       "parameter_set_id": self.instance.get("parameter_set_id"),
+                                       "parameter_fingerprint": self.instance.get("parameter_fingerprint"),
                                        "instance_policy_revision": self.policy.get("revision", 0),
                                        "time_exit_minutes": self.policy.get("time_exit_minutes"),
                                        "net_profit_target_usd": self.policy.get("net_profit_target_usd"),
                                        "profit_target_pips": self.policy.get("profit_target_pips"),
                                        "profit_target_r": self.policy.get("profit_target_r"),
+                                       "max_hold_minutes": (self.instance.get("parameter_values") or {}).get("max_hold_minutes"),
+                                       "v2_parameter_values": self.instance.get("parameter_values"),
                                        # Optional explicit broker pip size.  When absent, the
                                        # execution boundary must obtain symbol metadata; no
                                        # decimal-place heuristic is inferred here.
                                        "pip_size": self.policy.get("pip_size")},
                     decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     signal_emitted_at=created,
-                    provenance={"source_process": "context_structure_retrace_forward.py", "source_pid": None,
+                    provenance={"source_process": ("context_structure_retrace_v2_forward.py"
+                                                    if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V2"
+                                                    else "context_structure_retrace_forward.py"), "source_pid": None,
                                 "source_state_reference": str(self.state_path), "source_strategy_fingerprint": "6dda2523e15edbc0e2d123878367f21ffaec70219272aa409193c2fc45b7c9bc",
-                                "source_config_hash": "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e",
+                                "source_config_hash": (self.instance.get("parameter_fingerprint")
+                                                        if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V2"
+                                                        else "1f1da2a63d69ac79e4aca21d0de33c860e76f4c33d9bd321cb50b20353114e1e"),
                                 "instance_policy_revision": self.policy.get("revision", 0),
                                 "instance_policy_fingerprint": self.policy.get("fingerprint"),
                                 "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",

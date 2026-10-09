@@ -230,6 +230,16 @@ class StrategyMgmtRepository:
                 row = cur.fetchone()
                 return _serialize_row(_row_to_dict(cur, row)) if row else None
 
+    def get_parameter_schema(self, schema_id: str) -> dict[str, Any] | None:
+        with self._conn(readonly=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM strategy_mgmt.parameter_schema WHERE schema_id = %s",
+                    (schema_id,),
+                )
+                row = cur.fetchone()
+                return _serialize_row(_row_to_dict(cur, row)) if row else None
+
     def freeze_parameter_set(self, ps_id: str, frozen_by: str) -> dict[str, Any]:
         """Mark a parameter set frozen; the DB trigger then blocks value changes."""
         with self._conn() as conn:
@@ -348,8 +358,17 @@ class StrategyMgmtRepository:
         with self._conn(readonly=True) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT * FROM strategy_mgmt.strategy_instance_v2 WHERE id = %s",
-                    (instance_id,),
+                    """SELECT i.*, v.version_label, v.evaluator_key, v.schema_id,
+                              d.family_key, d.name AS strategy_name,
+                              p.parameter_set_id, p.fingerprint AS parameter_fingerprint,
+                              p.values AS parameter_values, ps.fields AS parameter_schema
+                         FROM strategy_mgmt.strategy_instance_v2 i
+                         JOIN strategy_mgmt.strategy_version v ON v.id = i.strategy_version_id
+                         JOIN strategy_mgmt.strategy_definition d ON d.id = v.definition_id
+                         JOIN strategy_mgmt.parameter_set p ON p.id = i.parameter_set_id
+                         LEFT JOIN strategy_mgmt.parameter_schema ps ON ps.schema_id = p.schema_id
+                        WHERE i.id::text = %s OR i.attributes->>'instance_id' = %s""",
+                    (instance_id, instance_id),
                 )
                 row = cur.fetchone()
                 return _serialize_row(_row_to_dict(cur, row)) if row else None
@@ -360,8 +379,8 @@ class StrategyMgmtRepository:
             with conn.cursor() as cur:
                 # Read current execution_eligible to assert it won't change.
                 cur.execute(
-                    "SELECT execution_eligible FROM strategy_mgmt.strategy_instance_v2 WHERE id = %s FOR UPDATE",
-                    (instance_id,),
+                    "SELECT execution_eligible FROM strategy_mgmt.strategy_instance_v2 WHERE id::text = %s OR attributes->>'instance_id' = %s FOR UPDATE",
+                    (instance_id, instance_id),
                 )
                 before = cur.fetchone()
                 if before is None:
@@ -370,9 +389,9 @@ class StrategyMgmtRepository:
                 cur.execute(
                     """UPDATE strategy_mgmt.strategy_instance_v2
                        SET online = %s, updated_at = now()
-                       WHERE id = %s
+                       WHERE id::text = %s OR attributes->>'instance_id' = %s
                        RETURNING *""",
-                    (online, instance_id),
+                    (online, instance_id, instance_id),
                 )
                 row = _row_to_dict(cur, cur.fetchone())
                 # Assert invariant: execution_eligible must be unchanged.
@@ -389,9 +408,38 @@ class StrategyMgmtRepository:
                 cur.execute(
                     """UPDATE strategy_mgmt.strategy_instance_v2
                        SET instruments = %s::jsonb, updated_at = now()
-                       WHERE id = %s
+                       WHERE id::text = %s OR attributes->>'instance_id' = %s
                        RETURNING *""",
-                    (json.dumps(instruments), instance_id),
+                    (json.dumps(instruments), instance_id, instance_id),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise KeyError(f"StrategyInstance {instance_id} not found")
+                updated = _row_to_dict(cur, row)
+            conn.commit()
+        return _serialize_row(updated)
+
+    def patch_instance_parameter_set(self, instance_id: str, parameter_set_id: str,
+                                     updated_by: str) -> dict[str, Any]:
+        """Bind a new immutable ParameterSet only while the instance is offline."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT online, execution_eligible FROM strategy_mgmt.strategy_instance_v2 "
+                    "WHERE id::text = %s OR attributes->>'instance_id' = %s FOR UPDATE",
+                    (instance_id, instance_id),
+                )
+                current = cur.fetchone()
+                if current is None:
+                    raise KeyError(f"StrategyInstance {instance_id} not found")
+                if current[0] or current[1]:
+                    raise ValueError("parameter_set can only change while instance is offline and execution-ineligible")
+                cur.execute(
+                    """UPDATE strategy_mgmt.strategy_instance_v2
+                       SET parameter_set_id = %s::uuid, updated_at = now()
+                       WHERE id::text = %s OR attributes->>'instance_id' = %s
+                       RETURNING *""",
+                    (parameter_set_id, instance_id, instance_id),
                 )
                 row = cur.fetchone()
                 if row is None:
@@ -525,6 +573,13 @@ class StrategyMgmtApi:
             if "/" not in ps_id and ps_id:
                 if method == "GET":
                     return self._get_parameter_set(ps_id)
+                return 405, self._err("METHOD_NOT_ALLOWED")
+
+        if p.startswith("/api/v1/parameter-schemas/"):
+            schema_id = p[len("/api/v1/parameter-schemas/"):]
+            if "/" not in schema_id and schema_id:
+                if method == "GET":
+                    return self._get_parameter_schema(schema_id)
                 return 405, self._err("METHOD_NOT_ALLOWED")
 
         # Backtests (status polling)
@@ -693,6 +748,14 @@ class StrategyMgmtApi:
             row = self._repo.get_parameter_set(ps_id)
             if row is None:
                 raise KeyError(f"ParameterSet {ps_id} not found")
+            return self._ok(row)
+        return self._wrap(_do)
+
+    def _get_parameter_schema(self, schema_id: str) -> tuple[int, dict[str, Any]]:
+        def _do():
+            row = self._repo.get_parameter_schema(schema_id)
+            if row is None:
+                raise KeyError(f"ParameterSchema {schema_id} not found")
             return self._ok(row)
         return self._wrap(_do)
 
@@ -871,6 +934,14 @@ class StrategyMgmtApi:
                     "execution_eligible cannot be changed through this endpoint; "
                     "it is managed by the execution authority system"
                 )
+
+            if "parameterSetId" in p or "parameter_set_id" in p:
+                ps_id = str(p.get("parameterSetId") or p.get("parameter_set_id") or "").strip()
+                if not ps_id:
+                    raise ValueError("parameterSetId is required")
+                row = self._repo.patch_instance_parameter_set(
+                    inst_id, ps_id, str(p.get("updatedBy") or "api"))
+                return self._ok(row)
 
             if "online" in p:
                 online = bool(p["online"])
