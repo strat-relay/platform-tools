@@ -19,10 +19,13 @@ class ContextStructureRetraceAdapter:
     strategy_version = "V1"
 
     def __init__(self, root: Path, freeze_timestamp: str, instance: dict[str, Any] | None = None,
-                 *, max_signal_age_seconds: float | None = ...):
+                 *, max_signal_age_seconds: float | None = ..., strategy_id: str | None = None,
+                 strategy_version: str | None = None, state_dir_env: str = "CONTEXT_RUNNER_STATE_DIR"):
         self.root = root
         self.freeze_timestamp = freeze_timestamp
         self.instance = instance or {}
+        self.strategy_id = strategy_id or self.strategy_id
+        self.strategy_version = strategy_version or self.strategy_version
         self.policy = self.instance.get("instance_policy") or {}
         # An opportunity discovered long after its originating decision is not
         # a fresh entry signal. Keep the guard at this strategy boundary so an
@@ -40,9 +43,11 @@ class ContextStructureRetraceAdapter:
         # back to the removed legacy full-state file: doing so hides a live
         # source failure as an empty/old pipeline.
         # The runner's artifacts live in CONTEXT_RUNNER_STATE_DIR when it runs from a release image.
-        state_dir = Path(os.environ.get("CONTEXT_RUNNER_STATE_DIR") or root)
-        self.state_path = state_dir / "context_structure_retrace_forward_state_compact.json"
-        self.manifest_path = state_dir / "context_structure_retrace_forward_manifest.json"
+        state_dir = Path(os.environ.get(state_dir_env) or root)
+        artifact_prefix = ("context_structure_retrace_forward" if self.strategy_id == "CONTEXT_STRUCTURE_RETRACE_V1"
+                           else "context_structure_retrace_v2_forward")
+        self.state_path = state_dir / f"{artifact_prefix}_state_compact.json"
+        self.manifest_path = state_dir / f"{artifact_prefix}_manifest.json"
 
     @staticmethod
     def _epoch(value: Any) -> int:

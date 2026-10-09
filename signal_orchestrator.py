@@ -159,6 +159,14 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
                 adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp, instances[0]))
             else:
                 adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp))
+        elif record["strategy_id"] == "CONTEXT_STRUCTURE_RETRACE_V2":
+            instances = [x for x in config.get("instances", [])
+                         if x.get("strategy_id") == record["strategy_id"] and x.get("enabled")]
+            for instance in instances:
+                adapters.append(ContextStructureRetraceAdapter(
+                    ROOT, freeze_timestamp, instance,
+                    strategy_id="CONTEXT_STRUCTURE_RETRACE_V2", strategy_version="V2",
+                    state_dir_env="CONTEXT_V2_RUNNER_STATE_DIR"))
         elif record["strategy_id"] == "LIQUIDITY_DISPLACEMENT_SCALP_V1":
             # The parent owns the adapter family.  Enabled children are persisted as
             # strategy instances and each keeps an isolated state/dedupe namespace.
