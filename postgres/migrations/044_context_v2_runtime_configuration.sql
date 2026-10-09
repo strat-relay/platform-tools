@@ -6,14 +6,14 @@ CREATE SCHEMA IF NOT EXISTS strategy_mgmt;
 
 DO $$
 DECLARE
-    definition_id uuid;
-    version_id uuid;
-    parameter_id uuid;
+    v2_definition_id uuid;
+    v2_version_id uuid;
+    v2_parameter_id uuid;
 BEGIN
-    SELECT d.id INTO definition_id
+    SELECT d.id INTO v2_definition_id
       FROM strategy_mgmt.strategy_definition AS d
      WHERE d.family_key = 'CONTEXT_STRUCTURE_RETRACE_V2';
-    IF definition_id IS NULL THEN
+    IF v2_definition_id IS NULL THEN
         INSERT INTO strategy_mgmt.strategy_definition
             (name, family_key, description, provenance_notes, created_by)
         VALUES
@@ -21,20 +21,20 @@ BEGIN
              'Database-configured research runner derived from Context V1.',
              'V1 remains frozen; V2 parameters are immutable PostgreSQL ParameterSets.',
              'migration:044')
-        RETURNING id INTO definition_id;
+        RETURNING id INTO v2_definition_id;
     END IF;
 
-    SELECT v.id INTO version_id
+    SELECT v.id INTO v2_version_id
       FROM strategy_mgmt.strategy_version AS v
-     WHERE v.definition_id = definition_id AND v.version_label = 'V2';
-    IF version_id IS NULL THEN
+     WHERE v.definition_id = v2_definition_id AND v.version_label = 'V2';
+    IF v2_version_id IS NULL THEN
         INSERT INTO strategy_mgmt.strategy_version
             (definition_id, version_label, evaluator_key, lifecycle, schema_id, release_notes, created_by)
         VALUES
-            (definition_id, 'V2', 'context_structure_retrace_v2_research', 'FROZEN',
+            (v2_definition_id, 'V2', 'context_structure_retrace_v2_research', 'FROZEN',
              'context-structure-retrace-v2-runtime-v1',
              'Research-only Context V2 with database-backed runtime parameters.', 'migration:044')
-        RETURNING id INTO version_id;
+        RETURNING id INTO v2_version_id;
     END IF;
 
     INSERT INTO strategy_mgmt.parameter_schema(schema_id, fields, created_by)
@@ -53,15 +53,15 @@ BEGIN
       }'::jsonb, 'migration:044')
     ON CONFLICT (schema_id) DO NOTHING;
 
-    SELECT id INTO parameter_id
+    SELECT id INTO v2_parameter_id
       FROM strategy_mgmt.parameter_set
      WHERE parameter_set_id = 'context-v2-runtime-default';
-    IF parameter_id IS NULL THEN
+    IF v2_parameter_id IS NULL THEN
         INSERT INTO strategy_mgmt.parameter_set
             (parameter_set_id, strategy_version_id, schema_id, values, fingerprint, frozen,
              frozen_at, frozen_by, provenance, created_by)
         VALUES
-          ('context-v2-runtime-default', version_id, 'context-structure-retrace-v2-runtime-v1',
+          ('context-v2-runtime-default', v2_version_id, 'context-structure-retrace-v2-runtime-v1',
            '{
              "minimum_required_r":1.0,
              "target_extension_fraction":0.5,
@@ -77,7 +77,7 @@ BEGIN
            'ad897dff76e5b119d52fe7f05203d25d214b61c1dff69be18b9e8f784284335f', true, now(), 'migration:044',
            '{"research_only":true,"broker_writes":false,"source":"migration:044"}'::jsonb,
            'migration:044')
-        RETURNING id INTO parameter_id;
+        RETURNING id INTO v2_parameter_id;
     END IF;
 
     IF NOT EXISTS (
@@ -88,7 +88,7 @@ BEGIN
             (strategy_version_id, parameter_set_id, display_name, online,
              execution_eligible, instruments, attributes, created_by)
         VALUES
-          (version_id, parameter_id, 'Context Structure Retrace V2 research', false, false,
+          (v2_version_id, v2_parameter_id, 'Context Structure Retrace V2 research', false, false,
            '[{"canonical_instrument":"XAUUSD","state":"ACTIVE"},{"canonical_instrument":"BTCUSD","state":"ACTIVE"},{"canonical_instrument":"USDJPY","state":"ACTIVE"},{"canonical_instrument":"EURUSD","state":"ACTIVE"}]'::jsonb,
            '{"instance_id":"context-v2-research","research_only":true,"broker_writes":false}'::jsonb,
            'migration:044');
