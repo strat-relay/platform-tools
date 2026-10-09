@@ -103,6 +103,34 @@ class StrategyMgmtRepository:
                 cur.execute("SELECT * FROM strategy_mgmt.strategy_definition ORDER BY created_at DESC")
                 return [_serialize_row(_row_to_dict(cur, r)) for r in cur.fetchall()]
 
+    def list_registry(self) -> list[dict[str, Any]]:
+        """Return the unified registry with versions, parameter sets, and instances.
+
+        Legacy identifiers are retained in instance attributes during migration 044 so
+        callers can correlate the unified rows with existing signal and statistics APIs.
+        """
+        with self._conn(readonly=True) as conn:
+            with conn.cursor() as cur:
+                self._check_schema(cur)
+                cur.execute("""
+                    SELECT d.id AS definition_id, d.name, d.family_key, d.description,
+                           v.id AS version_id, v.version_label, v.evaluator_key, v.lifecycle,
+                           i.id AS instance_id, i.display_name AS instance_display_name,
+                           i.online, i.execution_eligible, i.instruments, i.attributes,
+                           p.parameter_set_id, p.fingerprint AS parameter_fingerprint,
+                           p.values AS parameter_values
+                    FROM strategy_mgmt.strategy_definition d
+                    LEFT JOIN strategy_mgmt.strategy_version v
+                      ON v.definition_id = d.id
+                    LEFT JOIN strategy_mgmt.strategy_instance_v2 i
+                      ON i.strategy_version_id = v.id
+                    LEFT JOIN strategy_mgmt.parameter_set p
+                      ON p.id = i.parameter_set_id
+                    ORDER BY d.created_at, v.created_at, i.created_at
+                """)
+                rows = [_serialize_row(_row_to_dict(cur, r)) for r in cur.fetchall()]
+        return rows
+
     def get_definition(self, definition_id: str) -> dict[str, Any] | None:
         with self._conn(readonly=True) as conn:
             with conn.cursor() as cur:
@@ -539,6 +567,10 @@ class StrategyMgmtApi:
                  job_runner: BacktestJobRunner | None = None):
         self._repo = repository or StrategyMgmtRepository()
         self._runner = job_runner or BacktestJobRunner(self._repo)
+
+    def registry_rows(self) -> list[dict[str, Any]]:
+        """Read the unified strategy registry for the compatibility catalog endpoint."""
+        return self._repo.list_registry()
 
     # ── routing ──────────────────────────────────────────────────────────────
 

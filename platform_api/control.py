@@ -764,6 +764,90 @@ class PlatformControlApi:
             return self.repository.platform_status()
         return self.repository.platform_status(include_event_counts=False)
 
+    @staticmethod
+    def _registry_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Build the legacy list response shape from strategy_mgmt rows.
+
+        Statistics remain supplied by the canonical signal/outcome projections; registry
+        identity and operational state come from strategy_mgmt. This keeps old clients
+        compatible while allowing newly registered strategies to appear in the same list.
+        """
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            family = row["family_key"]
+            item = grouped.setdefault(family, {
+                "strategy_id": family,
+                "strategy_version": row.get("version_label"),
+                "display_name": row.get("name"),
+                "description": row.get("description"),
+                "adapter": row.get("evaluator_key"),
+                "enabled": False,
+                "routes": {},
+                "default_instance_id": None,
+                "revision": 1,
+                "symbols": [],
+                "signals_published": 0,
+                "signals_24h": 0,
+                "last_event_at": None,
+                "first_signal_at": None,
+                "open_observations": 0,
+                "outcomes": {"tracked": 0, "untracked": 0, "open": 0, "target_hits": 0,
+                              "stops": 0, "closed": 0, "invalidated": 0,
+                              "win_rate": None, "realized_r_total": 0, "expectancy_r": None,
+                              "average_target_r": None},
+                "stats_scope": "NO_CANONICAL_HISTORY",
+                "instances": [],
+                "instance_count": 0,
+                "unattributed_signals": 0,
+                "manifest": {"status": "NOT_AVAILABLE"},
+                "registry_source": "strategy_mgmt",
+            })
+            if row.get("online"):
+                item["enabled"] = True
+            legacy_instance_id = (row.get("attributes") or {}).get("legacy_instance_id")
+            instance_id = legacy_instance_id or str(row["instance_id"])
+            instruments = row.get("instruments") or []
+            instance = {
+                "instance_id": instance_id,
+                "registry_instance_id": str(row["instance_id"]),
+                "strategy_id": family,
+                "display_name": row.get("instance_display_name"),
+                "enabled": bool(row.get("online")),
+                "lifecycle_state": "ONLINE" if row.get("online") else "OFFLINE",
+                "attributes": row.get("attributes") or {},
+                "instruments": {"active": instruments, "active_count": len(instruments),
+                                "disabled_count": 0, "source": "strategy_mgmt"},
+                "stats": {"scope": "STRATEGY_INSTANCE", "signals": 0, "signals_24h": 0,
+                           "open": 0, "closed": 0, "invalidated": 0, "outcomes_tracked": 0,
+                           "outcomes_untracked": 0, "realized_r_total": 0, "last_event_at": None,
+                           "last_event": None},
+                "execution": {"status": "AVAILABLE" if row.get("execution_eligible") else "UNAVAILABLE",
+                              "authority_state": "ENABLED" if row.get("execution_eligible") else "DISABLED",
+                              "allow_listed": bool(row.get("execution_eligible")),
+                              "eligible": bool(row.get("execution_eligible")),
+                              "strategy_ref": f"{family}@{row.get('version_label')}"},
+                "registry_source": "strategy_mgmt",
+            }
+            item["instances"].append(instance)
+            if item["default_instance_id"] is None:
+                item["default_instance_id"] = instance_id
+            item["symbols"] = sorted(set(item["symbols"]) | set(instruments))
+        for item in grouped.values():
+            item["instance_count"] = len(item["instances"])
+        return list(grouped.values())
+
+    def _unified_strategy_list(self, legacy: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return the legacy-compatible list plus strategies only in strategy_mgmt."""
+        try:
+            rows = self.strategy_mgmt_api.registry_rows()
+            known = {str(item.get("strategy_id")) for item in legacy}
+            additions = [item for item in self._registry_summary(rows)
+                         if item["strategy_id"] not in known]
+            return legacy + additions
+        except Exception:
+            # Before migration 042/044 is applied, retain the legacy endpoint behavior.
+            return legacy
+
     def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         parsed = urlsplit(target)
         path = parsed.path.rstrip("/") or "/"
@@ -964,23 +1048,51 @@ class PlatformControlApi:
                 # the detail is the complete page model, computed over full history.
                 suffix = path[len("/api/v1/strategies"):].strip("/")
                 if not suffix:
-                    return 200, self._body(self.strategy_catalog.list_strategies(), source="canonical_postgres")
+                    return 200, self._body(
+                        self._unified_strategy_list(self.strategy_catalog.list_strategies()),
+                        source="canonical_postgres")
                 parts = [unquote(p) for p in suffix.split("/")]
                 if len(parts) == 1:
                     page = self.strategy_catalog.strategy_page(parts[0])
                     if page is None:
-                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        try:
+                            registry = self._registry_summary(self.strategy_mgmt_api.registry_rows())
+                        except Exception:
+                            registry = []
+                        page = next((item for item in registry if item["strategy_id"] == parts[0]), None)
+                        if page is None:
+                            return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
                     return 200, self._body(page, source="canonical_postgres")
                 if len(parts) == 2 and parts[1] == "instances":
                     page = self.strategy_catalog.strategy_page(parts[0])
                     if page is None:
-                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        try:
+                            registry = self._registry_summary(self.strategy_mgmt_api.registry_rows())
+                        except Exception:
+                            registry = []
+                        page = next((item for item in registry if item["strategy_id"] == parts[0]), None)
+                        if page is None:
+                            return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        return 200, self._body({"strategy_id": parts[0], "instances": page["instances"]},
+                                             source="canonical_postgres")
                     return 200, self._body(self.strategy_catalog.strategy_instances(parts[0]),
                                            source="canonical_postgres")
                 if len(parts) == 3 and parts[1] == "instances":
                     page = self.strategy_catalog.instance_page(parts[0], parts[2])
                     if page is None:
-                        return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        try:
+                            registry = self._registry_summary(self.strategy_mgmt_api.registry_rows())
+                        except Exception:
+                            registry = []
+                        summary = next((item for item in registry if item["strategy_id"] == parts[0]), None)
+                        if summary is None:
+                            return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        instance = next((item for item in summary["instances"]
+                                         if item["instance_id"] == parts[2]
+                                         or item.get("registry_instance_id") == parts[2]), None)
+                        if instance is None:
+                            return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        page = {**summary, "instance": instance}
                     return 200, self._body(page, source="canonical_postgres")
                 report_config = STRATEGY_REPORT_REGISTRY.get(parts[0]) if parts else None
                 if len(parts) == 4 and parts[1] == "instances" and parts[3] == "report" and report_config:
