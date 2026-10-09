@@ -89,7 +89,8 @@ class LiveRiskPolicyTests(unittest.TestCase):
                     "volume_min": .01, "volume_max": 100, "volume_step": .01}, account={"equity": 1000})
         self.assertEqual(evaluate_candidate(self.candidate(), now_utc=NOW, state={}, **args).reason,
                          "RISK_STATE_UNAVAILABLE")
-        self.assertEqual(evaluate_candidate(self.candidate(signal_emitted_at=NOW - timedelta(seconds=61)),
+        self.assertEqual(evaluate_candidate(self.candidate(decision_time=NOW - timedelta(seconds=61),
+                                                           signal_emitted_at=NOW),
                                              now_utc=NOW, state=self.state(), **args).reason, "STALE_SIGNAL")
 
     def test_valid_candidate_is_sized_without_exceeding_cap(self):

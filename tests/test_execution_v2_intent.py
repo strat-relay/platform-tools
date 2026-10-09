@@ -80,7 +80,7 @@ class CheckEligibilityTests(unittest.TestCase):
         self.assertEqual(result.reason, "INVALID_TARGET_GEOMETRY")
 
     def test_blocked_on_stale_signal(self):
-        stale_record = valid_record(signal_emitted_at=NOW - timedelta(hours=2))
+        stale_record = valid_record(decision_time=NOW - timedelta(hours=2), signal_emitted_at=NOW)
         result = check_eligibility(stale_record, risk_policy=policy(max_signal_age_seconds=60.0),
                                    account_id=ACCOUNT, now_utc=NOW)
         self.assertEqual(result.reason, "STALE_SIGNAL")
@@ -134,13 +134,19 @@ class CreateExecutionIntentTests(unittest.TestCase):
         self.assertEqual(row["risk_policy_version"], 1)
 
     def test_stale_signal_persists_age_and_threshold_diagnostics(self):
-        conn = self._seeded_conn(signal_emitted_at=NOW - timedelta(seconds=75))
+        conn = self._seeded_conn(decision_time=NOW - timedelta(seconds=75), signal_emitted_at=NOW)
         result = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT,
                                          risk_policy=policy(max_signal_age_seconds=60.0), now_utc=NOW)
         self.assertEqual(result.reason, "STALE_SIGNAL")
         evidence = conn.tables["execution_v2.execution_risk_evidence"][result.execution_intent_id]
         self.assertEqual(evidence["signal_age_seconds"], 75.0)
         self.assertEqual(evidence["max_signal_age_seconds"], 60.0)
+
+    def test_signal_age_is_decision_to_emission_not_emission_to_now(self):
+        record = valid_record(decision_time=NOW - timedelta(seconds=75), signal_emitted_at=NOW)
+        result = check_eligibility(record, risk_policy=policy(max_signal_age_seconds=60.0),
+                                   account_id=ACCOUNT, now_utc=NOW)
+        self.assertEqual(result.reason, "STALE_SIGNAL")
 
     def test_already_settled_signal_is_blocked_as_stale(self):
         conn = self._seeded_conn(outcome_status="TARGET_HIT",

@@ -27,7 +27,7 @@ from .bridge_fence_types import BridgeFence
 from .fence import FenceAuthority
 from .ids import attempt_id as _attempt_id
 from .ids import execution_result_id as _execution_result_id
-from .intent import IntentResult, create_execution_intent, signal_age_seconds
+from .intent import IntentResult, create_execution_intent
 from .risk import RiskPolicy, RiskPolicyError
 from .symbols import (canonical_request_fingerprint, canonical_request_text, correlation_comment,
                       resolve_broker_symbol)
@@ -240,11 +240,18 @@ class ExecutionWorker:
                 pass
         return intent
 
-    def _signal_age_seconds(self, intent: dict[str, Any], *, now_utc: datetime) -> float | None:
-        return signal_age_seconds(intent, now_utc=now_utc)
+    def _execution_age_seconds(self, intent: dict[str, Any], *, now_utc: datetime) -> float | None:
+        emitted_at = intent.get("signal_emitted_at")
+        if emitted_at is None:
+            return None
+        if not isinstance(emitted_at, datetime):
+            emitted_at = datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00"))
+        if emitted_at.tzinfo is None:
+            emitted_at = emitted_at.replace(tzinfo=timezone.utc)
+        return (now_utc - emitted_at).total_seconds()
 
     def _signal_too_old(self, intent: dict[str, Any], *, now_utc: datetime) -> bool:
-        age = self._signal_age_seconds(intent, now_utc=now_utc)
+        age = self._execution_age_seconds(intent, now_utc=now_utc)
         return age is not None and age > self.risk_policy.max_signal_age_seconds
 
     def _reservation(self, action: str, intent_id: str, reason: str = "") -> bool:
@@ -329,9 +336,9 @@ class ExecutionWorker:
         trace_emit("INTENT_CREATED", signal_id=signal_id, intent_id=execution_intent_id,
                    signal_emitted_at=intent.get("signal_emitted_at"), outcome=intent_result.status)
         phase("INTENT_ROW_LOADED", phase_clock)
-        signal_age = self._signal_age_seconds(intent, now_utc=now_utc)
+        execution_age = self._execution_age_seconds(intent, now_utc=now_utc)
         if self._signal_too_old(intent, now_utc=now_utc):
-            detail = (f"signal age {signal_age:.3f}s exceeded policy limit "
+            detail = (f"emission-to-execution age {execution_age:.3f}s exceeded policy limit "
                       f"{self.risk_policy.max_signal_age_seconds:.3f}s before attempt claim")
             trace_emit("STALE_BEFORE_SUBMISSION", signal_id=signal_id, intent_id=execution_intent_id,
                        signal_emitted_at=intent.get("signal_emitted_at"), outcome="BLOCKED", error=detail)
@@ -461,14 +468,14 @@ class ExecutionWorker:
             return ExecutionOutcome("FENCED_OUT", intent_result, att_id, None,
                                     "execution authority was disabled before broker submission")
 
-        signal_age = self._signal_age_seconds(intent, now_utc=now_utc)
+        execution_age = self._execution_age_seconds(intent, now_utc=now_utc)
         if self._signal_too_old(intent, now_utc=now_utc):
-            detail = (f"signal age {signal_age:.3f}s exceeded policy limit "
+            detail = (f"emission-to-execution age {execution_age:.3f}s exceeded policy limit "
                       f"{self.risk_policy.max_signal_age_seconds:.3f}s before bridge submission")
             self._persist_result(attempt_id=att_id, execution_intent_id=execution_intent_id, intent=intent,
                                  outcome="BLOCKED", attempt_terminal_state="NOT_SENT",
                                  broker_response={"reason": "SIGNAL_TO_BROKER_SLO_EXCEEDED",
-                                                  "signal_age_seconds": signal_age,
+                                                  "execution_age_seconds": execution_age,
                                                   "max_signal_age_seconds": self.risk_policy.max_signal_age_seconds})
             trace_emit("BROKER_SUBMISSION_BLOCKED", signal_id=signal_id, intent_id=execution_intent_id,
                        attempt_id=att_id, signal_emitted_at=intent.get("signal_emitted_at"),

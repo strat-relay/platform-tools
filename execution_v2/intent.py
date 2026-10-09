@@ -27,7 +27,7 @@ from core.strategies.evaluation import canonical_bytes
 from postgres.db import transaction
 
 from .ids import execution_intent_id as _execution_intent_id
-from .risk import RiskPolicy, evaluate_candidate
+from .risk import RiskPolicy, decision_to_emission_age_seconds, evaluate_candidate
 from .risk_policy_store import policy_fingerprint
 from .trace import emit as trace_emit
 
@@ -77,19 +77,14 @@ class IntentResult:
 
 
 def signal_age_seconds(record: dict[str, Any], *, now_utc: datetime) -> float | None:
-    """Return the canonical signal-emitted-to-decision age used by execution gates.
+    """Return the canonical decision-to-emission age used by the stale-signal gate.
 
     Keeping this calculation in one place prevents the eligibility decision and its persisted
-    diagnostics from disagreeing about which timestamp was used.
+    diagnostics from disagreeing about which timestamp was used. ``now_utc`` remains in the
+    signature for call-site compatibility; signal age is independent of wall-clock execution
+    time and measures publication latency.
     """
-    emitted_at = record.get("signal_emitted_at")
-    if emitted_at is None:
-        return None
-    emitted = (emitted_at if isinstance(emitted_at, datetime)
-               else datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00")))
-    if emitted.tzinfo is None:
-        emitted = emitted.replace(tzinfo=timezone.utc)
-    return (now_utc - emitted).total_seconds()
+    return decision_to_emission_age_seconds(record)
 
 
 def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, account_id: str,
@@ -126,7 +121,7 @@ def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, accoun
             return EligibilityResult(False, "INVALID_TARGET_GEOMETRY")
     age_seconds = signal_age_seconds(record, now_utc=now_utc)
     if age_seconds is None:
-        return EligibilityResult(False, "MISSING_SIGNAL_EMITTED_AT")
+        return EligibilityResult(False, "MISSING_DECISION_OR_EMISSION_TIME")
     if age_seconds > risk_policy.max_signal_age_seconds:
         return EligibilityResult(False, "STALE_SIGNAL")
     return EligibilityResult(True, None)
@@ -211,11 +206,17 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
             })
         measured_signal_age = signal_age_seconds(record, now_utc=now_utc)
         if measured_signal_age is not None:
+            emitted_at = record["signal_emitted_at"]
+            emitted = (emitted_at if isinstance(emitted_at, datetime)
+                       else datetime.fromisoformat(str(emitted_at).replace("Z", "+00:00")))
+            if emitted.tzinfo is None:
+                emitted = emitted.replace(tzinfo=timezone.utc)
             diagnostics.update({
                 "signal_age_seconds": measured_signal_age,
                 "max_signal_age_seconds": risk_policy.max_signal_age_seconds,
                 "signal_age_exceeded": measured_signal_age > risk_policy.max_signal_age_seconds,
-                "signal_age_source": "strategy.entry_signals.signal_emitted_at",
+                "signal_age_source": "strategy.entry_signals.decision_time_to_signal_emitted_at",
+                "emission_to_intent_seconds": (now_utc - emitted).total_seconds(),
             })
         intent_id = _execution_intent_id(entry_signal_id=signal_id, account_id=account_id)
         status = "PENDING" if eligibility.eligible else "BLOCKED"
