@@ -99,7 +99,14 @@ class ContextStructureRetraceAdapter:
                     strategy_metadata={"pattern": pattern, "reentry_type": position.get("reentry_type"),
                                        "v1_status": position.get("status"),
                                        "instance_policy_revision": self.policy.get("revision", 0),
-                                       "time_exit_minutes": self.policy.get("time_exit_minutes")},
+                                       "time_exit_minutes": self.policy.get("time_exit_minutes"),
+                                       "net_profit_target_usd": self.policy.get("net_profit_target_usd"),
+                                       "profit_target_pips": self.policy.get("profit_target_pips"),
+                                       "profit_target_r": self.policy.get("profit_target_r"),
+                                       # Optional explicit broker pip size.  When absent, the
+                                       # execution boundary must obtain symbol metadata; no
+                                       # decimal-place heuristic is inferred here.
+                                       "pip_size": self.policy.get("pip_size")},
                     decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     signal_emitted_at=created,
                     provenance={"source_process": "context_structure_retrace_forward.py", "source_pid": None,

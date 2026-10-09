@@ -129,6 +129,23 @@ TM_CONTEXT_TIME_EXIT_1_MANIFEST = TmVersionManifest(
 )
 TM_CONTEXT_TIME_EXIT_1_LABEL = "TM-CONTEXT-TIME-EXIT-1"
 
+# Generic optional exit-policy evaluator.  Disabled fields are captured as NULL on each trade;
+# the version owns precedence and arithmetic, while execution-v2 supplies broker cost facts for
+# NET_PROFIT_USD at the existing reduce-only boundary.
+TM_EXIT_POLICY_1_MANIFEST = TmVersionManifest(
+    evaluator_id="tm-exit-policy.v1",
+    label="TM-EXIT-POLICY-1",
+    policy_bundle=("precedence=TIME_EXIT>NET_PROFIT_USD>PROFIT_R>PROFIT_PIPS",),
+    observation_spec={"quote_required": True, "timeframes_consumed": [], "late_event_rule": "REJECT_STALE_QUOTE"},
+    price_semantics={"version": "ps.v1", "close_side": "bid_for_long_ask_for_short"},
+    arithmetic={"pips": "executable_price_movement / captured_pip_size",
+                "r": "executable_price_movement / immutable_initial_risk",
+                "net_profit": "broker_valuation_at_execution_boundary"},
+    code_manifest={"trade_management/tm_profit_exit.py": "computed-at-registration"},
+    scope={"strategies": ["*"], "instruments": ["*"]},
+)
+TM_EXIT_POLICY_1_LABEL = "TM-EXIT-POLICY-1"
+
 
 # --------------------------------------------------------------------------------------
 # TM-BREAKEVEN-TRAIL-1: the first evaluator that can produce a non-HOLD decision

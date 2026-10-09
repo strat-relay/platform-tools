@@ -34,6 +34,8 @@ from .tm_breakeven_trail import BreakevenTrailPolicy, TmBreakevenTrailEvaluator
 from .tm_none import DECISION_CONSUMER_NAME, TmNoneEvaluator
 from .tm_time_exit import EVALUATOR_ID as TIME_EXIT_EVALUATOR_ID
 from .tm_time_exit import evaluate_time_exit
+from .tm_profit_exit import EVALUATOR_ID as EXIT_POLICY_EVALUATOR_ID
+from .tm_profit_exit import ExitPolicy, evaluate_exit_policy
 from .tm_structure import EVALUATOR_ID as STRUCTURE_EVALUATOR_ID
 from .tm_structure import StructurePolicy, TmStructureEvaluator
 
@@ -74,6 +76,7 @@ def _load_trade(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute("""SELECT mt.direction, mt.reference_entry_price, mt.initial_stop, mt.risk_distance, mt.state,
                              mt.instrument, mt.initial_target, mt.decision_time, mt.time_exit_at,
+                             mt.net_profit_target_usd, mt.profit_target_pips, mt.profit_target_r, mt.pip_size,
                              (s.publication_state = 'PUBLISHED')
                       FROM trade_management.managed_trade mt
                       JOIN strategy.entry_signals s ON s.signal_id = mt.entry_signal_id
@@ -83,16 +86,17 @@ def _load_trade(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
     if row is None:
         return None
     keys = ("direction", "reference_entry_price", "initial_stop", "risk_distance", "state",
-            "instrument", "initial_target", "decision_time", "time_exit_at", "entry_signal_published")
+            "instrument", "initial_target", "decision_time", "time_exit_at", "net_profit_target_usd",
+            "profit_target_pips", "profit_target_r", "pip_size", "entry_signal_published")
     return dict(zip(keys, row))
 
 
 def _load_market_snapshot(conn: Any, market_snapshot_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
-        cur.execute("SELECT bid, ask FROM trade_management.market_snapshot WHERE market_snapshot_id=%s",
+        cur.execute("SELECT bid, ask, source_timestamp FROM trade_management.market_snapshot WHERE market_snapshot_id=%s",
                     (market_snapshot_id,))
         row = cur.fetchone()
-    return {"bid": row[0], "ask": row[1]} if row else None
+    return {"bid": row[0], "ask": row[1], "source_timestamp": row[2]} if row else None
 
 
 def _load_version(conn: Any, tm_version_id: str) -> dict[str, Any] | None:
@@ -184,6 +188,24 @@ def _evaluate(*, evaluator_id: str, manifest: dict[str, Any], trade: dict[str, A
     if evaluator_id == TIME_EXIT_EVALUATOR_ID:
         return evaluate_time_exit(trade_state=trade["state"] or "OPEN",
                                   time_exit_at=trade.get("time_exit_at"), as_of=as_of)
+    if evaluator_id == EXIT_POLICY_EVALUATOR_ID:
+        source_timestamp = snapshot.get("source_timestamp")
+        quote_age = None
+        if source_timestamp is not None and as_of is not None:
+            try:
+                quote_age = max(0.0, (_epoch(as_of) - _epoch(source_timestamp)))
+            except (TypeError, ValueError):
+                quote_age = None
+        return evaluate_exit_policy(
+            trade_state=trade["state"] or "OPEN", direction=trade["direction"],
+            entry_price=float(trade["reference_entry_price"]), bid=snapshot.get("bid"),
+            ask=snapshot.get("ask"), risk_distance=trade.get("risk_distance"),
+            pip_size=trade.get("pip_size"), as_of=as_of,
+            policy=ExitPolicy(time_exit_at=trade.get("time_exit_at"),
+                              net_profit_target_usd=trade.get("net_profit_target_usd"),
+                              profit_target_pips=trade.get("profit_target_pips"),
+                              profit_target_r=trade.get("profit_target_r")),
+            quote_age_seconds=quote_age)
     raise UnknownEvaluator(f"no dispatch entry for evaluator_id={evaluator_id!r}")
 
 
@@ -253,7 +275,7 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
 
             # Only the explicitly publishable Context time-exit version may reach the existing
             # execution-v2 management consumer. All legacy versions retain the old shadow gate.
-            publishable = version["evaluator_id"] == TIME_EXIT_EVALUATOR_ID and bool(trade.get("entry_signal_published"))
+            publishable = version["evaluator_id"] in (TIME_EXIT_EVALUATOR_ID, EXIT_POLICY_EVALUATOR_ID) and bool(trade.get("entry_signal_published"))
             outcome, reason = evaluate_publication_gate(
                 GateInputs(action=action, entry_signal_published=publishable,
                            tm_version_publication_eligibility="PUBLISHABLE" if publishable else "SHADOW_ONLY"))

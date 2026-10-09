@@ -857,6 +857,11 @@ class PlatformControlApi:
                     payload["enabled_setup_events"] = payload.pop("enabledSetupEvents")
                 if "timeExitMinutes" in payload:
                     payload["time_exit_minutes"] = payload.pop("timeExitMinutes")
+                for camel, snake in (("netProfitTargetUsd", "net_profit_target_usd"),
+                                     ("profitTargetPips", "profit_target_pips"),
+                                     ("profitTargetR", "profit_target_r")):
+                    if camel in payload:
+                        payload[snake] = payload.pop(camel)
                 if "reentryEnabled" in payload:
                     payload["reentry_enabled"] = payload.pop("reentryEnabled")
                 row = self.strategy_catalog.set_instance_policy(

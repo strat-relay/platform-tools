@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 import hashlib
 import json
+import math
 from typing import Any, Callable
 
 from postgres.db import connect
@@ -130,6 +131,9 @@ LIFECYCLE_NOT_ENFORCED_REASON = ("The runtime for this strategy does not read in
 INSTANCE_POLICY_DEFAULTS = {
     "enabled_setup_events": None,
     "time_exit_minutes": None,
+    "net_profit_target_usd": None,
+    "profit_target_pips": None,
+    "profit_target_r": None,
     "reentry_enabled": True,
 }
 SETUP_EVENTS = frozenset({"BULLISH_ENGULFING", "BEARISH_ENGULFING", "MORNING_STAR",
@@ -498,6 +502,12 @@ class StrategyCatalogRepository:
             value = patch["time_exit_minutes"]
             if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
                 raise ValueError("time_exit_minutes must be null or a positive integer")
+        for field in ("net_profit_target_usd", "profit_target_pips", "profit_target_r"):
+            if field in patch:
+                value = patch[field]
+                if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                          or not math.isfinite(float(value)) or float(value) <= 0):
+                    raise ValueError(f"{field} must be null or a positive number")
         if "reentry_enabled" in patch and not isinstance(patch["reentry_enabled"], bool):
             raise ValueError("reentry_enabled must be boolean")
         try:

@@ -34,6 +34,8 @@ from typing import Any, Callable
 from postgres.db import transaction
 
 from .bridge_fence_errors import InvalidSignature, RequestFingerprintMismatch, WrongAccount
+from .exit_valuation import (ExitValuationError, estimate_initial_monetary_risk,
+                             estimate_net_liquidation_profit)
 
 MANAGEMENT_ACTIONS = {"MOVE_TO_BREAKEVEN": "MODIFY", "TRAIL_STOP": "MODIFY", "MOVE_STOP": "MODIFY",
                       "MOVE_TARGET": "MODIFY", "EXIT": "CLOSE"}
@@ -113,14 +115,23 @@ class ManagementWorker:
             row = cur.fetchone()
         return row[0] if row else None
 
+    def _existing_close(self, managed_trade_id: str) -> str | None:
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT status FROM execution_v2.management_intent
+                           WHERE managed_trade_id=%s AND broker_action='CLOSE'
+                             AND status IN ('AUTHORIZED','SENDING','APPLIED','UNKNOWN_RECONCILIATION_REQUIRED')
+                           ORDER BY created_at DESC LIMIT 1""", (managed_trade_id,))
+            row = cur.fetchone()
+        return row[0] if row else None
+
     # ---- writes ----------------------------------------------------------------------------
     @staticmethod
     def _value(column: str, value: Any) -> Any:
-        return json.dumps(value, sort_keys=True, default=str) if column == "broker_response" else value
+        return json.dumps(value, sort_keys=True, default=str) if column in {"broker_response", "exit_policy_snapshot", "observed_quote"} else value
 
     @staticmethod
     def _placeholder(column: str) -> str:
-        return "%s::jsonb" if column == "broker_response" else "%s"
+        return "%s::jsonb" if column in {"broker_response", "exit_policy_snapshot", "observed_quote"} else "%s"
 
     def _record(self, row: dict[str, Any]) -> bool:
         columns = ", ".join(row)
@@ -144,8 +155,64 @@ class ManagementWorker:
         self._record({**base, **extra, "status": "REJECTED", "reason": reason, "completed_at": datetime.now(timezone.utc)})
         return ManagementOutcome("REJECTED", base["management_intent_id"], reason)
 
-    def _record_time_exit_outcome(self, managed_trade_id: str, *, exit_price: float | None) -> None:
-        """Project TIME_EXIT only after the broker confirmed the reduce-only close."""
+    def _read_tool(self, tool: str, arguments: dict[str, Any]) -> Any:
+        reader = getattr(self.w.bridge, "_read_tool", None)
+        if reader is None:
+            raise ExitValuationError("BROKER_READ_INTERFACE_UNAVAILABLE")
+        return reader(tool, arguments)
+
+    def _value_net_profit(self, *, position: dict[str, Any], direction: str, symbol: str,
+                          params: dict[str, Any]) -> dict[str, Any]:
+        quote = params.get("observed_quote") or {"bid": params.get("observed_bid"), "ask": params.get("observed_ask")}
+        account = self._read_tool("mt5_account_info", {})
+        spec = self._read_tool("mt5_symbol_info", {"symbol": symbol})
+        history = self._read_tool("mt5_history", {"limit": 500})
+        rows = ((history.get("deals") or history.get("history") or history.get("rows"))
+                if isinstance(history, dict) else history)
+        charged = position.get("commission")
+        if charged is None and isinstance(rows, list):
+            ticket = str(position.get("ticket"))
+            matched = [r for r in rows if isinstance(r, dict) and ticket in {str(r.get("ticket")), str(r.get("order")), str(r.get("position_id"))}]
+            if matched:
+                charged = sum(float(r.get("commission") or 0.0) for r in matched)
+        valuation = estimate_net_liquidation_profit(direction=direction, position=position, symbol_info=spec,
+                                                     account_info=account, bid=float(quote["bid"]), ask=float(quote["ask"]),
+                                                     charged_commission=charged)
+        return valuation.to_dict()
+
+    def _value_profit_r(self, *, managed_trade_id: str, position: dict[str, Any], direction: str,
+                        symbol: str, params: dict[str, Any]) -> dict[str, Any]:
+        quote = params.get("observed_quote") or {"bid": params.get("observed_bid"), "ask": params.get("observed_ask")}
+        account = self._read_tool("mt5_account_info", {})
+        spec = self._read_tool("mt5_symbol_info", {"symbol": symbol})
+        history = self._read_tool("mt5_history", {"limit": 500})
+        rows = ((history.get("deals") or history.get("history") or history.get("rows"))
+                if isinstance(history, dict) else history)
+        charged = position.get("commission")
+        if charged is None and isinstance(rows, list):
+            ticket = str(position.get("ticket"))
+            matched = [r for r in rows if isinstance(r, dict) and ticket in {str(r.get("ticket")), str(r.get("order")), str(r.get("position_id"))}]
+            if matched:
+                charged = sum(float(r.get("commission") or 0.0) for r in matched)
+        valuation = estimate_net_liquidation_profit(direction=direction, position=position, symbol_info=spec,
+                                                     account_info=account, bid=float(quote["bid"]), ask=float(quote["ask"]),
+                                                     charged_commission=charged, require_usd=False)
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT initial_stop FROM trade_management.managed_trade WHERE managed_trade_id=%s",
+                        (managed_trade_id,))
+            row = cur.fetchone()
+        if row is None or row[0] is None:
+            raise ExitValuationError("INITIAL_STOP_UNAVAILABLE")
+        initial_risk = estimate_initial_monetary_risk(position=position, symbol_info=spec,
+                                                      initial_stop=float(row[0]),
+                                                      charged_commission=float(valuation.charged_commission),
+                                                      estimated_close_commission=float(valuation.estimated_close_commission))
+        return {**valuation.to_dict(), "initial_risk_amount": initial_risk,
+                "observed_profit_r": valuation.estimated_net_profit / initial_risk}
+
+    def _record_exit_outcome(self, managed_trade_id: str, *, exit_price: float | None,
+                             exit_reason: str = "TIME_EXIT", realized_net_profit: float | None = None) -> None:
+        """Project a close outcome only after broker confirmation of the reduce-only close."""
         with self.conn.cursor() as cur:
             cur.execute("""SELECT mt.entry_signal_id, mt.strategy_id, mt.direction,
                                   mt.reference_entry_price, mt.risk_distance
@@ -159,13 +226,14 @@ class ManagementWorker:
                 return
             signed = float(exit_price) - float(entry) if direction == "LONG" else float(entry) - float(exit_price)
             realized_r = signed / float(risk)
+            status = "TIME_EXIT" if exit_reason == "TIME_EXIT" else "PROFIT_EXIT"
             cur.execute("""INSERT INTO strategy.entry_signal_outcomes
                     (signal_id, outcome_type, status, realized_r, exit_timestamp, source)
-                VALUES (%s, 'ENTRY_ONLY', 'TIME_EXIT', %s, now(), %s)
-                ON CONFLICT (signal_id) DO UPDATE SET status='TIME_EXIT', realized_r=EXCLUDED.realized_r,
+                VALUES (%s, 'ENTRY_ONLY', %s, %s, now(), %s)
+                ON CONFLICT (signal_id) DO UPDATE SET status=EXCLUDED.status, realized_r=EXCLUDED.realized_r,
                     exit_timestamp=EXCLUDED.exit_timestamp, updated_at=now()
                 WHERE strategy.entry_signal_outcomes.status='OPEN'""",
-                        (signal_id, realized_r, strategy_id))
+                        (signal_id, status, realized_r, strategy_id))
 
     # ---- entry point -----------------------------------------------------------------------
     def process_decision(self, payload: dict[str, Any], *, now_utc: datetime) -> ManagementOutcome:
@@ -182,6 +250,8 @@ class ManagementWorker:
         link["managed_trade_id"] = managed_trade_id
         if self._existing(decision_id) is not None:
             return ManagementOutcome("DUPLICATE", reason="DECISION_ALREADY_HANDLED")
+        if broker_action == "CLOSE" and self._existing_close(managed_trade_id) is not None:
+            return ManagementOutcome("DUPLICATE", reason="CLOSE_ALREADY_IN_FLIGHT")
 
         intent_id = "MGMT_" + hashlib.sha256(f"{decision_id}|{self.w.account_id}".encode()).hexdigest()[:24]
         decision_time = payload.get("decision_time")
@@ -216,6 +286,61 @@ class ManagementWorker:
         base.update(broker_stop_before=broker_stop, broker_target_before=broker_target)
 
         params = payload.get("parameters") or {}
+        exit_reason = str(params.get("exit_reason") or "TIME_EXIT")
+        if broker_action == "CLOSE":
+            base.update(exit_policy_snapshot=params.get("exit_policy") or {},
+                        observed_quote=params.get("observed_quote") or {
+                            "bid": params.get("observed_bid"), "ask": params.get("observed_ask")},
+                        exit_trigger_reason=params.get("exit_trigger_reason") or exit_reason)
+            if exit_reason == "NET_PROFIT_USD":
+                try:
+                    valuation = self._value_net_profit(position=position, direction=link["direction"],
+                                                       symbol=link["symbol"], params=params)
+                except (ExitValuationError, KeyError, TypeError, ValueError) as exc:
+                    return self._reject(base, str(exc), broker_response={"valuation_error": str(exc)[:300]})
+                base["estimated_net_profit"] = valuation["estimated_net_profit"]
+                base["observed_quote"] = {"bid": params.get("observed_bid"), "ask": params.get("observed_ask"),
+                                           "close_price": valuation["close_price"]}
+                target = float(params.get("net_profit_target_usd") or
+                               (params.get("exit_policy") or {}).get("net_profit_target_usd") or 0)
+                if target <= 0 or valuation["estimated_net_profit"] < target:
+                    return self._reject(base, "NET_PROFIT_TARGET_NOT_REACHED", broker_response=valuation)
+            elif exit_reason == "PROFIT_R":
+                try:
+                    valuation = self._value_profit_r(managed_trade_id=managed_trade_id, position=position,
+                                                     direction=link["direction"], symbol=link["symbol"], params=params)
+                except (ExitValuationError, KeyError, TypeError, ValueError) as exc:
+                    return self._reject(base, "PROFIT_R_VALUATION_UNAVAILABLE",
+                                        broker_response={"valuation_error": str(exc)[:300]})
+                base["estimated_net_profit"] = valuation["estimated_net_profit"]
+                base["initial_risk_amount"] = valuation["initial_risk_amount"]
+                base["observed_quote"] = {"bid": params.get("observed_bid"), "ask": params.get("observed_ask"),
+                                           "close_price": valuation["close_price"],
+                                           "observed_profit_r": valuation["observed_profit_r"]}
+                target = float(params.get("profit_target_r") or
+                               (params.get("exit_policy") or {}).get("profit_target_r") or 0)
+                if target <= 0 or valuation["observed_profit_r"] < target:
+                    return self._reject(base, "PROFIT_R_TARGET_NOT_REACHED", broker_response=valuation)
+            elif exit_reason == "PROFIT_PIPS":
+                try:
+                    quote = params.get("observed_quote") or {"bid": params.get("observed_bid"), "ask": params.get("observed_ask")}
+                    spec = self._read_tool("mt5_symbol_info", {"symbol": link["symbol"]})
+                    pip_size = float(spec.get("pip_size") or spec.get("point") or 0)
+                    close_price = float(quote["bid"] if link["direction"] == "LONG" else quote["ask"])
+                    entry_price = float(position["price_open"])
+                    movement = close_price - entry_price if link["direction"] == "LONG" else entry_price - close_price
+                    observed_pips = movement / pip_size if pip_size > 0 else 0
+                    target = float(params.get("profit_target_pips") or
+                                  (params.get("exit_policy") or {}).get("profit_target_pips") or 0)
+                except (ExitValuationError, KeyError, TypeError, ValueError) as exc:
+                    return self._reject(base, "PROFIT_PIPS_VALUATION_UNAVAILABLE",
+                                        broker_response={"valuation_error": str(exc)[:300]})
+                base["observed_quote"] = {"bid": quote.get("bid"), "ask": quote.get("ask"),
+                                           "close_price": close_price, "pip_size": pip_size,
+                                           "observed_profit_pips": observed_pips}
+                if target <= 0 or observed_pips < target:
+                    return self._reject(base, "PROFIT_PIPS_TARGET_NOT_REACHED",
+                                        broker_response={"observed_profit_pips": observed_pips, "target": target})
         if broker_action == "MODIFY":
             requested_stop = float(params["new_stop"]) if params.get("new_stop") is not None else broker_stop
             requested_target = float(params["new_target"]) if params.get("new_target") is not None else broker_target
@@ -239,12 +364,14 @@ class ManagementWorker:
         if not self._record({**base, "action_key": action_key, "status": "AUTHORIZED", "attempt_id": intent_id}):
             return self._reject({**base, "management_intent_id": intent_id}, "DUPLICATE_MANAGEMENT_ACTION")
         return self._execute(intent_id, tool, args, broker_action, link,
+                             exit_reason=exit_reason,
                              exit_price=float(position.get("price_current") or position.get("price_open") or 0.0)
                              if broker_action == "CLOSE" else None)
 
     # ---- fenced write --------------------------------------------------------------------------
     def _execute(self, intent_id: str, tool: str, args: dict[str, Any], broker_action: str,
-                 link: dict[str, Any], exit_price: float | None = None) -> ManagementOutcome:
+                 link: dict[str, Any], exit_reason: str = "TIME_EXIT",
+                 exit_price: float | None = None) -> ManagementOutcome:
         try:
             generation = self.w._acquire_generation()
         except Exception as exc:  # noqa: BLE001
@@ -270,17 +397,22 @@ class ManagementWorker:
                          completed_at=datetime.now(timezone.utc))
             return ManagementOutcome("FENCED", intent_id, "BRIDGE_REJECTED_BEFORE_DISPATCH")
         except Exception as exc:  # noqa: BLE001 - transport: broker effect unknown
-            return self._reconcile(intent_id, broker_action, args, link, {"transport_error": str(exc)[:300]})
+            return self._reconcile(intent_id, broker_action, args, link, exit_reason,
+                                   {"transport_error": str(exc)[:300]})
 
         response = result.broker_response
         if result.state == "DISPATCHED" and isinstance(response, dict):
             data = response.get("data") if isinstance(response.get("data"), dict) else response
             if data.get("ok") is True:
-                self._update(intent_id, status="APPLIED", broker_response=data, completed_at=datetime.now(timezone.utc))
+                realized_net = data.get("realized_net_profit") or data.get("profit")
+                self._update(intent_id, status="APPLIED", broker_response=data,
+                             realized_net_profit=realized_net, completed_at=datetime.now(timezone.utc))
                 if broker_action == "CLOSE":
                     broker_price = data.get("actual_price") or data.get("close_price") or exit_price
-                    self._record_time_exit_outcome(link["managed_trade_id"],
-                                                   exit_price=float(broker_price) if broker_price else None)
+                    self._record_exit_outcome(link["managed_trade_id"],
+                                              exit_price=float(broker_price) if broker_price else None,
+                                              exit_reason=exit_reason,
+                                              realized_net_profit=realized_net)
                 return ManagementOutcome("APPLIED", intent_id)
             # A refusal (EA validation error) or a request the broker did not accept (sent=false) is
             # a definite rejection; sent-but-not-verifiably-applied falls through to reconciliation.
@@ -289,11 +421,11 @@ class ManagementWorker:
                 self._update(intent_id, status="BROKER_REJECTED", reason=reason[:300],
                              broker_response=data, completed_at=datetime.now(timezone.utc))
                 return ManagementOutcome("BROKER_REJECTED", intent_id, reason)
-        return self._reconcile(intent_id, broker_action, args, link,
+        return self._reconcile(intent_id, broker_action, args, link, exit_reason,
                                {"bridge_state": result.state, "broker_response": response})
 
     def _reconcile(self, intent_id: str, broker_action: str, args: dict[str, Any], link: dict[str, Any],
-                   evidence: dict[str, Any]) -> ManagementOutcome:
+                   exit_reason: str, evidence: dict[str, Any]) -> ManagementOutcome:
         """Goal-state reconciliation: never retry a write whose outcome is unknown."""
         try:
             position = next((p for p in self.w.bridge.read_positions() if str(p.get("ticket")) == link["ticket"]), None)
@@ -307,9 +439,10 @@ class ManagementWorker:
                 self._update(intent_id, status="APPLIED", reason="GOAL_STATE_RECONCILED",
                              broker_response={**evidence, "position": position}, completed_at=datetime.now(timezone.utc))
                 if broker_action == "CLOSE":
-                    self._record_time_exit_outcome(link["managed_trade_id"],
-                                                   exit_price=None if position is None else
-                                                   float(position.get("price_current") or position.get("price_open") or 0.0))
+                    self._record_exit_outcome(link["managed_trade_id"],
+                                              exit_price=None if position is None else
+                                              float(position.get("price_current") or position.get("price_open") or 0.0),
+                                              exit_reason=exit_reason)
                 return ManagementOutcome("APPLIED", intent_id, "GOAL_STATE_RECONCILED")
         self._update(intent_id, status="UNKNOWN_RECONCILIATION_REQUIRED", reason="OUTCOME_UNKNOWN",
                      broker_response=evidence)
