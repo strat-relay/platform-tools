@@ -182,6 +182,8 @@ class ContextStructureRetraceAdapter:
                            strategy_instance_id=candidate.strategy_instance_id,
                            instrument=candidate.canonical_symbol,
                            producer="context_structure_retrace_adapter")
+                epoch = load_epoch(EPOCH_PATH)
+                watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
                 if watermark and not eligibility(candidate.to_dict(), watermark)[0]:
                     result.pop()
         audit("context_signal_scan_completed", runner="signal-orchestrator",
