@@ -8,6 +8,7 @@ It never imports an execution client and never reads paper/forward state files.
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -180,20 +181,27 @@ class LiquidityLiveRuntime:
 
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        cycle_started = time.perf_counter()
         published: list[str] = []
         membership_statuses: dict[str, dict[str, Any]] = {}
         audit("runner_cycle_started", runner="liquidity-live", evaluation_time=evaluation_time)
+        stage_started = time.perf_counter()
         self.heartbeat()
         backfilled = ensure_open_liquidity_outcomes(self.conn)
-        audit("open_outcomes_backfilled", runner="liquidity-live", count=backfilled)
+        audit("open_outcomes_backfilled", runner="liquidity-live", count=backfilled,
+              elapsed_ms=round((time.perf_counter() - stage_started) * 1000, 3))
+        stage_started = time.perf_counter()
         terminal = monitor_open_liquidity_entries(self.conn, self.snapshot_reader)
         audit("open_entries_monitored", runner="liquidity-live", terminal_outcomes=terminal,
-              terminal_count=len(terminal))
+              terminal_count=len(terminal),
+              elapsed_ms=round((time.perf_counter() - stage_started) * 1000, 3))
+        stage_started = time.perf_counter()
         memberships = active_instance_memberships(self.conn)
         audit("memberships_loaded", runner="liquidity-live", membership_count=len(memberships),
               memberships=[{"instance_id": row["instance_id"],
                             "canonical_instrument": row["canonical_instrument"],
-                            "provider_symbol": row["provider_symbol"]} for row in memberships])
+                            "provider_symbol": row["provider_symbol"]} for row in memberships],
+              elapsed_ms=round((time.perf_counter() - stage_started) * 1000, 3))
         for row in memberships:
             instance_id = row["instance_id"]
             membership_key = f"{instance_id}:{row['canonical_instrument']}"
@@ -203,16 +211,33 @@ class LiquidityLiveRuntime:
                 continue
             try:
                 evaluator = self.evaluators.setdefault(instance_id, LiquidityLiveEvaluator(parameter_set))
+                membership_started = time.perf_counter()
                 if instance_id not in self._restored:
+                    restore_started = time.perf_counter()
                     evaluator.restore(self.setup_store.load(instance_id, row["canonical_instrument"]))
                     self._restored.add(instance_id)
+                    audit("setup_state_restored", runner="liquidity-live", instance_id=instance_id,
+                          canonical_instrument=row["canonical_instrument"],
+                          elapsed_ms=round((time.perf_counter() - restore_started) * 1000, 3))
+                snapshot_started = time.perf_counter()
                 snapshot = self.snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
+                snapshot_elapsed_ms = round((time.perf_counter() - snapshot_started) * 1000, 3)
                 if not isinstance(snapshot, LiveMarketSnapshot):
                     audit("snapshot_rejected", runner="liquidity-live", instance_id=instance_id,
                           canonical_instrument=row["canonical_instrument"],
                           provider_symbol=row["provider_symbol"], reason="INVALID_LIVE_SNAPSHOT")
                     raise MarketDataUnavailable("invalid live market snapshot")
-                signal = evaluator.evaluate(snapshot, evaluation_time=evaluation_time)
+                audit("snapshot_loaded", runner="liquidity-live", instance_id=instance_id,
+                      canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"],
+                      source_market_data_timestamp=snapshot.source_market_data_timestamp,
+                      data_health=snapshot.data_health or {}, elapsed_ms=snapshot_elapsed_ms)
+                # Capture emission time immediately before evaluation. The cycle
+                # timestamp is not precise enough to diagnose a slow membership.
+                decision_started = time.perf_counter()
+                signal_evaluation_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                signal = evaluator.evaluate(snapshot, evaluation_time=signal_evaluation_time)
+                evaluation_elapsed_ms = round((time.perf_counter() - decision_started) * 1000, 3)
                 self.membership_consecutive_failures[membership_key] = 0
                 membership_statuses[membership_key] = {"status": "HEALTHY",
                                                         "decision": "SIGNAL" if signal else "NO_SIGNAL"}
@@ -221,11 +246,25 @@ class LiquidityLiveRuntime:
                       provider_symbol=row["provider_symbol"],
                       decision=("SIGNAL" if signal else "NO_SIGNAL"),
                       signal_id=signal.signal_id if signal else None,
-                      setup_id=signal.setup_id if signal else None)
+                      setup_id=signal.setup_id if signal else None,
+                      evaluation_elapsed_ms=evaluation_elapsed_ms,
+                      membership_elapsed_ms=round((time.perf_counter() - membership_started) * 1000, 3))
                 for state in evaluator.export_state():
+                    state_started = time.perf_counter()
                     self.setup_store.save(state)
+                    audit("setup_state_persisted", runner="liquidity-live", instance_id=instance_id,
+                          setup_id=state.get("setup_id"), state=state.get("state"),
+                          elapsed_ms=round((time.perf_counter() - state_started) * 1000, 3))
                 if signal is None:
                     continue
+                signal_emitted = datetime.fromisoformat(signal.signal_emitted_at.replace("Z", "+00:00"))
+                signal_decision = datetime.fromisoformat(signal.signal_timestamp.replace("Z", "+00:00"))
+                audit("signal_ready_for_persistence", runner="liquidity-live", signal_id=signal.signal_id,
+                      instance_id=signal.strategy_instance_id, decision_time=signal.signal_timestamp,
+                      signal_emitted_at=signal.signal_emitted_at,
+                      decision_to_emission_ms=round((signal_emitted - signal_decision).total_seconds() * 1000, 3),
+                      evaluation_elapsed_ms=evaluation_elapsed_ms)
+                persist_started = time.perf_counter()
                 _, inserted = self.publisher.publish(signal)
                 open_created = ensure_open_liquidity_outcome(self.conn, signal.signal_id)
                 audit("outcome_open_projected", runner="liquidity-live",
@@ -234,7 +273,9 @@ class LiquidityLiveRuntime:
                 audit("signal_persisted", runner="liquidity-live", strategy_id=signal.strategy_id,
                       instance_id=signal.strategy_instance_id, signal_id=signal.signal_id,
                       canonical_instrument=signal.canonical_symbol,
-                      provider_symbol=signal.broker_symbol_hint, inserted=inserted)
+                      provider_symbol=signal.broker_symbol_hint, inserted=inserted,
+                      persistence_elapsed_ms=round((time.perf_counter() - persist_started) * 1000, 3),
+                      cycle_elapsed_ms=round((time.perf_counter() - cycle_started) * 1000, 3))
                 if inserted:
                     published.append(signal.signal_id)
             except MarketDataUnavailable as exc:
@@ -262,7 +303,8 @@ class LiquidityLiveRuntime:
               runner_consecutive_failures=self.runner_consecutive_failures,
               membership_consecutive_failures=dict(self.membership_consecutive_failures),
               market_data_consecutive_failures=sum(self.membership_consecutive_failures.values()),
-              published=published, terminal_outcomes=terminal, production_broker_writes=0)
+              published=published, terminal_outcomes=terminal, production_broker_writes=0,
+              cycle_elapsed_ms=round((time.perf_counter() - cycle_started) * 1000, 3))
         return {"memberships": len(memberships), "published": published, "terminal_outcomes": terminal,
                 "status": cycle_status, "membership_statuses": membership_statuses,
                 "runner_consecutive_failures": self.runner_consecutive_failures,
