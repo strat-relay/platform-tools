@@ -47,7 +47,7 @@ ALTER TABLE trade_management.managed_trade_lifecycle_event
     DROP CONSTRAINT IF EXISTS managed_trade_lifecycle_event_strategy_outcome_check;
 ALTER TABLE trade_management.managed_trade_lifecycle_event
     ADD CONSTRAINT managed_trade_lifecycle_event_strategy_outcome_check
-    CHECK (strategy_outcome IN ('TARGET_HIT', 'STOPPED', 'TIME_EXIT', 'PROFIT_EXIT'));
+    CHECK (strategy_outcome IN ('TARGET_HIT', 'STOPPED', 'TIME_EXIT', 'PROFIT_EXIT', 'INVALIDATED'));
 
 INSERT INTO trade_management.trade_manager_version
     (tm_version_id, evaluator_id, label, manifest, manifest_hash, status)
