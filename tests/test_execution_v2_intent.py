@@ -132,6 +132,15 @@ class CreateExecutionIntentTests(unittest.TestCase):
         # needs that, exactly as much as an approved row does.
         self.assertEqual(row["risk_policy_version"], 1)
 
+    def test_stale_signal_persists_age_and_threshold_diagnostics(self):
+        conn = self._seeded_conn(signal_emitted_at=NOW - timedelta(seconds=75))
+        result = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT,
+                                         risk_policy=policy(max_signal_age_seconds=60.0), now_utc=NOW)
+        self.assertEqual(result.reason, "STALE_SIGNAL")
+        evidence = conn.tables["execution_v2.execution_risk_evidence"][result.execution_intent_id]
+        self.assertEqual(evidence["signal_age_seconds"], 75.0)
+        self.assertEqual(evidence["max_signal_age_seconds"], 60.0)
+
     def test_duplicate_call_for_the_same_signal_and_account_is_idempotent(self):
         conn = self._seeded_conn()
         first = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT, risk_policy=policy(), now_utc=NOW)

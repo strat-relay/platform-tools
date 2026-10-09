@@ -74,6 +74,10 @@ class FakeCursor:
         raise AssertionError(f"FakeCursor cannot handle statement: {sql[:100]}")
 
     def _select(self, upper: str, sql: str, params: Any) -> None:
+        if "SELECT SIGNAL_EMITTED_AT FROM STRATEGY.ENTRY_SIGNALS" in upper:
+            row = self.conn.entry_signals.get(params[0])
+            self._result = (row["signal_emitted_at"],) if row else None
+            return
         if "STRATEGY.ENTRY_SIGNALS" in upper:
             row = self.conn.entry_signals.get(params[0])
             self._result = tuple(row[k] for k in _ENTRY_SIGNAL_COLUMNS) if row else None
