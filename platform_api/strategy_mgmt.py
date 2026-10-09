@@ -358,20 +358,45 @@ class StrategyMgmtRepository:
         with self._conn(readonly=True) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT i.*, v.version_label, v.evaluator_key, v.schema_id,
-                              d.family_key, d.name AS strategy_name,
-                              p.parameter_set_id, p.fingerprint AS parameter_fingerprint,
-                              p.values AS parameter_values, ps.fields AS parameter_schema
-                         FROM strategy_mgmt.strategy_instance_v2 i
-                         JOIN strategy_mgmt.strategy_version v ON v.id = i.strategy_version_id
-                         JOIN strategy_mgmt.strategy_definition d ON d.id = v.definition_id
-                         JOIN strategy_mgmt.parameter_set p ON p.id = i.parameter_set_id
-                         LEFT JOIN strategy_mgmt.parameter_schema ps ON ps.schema_id = p.schema_id
-                        WHERE i.id::text = %s OR i.attributes->>'instance_id' = %s""",
+                    "SELECT * FROM strategy_mgmt.strategy_instance_v2 WHERE id = %s OR attributes->>'instance_id' = %s",
                     (instance_id, instance_id),
                 )
                 row = cur.fetchone()
-                return _serialize_row(_row_to_dict(cur, row)) if row else None
+                if row is None:
+                    return None
+                result = _row_to_dict(cur, row)
+                # Enrich the base row for the UI without making the instance
+                # identity depend on a denormalized legacy table.
+                cur.execute(
+                    """SELECT v.*, d.family_key, d.name AS strategy_name
+                         FROM strategy_mgmt.strategy_version v
+                         JOIN strategy_mgmt.strategy_definition d ON d.id = v.definition_id
+                        WHERE v.id = %s""",
+                    (result["strategy_version_id"],),
+                )
+                version = cur.fetchone()
+                if version:
+                    version_row = _row_to_dict(cur, version)
+                    result.update({"version_label": version_row.get("version_label"),
+                                   "evaluator_key": version_row.get("evaluator_key"),
+                                   "schema_id": version_row.get("schema_id"),
+                                   "family_key": version_row.get("family_key"),
+                                   "strategy_name": version_row.get("strategy_name")})
+                cur.execute("SELECT * FROM strategy_mgmt.parameter_set WHERE id = %s",
+                            (result["parameter_set_id"],))
+                parameter_set = cur.fetchone()
+                if parameter_set:
+                    parameter_row = _row_to_dict(cur, parameter_set)
+                    result.update({"parameter_set_id": parameter_row.get("parameter_set_id"),
+                                   "parameter_fingerprint": parameter_row.get("fingerprint"),
+                                   "parameter_values": parameter_row.get("values"),
+                                   "schema_id": parameter_row.get("schema_id", result.get("schema_id"))})
+                    cur.execute("SELECT fields FROM strategy_mgmt.parameter_schema WHERE schema_id = %s",
+                                (parameter_row.get("schema_id"),))
+                    schema = cur.fetchone()
+                    if schema:
+                        result["parameter_schema"] = schema[0]
+                return _serialize_row(result)
 
     def patch_instance_online(self, instance_id: str, online: bool, updated_by: str) -> dict[str, Any]:
         """Toggle online flag only.  execution_eligible is never changed here."""
@@ -379,8 +404,8 @@ class StrategyMgmtRepository:
             with conn.cursor() as cur:
                 # Read current execution_eligible to assert it won't change.
                 cur.execute(
-                    "SELECT execution_eligible FROM strategy_mgmt.strategy_instance_v2 WHERE id::text = %s OR attributes->>'instance_id' = %s FOR UPDATE",
-                    (instance_id, instance_id),
+                    "SELECT execution_eligible FROM strategy_mgmt.strategy_instance_v2 WHERE id = %s FOR UPDATE",
+                    (instance_id,),
                 )
                 before = cur.fetchone()
                 if before is None:
@@ -389,9 +414,9 @@ class StrategyMgmtRepository:
                 cur.execute(
                     """UPDATE strategy_mgmt.strategy_instance_v2
                        SET online = %s, updated_at = now()
-                       WHERE id::text = %s OR attributes->>'instance_id' = %s
+                       WHERE id = %s
                        RETURNING *""",
-                    (online, instance_id, instance_id),
+                    (online, instance_id),
                 )
                 row = _row_to_dict(cur, cur.fetchone())
                 # Assert invariant: execution_eligible must be unchanged.
@@ -408,9 +433,9 @@ class StrategyMgmtRepository:
                 cur.execute(
                     """UPDATE strategy_mgmt.strategy_instance_v2
                        SET instruments = %s::jsonb, updated_at = now()
-                       WHERE id::text = %s OR attributes->>'instance_id' = %s
+                       WHERE id = %s
                        RETURNING *""",
-                    (json.dumps(instruments), instance_id, instance_id),
+                    (json.dumps(instruments), instance_id),
                 )
                 row = cur.fetchone()
                 if row is None:
