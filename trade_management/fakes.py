@@ -55,7 +55,7 @@ class FakeCursor:
             for trade in sorted(self.conn.view("trade_management.managed_trade").values(),
                                 key=lambda r: r["managed_trade_id"]):
                 outcome = outcomes.get(trade["entry_signal_id"])
-                if (trade["state"] == "OPEN" and outcome and outcome["status"] in ("TARGET_HIT", "STOPPED", "TIME_EXIT")
+                if (trade["state"] == "OPEN" and outcome and outcome["status"] in ("TARGET_HIT", "STOPPED", "TIME_EXIT", "PROFIT_EXIT")
                         and (only is None or trade["managed_trade_id"] == only)):
                     rows.append((trade["managed_trade_id"], trade["entry_signal_id"], outcome["status"],
                                  outcome["exit_timestamp"], outcome["realized_r"], outcome["source"]))
@@ -91,6 +91,8 @@ class FakeCursor:
             self._result = ((row["direction"], row["reference_entry_price"], row["initial_stop"],
                              row["risk_distance"], row["state"], row.get("instrument"),
                              row.get("initial_target"), row.get("decision_time"), row.get("time_exit_at"),
+                             row.get("net_profit_target_usd"), row.get("profit_target_pips"),
+                             row.get("profit_target_r"), row.get("pip_size"),
                              signal.get("publication_state") == "PUBLISHED") if row else None)
             return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "ENTRY_SIGNAL_ID=" in upper.replace(" ", ""):
@@ -110,6 +112,8 @@ class FakeCursor:
                 self._result = (row["direction"], row["reference_entry_price"], row["initial_stop"],
                                 row["risk_distance"], row["state"], row.get("instrument"),
                                 row.get("initial_target"), row.get("decision_time"), row.get("time_exit_at"),
+                                row.get("net_profit_target_usd"), row.get("profit_target_pips"),
+                                row.get("profit_target_r"), row.get("pip_size"),
                                 signal.get("publication_state") == "PUBLISHED")
             return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "STATE FROM" in upper:
@@ -181,7 +185,7 @@ class FakeCursor:
             return
         if "TRADE_MANAGEMENT.MARKET_SNAPSHOT" in upper:
             row = self.conn.view("trade_management.market_snapshot").get(params[0])
-            self._result = (row["bid"], row["ask"]) if row else None
+            self._result = (row["bid"], row["ask"], row.get("source_timestamp")) if row else None
             return
         raise AssertionError(f"FakeCursor cannot SELECT: {sql[:100]}")
 
@@ -368,7 +372,8 @@ class FakeConnection:
         keys = ("managed_trade_id", "entry_signal_id", "entry_signal_hash", "strategy_id", "strategy_version",
                 "strategy_ref", "parameter_set_ref", "parameter_set_status", "instrument", "direction",
                 "decision_time", "reference_entry_price", "initial_stop", "initial_target", "risk_distance",
-                "time_exit_minutes", "time_exit_at",
+                "time_exit_minutes", "time_exit_at", "net_profit_target_usd", "profit_target_pips",
+                "profit_target_r", "pip_size",
                 "tm_version_id", "tm_binding_id", "binding_hash", "tm_bound_at", "binding_resolution",
                 "evidence_mode", "eligibility", "eligibility_reason", "creation_lag_seconds",
                 "record_mode", "state")

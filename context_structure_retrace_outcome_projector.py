@@ -20,7 +20,7 @@ OUTCOME_TYPE = "ENTRY_ONLY"
 OUTCOME_SOURCE = STRATEGY_ID
 METADATA_KEY = "context.entry_only_outcome_cutoff"
 OUTCOME_SCHEMA_VERSION = "015"
-ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED", "TIME_EXIT", "INVALIDATED", "AMBIGUOUS_INTRABAR"}
+ALLOWED_STATUSES = {"OPEN", "TARGET_HIT", "STOPPED", "TIME_EXIT", "PROFIT_EXIT", "INVALIDATED", "AMBIGUOUS_INTRABAR"}
 
 
 class OutcomeProjectionError(RuntimeError):
@@ -60,7 +60,7 @@ def _broker_status(value: Any) -> str | None:
     value = str(value or "").upper()
     return {"STOP_LOSS": "STOPPED", "SL": "STOPPED", "STOPPED": "STOPPED",
             "TAKE_PROFIT": "TARGET_HIT", "TP": "TARGET_HIT", "TARGET_HIT": "TARGET_HIT",
-            "TIME_EXIT": "TIME_EXIT"}.get(value)
+            "TIME_EXIT": "TIME_EXIT", "PROFIT_EXIT": "PROFIT_EXIT"}.get(value)
 
 
 def project_entry_only_outcomes(
@@ -134,7 +134,7 @@ def project_entry_only_outcomes(
                     (signal_id,),
                 )
                 existing_row = cur.fetchone()
-                if existing_row and existing_row[0] == "TIME_EXIT":
+                if existing_row and existing_row[0] in {"TIME_EXIT", "PROFIT_EXIT"}:
                     counts["matched"] += 1
                     counts["unchanged"] += 1
                     continue

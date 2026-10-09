@@ -86,6 +86,15 @@ def _time_exit_minutes(metadata: Any) -> int | None:
     return value
 
 
+def _optional_positive(metadata: Any, key: str) -> float | None:
+    if not isinstance(metadata, dict) or metadata.get(key) is None:
+        return None
+    value = metadata[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) <= 0:
+        raise ValueError(f"{key} in signal metadata must be null or a positive number")
+    return float(value)
+
+
 def _record_quarantine(conn: Any, *, entry_signal_id: str, expected_hash: str, actual_hash: str,
                        reason: str) -> None:
     with conn.cursor() as cur:
@@ -145,24 +154,30 @@ def create_managed_trade(conn: Any, *, event_id: str, signal_id: str, resolver: 
         if risk_distance is None and entry_price is not None and stop_price is not None:
             risk_distance = abs(float(entry_price) - float(stop_price))
         time_exit_minutes = _time_exit_minutes(record.get("strategy_metadata"))
+        net_profit_target_usd = _optional_positive(record.get("strategy_metadata"), "net_profit_target_usd")
+        profit_target_pips = _optional_positive(record.get("strategy_metadata"), "profit_target_pips")
+        profit_target_r = _optional_positive(record.get("strategy_metadata"), "profit_target_r")
+        pip_size = _optional_positive(record.get("strategy_metadata"), "pip_size")
 
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO trade_management.managed_trade
                 (managed_trade_id, entry_signal_id, entry_signal_hash, strategy_id, strategy_version,
                  strategy_ref, parameter_set_ref, parameter_set_status, instrument, direction,
                  decision_time, reference_entry_price, initial_stop, initial_target, risk_distance,
-                 time_exit_minutes, time_exit_at,
+                 time_exit_minutes, time_exit_at, net_profit_target_usd, profit_target_pips,
+                 profit_target_r, pip_size,
                  tm_version_id, tm_binding_id, binding_hash, tm_bound_at, binding_resolution,
                  evidence_mode, eligibility, eligibility_reason, creation_lag_seconds,
                  record_mode, state)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (entry_signal_id) DO NOTHING
                 RETURNING managed_trade_id""",
                        (trade_id, signal_id, record["entry_signal_hash"], record["strategy_id"],
                         record["strategy_version"], record["strategy_ref"], record["parameter_set_ref"],
                         record["parameter_set_status"], record["instrument"], record["direction"],
                         decision_time, entry_price, stop_price, target_price, risk_distance,
-                        time_exit_minutes, None,
+                        time_exit_minutes, None, net_profit_target_usd, profit_target_pips,
+                        profit_target_r, pip_size,
                         binding.tm_version_id, binding.binding_id, binding.binding_hash, now_utc,
                         binding.resolution, "FORWARD", eligibility, eligibility_reason, lag,
                         "SHADOW", "OPEN"))
@@ -192,6 +207,10 @@ def create_managed_trade(conn: Any, *, event_id: str, signal_id: str, resolver: 
             "initial_stop": float(stop_price) if stop_price is not None else None,
             "initial_target": float(target_price) if target_price is not None else None,
             "time_exit_minutes": time_exit_minutes,
+            "net_profit_target_usd": net_profit_target_usd,
+            "profit_target_pips": profit_target_pips,
+            "profit_target_r": profit_target_r,
+            "pip_size": pip_size,
             "tm_version_id": binding.tm_version_id, "tm_binding_id": binding.binding_id,
             "evidence_mode": "FORWARD", "eligibility": eligibility, "record_mode": "SHADOW",
         }
