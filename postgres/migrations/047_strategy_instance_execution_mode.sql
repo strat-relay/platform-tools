@@ -48,4 +48,4 @@ CREATE INDEX IF NOT EXISTS idx_strategy_instance_v2_execution_mode
 -- We rely on the application control path for LIVE transition safety.
 -- No DB trigger is added here — the application is the authoritative control plane.
 
-INSERT INTO platform.schema_migrations (version) VALUES ('046') ON CONFLICT DO NOTHING;
+INSERT INTO platform.schema_migrations (version) VALUES ('047') ON CONFLICT DO NOTHING;

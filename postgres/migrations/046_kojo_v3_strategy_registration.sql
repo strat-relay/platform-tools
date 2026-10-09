@@ -27,7 +27,7 @@ VALUES (
     'V3 evaluator at commit c82d290. SOURCE_FIDELITY_BLOCKED=false. '
     'Research commits: post-entry=1e321fe, counterfactual=d9264a7, anatomy=827a95f, '
     'geometry=3351fb3, M5-micro=afc1cca, M5-retest=5d18892, lower-TF=35dde76, M1=3566693.',
-    'migration_045'
+    'migration_046'
 )
 ON CONFLICT (family_key) DO NOTHING;
 
@@ -57,7 +57,7 @@ VALUES (
         "reaction_lookback_scope":  {"required":true,"type":"enum","enum":["CURRENT_TRADING_DAY"],"default":"CURRENT_TRADING_DAY","display_name":"Reaction Lookback Scope","description":"UTC-day window to scan for M15 reaction zone evidence for TP1","category":"TARGETS","restart_required":false,"research_only":false,"production_allowed":true},
         "tp2_selection_policy":     {"required":true,"type":"enum","enum":["NEAREST_VALID_EXTERNAL_LIQUIDITY"],"default":"NEAREST_VALID_EXTERNAL_LIQUIDITY","display_name":"TP2 Selection Policy","description":"Policy for choosing TP2 from external liquidity objectives beyond TP1","category":"TARGETS","restart_required":false,"research_only":false,"production_allowed":true}
     }'::jsonb,
-    'migration_045'
+    'migration_046'
 )
 ON CONFLICT (schema_id) DO NOTHING;
 
@@ -79,7 +79,7 @@ VALUES (
     'Evaluator commit c82d290. SOURCE_FIDELITY_BLOCKED=false. '
     'ENTRY_SEMANTICS_READY=true. TARGET_SEMANTICS_READY=true. '
     'TRADE_MANAGEMENT_POLICY_INCLUDED=false. BROKER_WRITES=0.',
-    'migration_045'
+    'migration_046'
 )
 ON CONFLICT (definition_id, version_label) DO NOTHING;
 
@@ -118,14 +118,14 @@ VALUES (
     'b1228ba7513d41e23e503f9b770a222c8349a17c0b7348e53e3a87bcc4f751aa',
     true,
     now(),
-    'migration_045',
+    'migration_046',
     '{
         "baseline_rationale": "Default parameter set for KOJO_STRUCTURE_RECLAIM_V3 managed strategy instance. Values reproduce c82d290 V3 evaluator behavior exactly. PARAMETER_SEARCH=false.",
         "created_by": "migration_043",
         "source": "MANAGED_STRATEGY_DEFAULT",
         "strategy": "KOJO_STRUCTURE_RECLAIM_V3"
     }'::jsonb,
-    'migration_045'
+    'migration_046'
 )
 ON CONFLICT (parameter_set_id) DO NOTHING;
 
@@ -136,7 +136,7 @@ ON CONFLICT (parameter_set_id) DO NOTHING;
 --   execution_eligible=false → never changed here; execution authority is separate.
 --
 -- LIVE transition requires explicit operator action via Control API after confirmation.
--- Migration 046 adds the execution_mode and execution_mode_revision columns.
+-- Migration 047 adds the execution_mode and execution_mode_revision columns.
 
 INSERT INTO strategy_mgmt.strategy_instance_v2
     (id, strategy_version_id, parameter_set_id, display_name, online, execution_eligible,
@@ -159,7 +159,7 @@ VALUES (
         "ready_for_shadow_signals": true,
         "production_eligible": false
     }'::jsonb,
-    'migration_045'
+    'migration_046'
 )
 ON CONFLICT DO NOTHING;
 
