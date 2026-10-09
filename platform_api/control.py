@@ -806,7 +806,10 @@ class PlatformControlApi:
                 item["enabled"] = True
             legacy_instance_id = (row.get("attributes") or {}).get("legacy_instance_id")
             instance_id = legacy_instance_id or str(row["instance_id"])
-            instruments = row.get("instruments") or []
+            raw_instruments = row.get("instruments") or []
+            instruments = [x.get("canonical_instrument") if isinstance(x, dict) else x
+                           for x in raw_instruments]
+            instruments = [x for x in instruments if x]
             instance = {
                 "instance_id": instance_id,
                 "registry_instance_id": str(row["instance_id"]),
