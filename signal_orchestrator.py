@@ -196,6 +196,19 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
                     display_name=inst.get("display_name", inst["instance_id"]),
                     instruments=inst.get("active_instruments", []),
                 ))
+        elif record["strategy_id"] == "KOJO_STRUCTURE_RECLAIM_V3":
+            # V3 pipeline-created instances.  Only ONLINE instances are present.
+            # Adapters carry the parameter_set_fingerprint for hot-reload detection.
+            from orchestration.adapters.kojo_structure_reclaim_v3_adapter import KojoStructureReclaimV3Adapter
+            instances = [x for x in config.get("instances", [])
+                         if x.get("strategy_id") == record["strategy_id"] and x.get("enabled")]
+            for inst in instances:
+                adapters.append(KojoStructureReclaimV3Adapter(
+                    instance_id=inst["instance_id"],
+                    display_name=inst.get("display_name", inst["instance_id"]),
+                    instruments=inst.get("active_instruments", []),
+                    parameter_set_fingerprint=inst.get("parameter_set_fingerprint"),
+                ))
         elif record["strategy_id"] in DEFINITIONS_BY_ID:
             # Compatibility for pre-instance database rows; new configuration should
             # register the parent strategy plus child instance rows instead.

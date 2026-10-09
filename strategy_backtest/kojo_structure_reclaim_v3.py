@@ -424,6 +424,9 @@ def _detect_m15_reaction_events(
     direction: str,
     entry_price: float,
     decision_ts: int,
+    *,
+    allow_wick_rejection: bool = True,
+    allow_body_close_rejection: bool = True,
 ) -> list[dict[str, Any]]:
     """Current-day M15 reaction events for TP1 zone discovery.
 
@@ -452,10 +455,10 @@ def _detect_m15_reaction_events(
                 continue
             upper_wick = h - max(o, c)
             body = abs(c - o)
-            if upper_wick / total_range >= WICK_REACTION_MIN_FRACTION:
+            if allow_wick_rejection and upper_wick / total_range >= WICK_REACTION_MIN_FRACTION:
                 events.append({"bar_open_ts": t, "reaction_price": h,
                                 "reaction_type": "WICK_REJECTION"})
-            elif c < o and body / total_range >= BODY_CLOSE_MIN_FRACTION:
+            elif allow_body_close_rejection and c < o and body / total_range >= BODY_CLOSE_MIN_FRACTION:
                 events.append({"bar_open_ts": t, "reaction_price": h,
                                 "reaction_type": "BODY_CLOSE_REJECTION"})
         else:
@@ -463,10 +466,10 @@ def _detect_m15_reaction_events(
                 continue
             lower_wick = min(o, c) - lo
             body = abs(c - o)
-            if lower_wick / total_range >= WICK_REACTION_MIN_FRACTION:
+            if allow_wick_rejection and lower_wick / total_range >= WICK_REACTION_MIN_FRACTION:
                 events.append({"bar_open_ts": t, "reaction_price": lo,
                                 "reaction_type": "WICK_REJECTION"})
-            elif c > o and body / total_range >= BODY_CLOSE_MIN_FRACTION:
+            elif allow_body_close_rejection and c > o and body / total_range >= BODY_CLOSE_MIN_FRACTION:
                 events.append({"bar_open_ts": t, "reaction_price": lo,
                                 "reaction_type": "BODY_CLOSE_REJECTION"})
     return events
@@ -527,6 +530,10 @@ def _build_m15_reaction_zones(
     stop_price: float,
     decision_ts: int,
     zone_tolerance: float,
+    *,
+    tp1_min_rr: float = 1.0,
+    allow_wick_rejection: bool = True,
+    allow_body_close_rejection: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Full reaction-zone pipeline: detect → cluster → filter → rank.
 
@@ -540,7 +547,11 @@ def _build_m15_reaction_zones(
       3. distance_from_entry asc
     """
     day_start = _utc_day_start(decision_ts)
-    raw_events = _detect_m15_reaction_events(m15_bars, direction, entry_price, decision_ts)
+    raw_events = _detect_m15_reaction_events(
+        m15_bars, direction, entry_price, decision_ts,
+        allow_wick_rejection=allow_wick_rejection,
+        allow_body_close_rejection=allow_body_close_rejection,
+    )
     all_zones = _cluster_reaction_zones(raw_events, zone_tolerance, direction, day_start)
 
     risk = abs(entry_price - stop_price) if stop_price is not None else 0.0
@@ -554,7 +565,7 @@ def _build_m15_reaction_zones(
             continue
         dist = abs(zc - entry_price)
         planned_r = dist / risk if risk > 0 else None
-        if planned_r is None or planned_r < TP1_MINIMUM_PLANNED_R:
+        if planned_r is None or planned_r < tp1_min_rr:
             continue
         zone = dict(zone)
         zone["distance_from_entry"] = dist
@@ -782,6 +793,8 @@ class KojoStructureReclaimV3Evaluator:
     def __init__(self) -> None:
         self.strategy_version: StrategyVersion | None = None
         self.parameters: ParameterSet | None = None
+        self._instance_id: str | None = None
+        self._configuration_revision: str | None = None
         self._h1_bars: list[dict[str, Any]] = []
         self._m15_bars: list[dict[str, Any]] = []
         self._setups: dict[str, dict[str, Any]] = {}
@@ -794,7 +807,14 @@ class KojoStructureReclaimV3Evaluator:
         self._rejections: dict[str, int] = {}
         self._weak_m15_rejections: int = 0
 
-    def initialize(self, strategy_version: StrategyVersion, parameter_set: ParameterSet) -> None:
+    def initialize(
+        self,
+        strategy_version: StrategyVersion,
+        parameter_set: ParameterSet,
+        *,
+        instance_id: str | None = None,
+        configuration_revision: str | None = None,
+    ) -> None:
         if strategy_version.strategy_version_id != f"{STRATEGY_ID}@{VERSION}":
             raise ValueError(
                 f"KojoStructureReclaimV3Evaluator requires {STRATEGY_ID}@{VERSION}, "
@@ -804,6 +824,8 @@ class KojoStructureReclaimV3Evaluator:
         schema.validate(parameter_set.values)
         self.strategy_version = strategy_version
         self.parameters = parameter_set
+        self._instance_id = instance_id
+        self._configuration_revision = configuration_revision
 
     @property
     def _values(self) -> dict[str, Any]:
@@ -818,9 +840,12 @@ class KojoStructureReclaimV3Evaluator:
     ) -> tuple[SetupLifecycleEvent | EntrySignal, ...]:
         if event.canonical_instrument != INSTRUMENT or not event.completed:
             return ()
-        if event.timeframe == TIMEFRAME_H1:
+        values = self._values
+        ctx_tf = str(values.get("context_timeframe", TIMEFRAME_H1))
+        conf_tf = str(values.get("confirmation_timeframe", TIMEFRAME_M15))
+        if event.timeframe == ctx_tf:
             return self._on_h1(event)
-        if event.timeframe == TIMEFRAME_M15:
+        if event.timeframe == conf_tf:
             return self._on_m15(event)
         return ()
 
@@ -1184,6 +1209,8 @@ class KojoStructureReclaimV3Evaluator:
         setup["tp2"] = tp2
         setup["intended_entry"] = entry_price
 
+        entry_type = str(values.get("entry_type", "MARKET"))
+
         signal_id = "KSRV3_SIG_" + fingerprint({
             "setup_id": setup["setup_id"],
             "confirmation_timestamp": setup["confirmation_timestamp"],
@@ -1194,7 +1221,11 @@ class KojoStructureReclaimV3Evaluator:
         provenance = {
             "strategy_id": STRATEGY_ID,
             "strategy_version": self.strategy_version.strategy_version_id,
+            "strategy_instance_id": self._instance_id,
+            "parameter_set_id": self.parameters.parameter_set_id,
             "parameter_set_fingerprint": self.parameters.fingerprint,
+            "configuration_revision": self._configuration_revision,
+            "effective_parameter_snapshot": dict(self.parameters.values),
             "evaluator_version": self.VERSION,
             "timeframe": TIMEFRAME_H1,
             "entry_timeframe": TIMEFRAME_M15,
@@ -1276,7 +1307,7 @@ class KojoStructureReclaimV3Evaluator:
             stop_price=stop_price,
             target_price=tp1,
             decision_timestamp=decision_ts,
-            order_type="MARKET",
+            order_type=entry_type,
             provenance=provenance,
         ))
         return outputs
@@ -1358,6 +1389,9 @@ class KojoStructureReclaimV3Evaluator:
         qualifying_zones, all_zones = _build_m15_reaction_zones(
             self._m15_bars, direction, entry_price,
             effective_stop or entry_price, decision_ts, zone_tolerance,
+            tp1_min_rr=float(self._values.get("tp1_min_rr", TP1_MINIMUM_PLANNED_R)),
+            allow_wick_rejection=bool(self._values.get("allow_wick_rejection", True)),
+            allow_body_close_rejection=bool(self._values.get("allow_body_close_rejection", True)),
         )
 
         if not qualifying_zones:
@@ -1407,7 +1441,7 @@ class KojoStructureReclaimV3Evaluator:
             "reaction_event_ids": tp1_zone["reaction_event_ids"],
             "distance_from_entry": target_distance,
             "planned_r": planned_r,
-            "tp1_minimum_r_applied": TP1_MINIMUM_PLANNED_R,
+            "tp1_minimum_r_applied": float(self._values.get("tp1_min_rr", TP1_MINIMUM_PLANNED_R)),
             "episode_start_ts": episode_start_ts,
             "episode_envelope_high": envelope_high,
             "episode_envelope_low": envelope_low,
@@ -1416,7 +1450,7 @@ class KojoStructureReclaimV3Evaluator:
             "all_reaction_zones": all_zones,
             "all_qualifying_zones": qualifying_zones,
             # TP2 selection
-            "tp2_selection_policy": TP2_SELECTION_POLICY,
+            "tp2_selection_policy": str(self._values.get("tp2_selection_policy", TP2_SELECTION_POLICY)),
             "tp2_selection_policy_source_status": TP2_SELECTION_POLICY_SOURCE_STATUS,
             "tp2_objective": tp2_obj,
             "tp2_candidate_class": TP2_SELECTION_POLICY,
@@ -1527,48 +1561,245 @@ class KojoStructureReclaimV3Evaluator:
 # ─── parameter schema (identical to V2) ───────────────────────────────────────
 
 def kojo_structure_reclaim_v3_parameter_schema() -> ParameterSchema:
-    """V3 parameters identical to V1/V2.
+    """V3 runtime parameter schema — 18 parameters covering all configurable evaluator behavior.
 
-    All semantic corrections and scaffolds are structural (evaluator logic), not
-    parametric.  PARAMETER_SEARCH = false.
+    Semantic invariants (H1_CLOSE_BEYOND_LEVEL_REQUIRED, H1_CONFIRMATION_PRECEDES_M15_RETEST,
+    causal/no-lookahead, terminal episode integrity) are NOT exposed as parameters.
+    PARAMETER_SEARCH = false.
     """
     return ParameterSchema(
         "kojo-structure-reclaim-v3",
         {
+            # ── TIMEFRAMES ──────────────────────────────────────────────────────
+            "context_timeframe": {
+                "required": True,
+                "type": "enum",
+                "enum": ["H1"],
+                "default": "H1",
+                "display_name": "Context Timeframe",
+                "description": "Timeframe for H1 structural break detection (H1 only in V3; semantic invariant)",
+                "category": "TIMEFRAMES",
+                "restart_required": True,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "confirmation_timeframe": {
+                "required": True,
+                "type": "enum",
+                "enum": ["M15"],
+                "default": "M15",
+                "display_name": "Confirmation Timeframe",
+                "description": "Timeframe for retest and rejection confirmation (M15 only in V3; semantic invariant)",
+                "category": "TIMEFRAMES",
+                "restart_required": True,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "execution_timeframe": {
+                "required": True,
+                "type": "enum",
+                "enum": ["M5", "M15"],
+                "default": "M5",
+                "display_name": "Execution Timeframe",
+                "description": "Reference timeframe for live entry monitoring; V3 entries fire on M15 open",
+                "category": "TIMEFRAMES",
+                "restart_required": True,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            # ── STRUCTURE ───────────────────────────────────────────────────────
             "pivot_strength": {
                 "required": True,
+                "type": "int",
                 "minimum": 1,
                 "maximum": 10,
-                "description": "H1 swing pivot lookback bars on each side",
-            },
-            "retest_tolerance_atr": {
-                "required": True,
-                "minimum": 0.1,
-                "maximum": 3.0,
-                "description": "Fraction of ATR within which price must approach the level to count as retest",
-            },
-            "max_retest_wait_h1_bars": {
-                "required": True,
-                "minimum": 4,
-                "maximum": 100,
-                "description": "Max H1 bars to wait for retest after structural break",
-            },
-            "max_confirmation_wait_m15_bars": {
-                "required": True,
-                "minimum": 4,
-                "maximum": 100,
-                "description": "Max M15 bars to wait for confirmation after retest",
+                "step": 1,
+                "default": 2,
+                "display_name": "Pivot Strength",
+                "description": "Number of H1 bars on each side required to confirm a swing pivot",
+                "category": "STRUCTURE",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
             },
             "stop_buffer_type": {
                 "required": True,
+                "type": "enum",
                 "enum": ["PRICE"],
-                "description": "Stop buffer type (PRICE only)",
+                "default": "PRICE",
+                "display_name": "Stop Buffer Type",
+                "description": "How the stop buffer beyond the structural extreme is measured (PRICE only in V3)",
+                "category": "STRUCTURE",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
             },
             "stop_buffer_value": {
                 "required": True,
+                "type": "float",
                 "minimum": 0.0,
                 "maximum": 1000.0,
-                "description": "Price units beyond structural swing extreme for stop",
+                "step": 0.5,
+                "default": 1.0,
+                "display_name": "Stop Buffer (price units)",
+                "description": "Price units beyond the M15 retest zone swing extreme for stop placement",
+                "category": "STRUCTURE",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            # ── CONFIRMATION ────────────────────────────────────────────────────
+            "retest_tolerance_atr": {
+                "required": True,
+                "type": "float",
+                "minimum": 0.1,
+                "maximum": 3.0,
+                "step": 0.05,
+                "default": 0.5,
+                "display_name": "Retest Tolerance (ATR fraction)",
+                "description": "Fraction of ATR within which price must approach the structural level to count as retest",
+                "category": "CONFIRMATION",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            # ── LIFECYCLE ───────────────────────────────────────────────────────
+            "max_retest_wait_h1_bars": {
+                "required": True,
+                "type": "int",
+                "minimum": 4,
+                "maximum": 100,
+                "step": 1,
+                "default": 24,
+                "display_name": "Max Retest Wait (H1 bars)",
+                "description": "Maximum H1 bars to wait for M15 retest after structural break before expiry",
+                "category": "LIFECYCLE",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "max_confirmation_wait_m15_bars": {
+                "required": True,
+                "type": "int",
+                "minimum": 4,
+                "maximum": 100,
+                "step": 1,
+                "default": 16,
+                "display_name": "Max Confirmation Wait (M15 bars)",
+                "description": "Maximum M15 bars in retest zone before expiry if no strong rejection forms",
+                "category": "LIFECYCLE",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "trade_management_mode": {
+                "required": True,
+                "type": "enum",
+                "enum": ["OBSERVE"],
+                "default": "OBSERVE",
+                "display_name": "Trade Management Mode",
+                "description": "Post-entry trade management policy; OBSERVE means no automated management interventions",
+                "category": "LIFECYCLE",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            # ── ENTRY ───────────────────────────────────────────────────────────
+            "allow_wick_rejection": {
+                "required": True,
+                "type": "bool",
+                "default": True,
+                "display_name": "Allow Wick Rejection",
+                "description": "Count M15 bars with an upper/lower wick ≥ 33% of range as TP1 reaction evidence",
+                "category": "ENTRY",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "allow_body_close_rejection": {
+                "required": True,
+                "type": "bool",
+                "default": True,
+                "display_name": "Allow Body-Close Rejection",
+                "description": "Count M15 bars with a bearish/bullish body ≥ 25% of range as TP1 reaction evidence",
+                "category": "ENTRY",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "entry_type": {
+                "required": True,
+                "type": "enum",
+                "enum": ["MARKET"],
+                "default": "MARKET",
+                "display_name": "Entry Type",
+                "description": "Order type for entry signal (MARKET only in V3; LIMIT/STOP reserved for future management policy)",
+                "category": "ENTRY",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            # ── PULLBACK ────────────────────────────────────────────────────────
+            "simple_pullback_enabled": {
+                "required": True,
+                "type": "bool",
+                "default": True,
+                "display_name": "Simple Pullback Enabled",
+                "description": "Accept single-swing M15 retest patterns (V3 treats all pullbacks equally; scaffold for future distinction)",
+                "category": "PULLBACK",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "complex_pullback_enabled": {
+                "required": True,
+                "type": "bool",
+                "default": True,
+                "display_name": "Complex Pullback Enabled",
+                "description": "Accept multi-swing M15 retest patterns (V3 treats all pullbacks equally; scaffold for future distinction)",
+                "category": "PULLBACK",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            # ── TARGETS ─────────────────────────────────────────────────────────
+            "tp1_min_rr": {
+                "required": True,
+                "type": "float",
+                "minimum": 0.5,
+                "maximum": 5.0,
+                "step": 0.25,
+                "default": 1.0,
+                "display_name": "TP1 Minimum R:R",
+                "description": "Minimum planned reward:risk for a reaction zone to qualify as TP1 (source-explicit default 1.0R)",
+                "category": "TARGETS",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "reaction_lookback_scope": {
+                "required": True,
+                "type": "enum",
+                "enum": ["CURRENT_TRADING_DAY"],
+                "default": "CURRENT_TRADING_DAY",
+                "display_name": "Reaction Lookback Scope",
+                "description": "UTC-day window to scan for M15 reaction zone evidence for TP1 (current day only in V3)",
+                "category": "TARGETS",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
+            },
+            "tp2_selection_policy": {
+                "required": True,
+                "type": "enum",
+                "enum": ["NEAREST_VALID_EXTERNAL_LIQUIDITY"],
+                "default": "NEAREST_VALID_EXTERNAL_LIQUIDITY",
+                "display_name": "TP2 Selection Policy",
+                "description": "Policy for choosing TP2 from external liquidity objectives beyond TP1",
+                "category": "TARGETS",
+                "restart_required": False,
+                "research_only": False,
+                "production_allowed": True,
             },
         },
     )
@@ -1577,9 +1808,9 @@ def kojo_structure_reclaim_v3_parameter_schema() -> ParameterSchema:
 def kojo_structure_reclaim_v3_baseline_parameter_set(
     strategy_version_id: str | None = None,
 ) -> ParameterSet:
-    """V3 research hypothesis baseline — identical values to V1/V2.
+    """V3 research baseline — all 18 parameters, reproduces c82d290 V3 behavior exactly.
 
-    SOURCE_FIDELITY_BLOCKED = true.  Not performance-optimized.
+    SOURCE_FIDELITY_BLOCKED = false (resolved).  Not performance-optimized.
     PARAMETER_SEARCH = false.
     """
     sv_id = strategy_version_id or f"{STRATEGY_ID}@{VERSION}"
@@ -1588,24 +1819,97 @@ def kojo_structure_reclaim_v3_baseline_parameter_set(
         strategy_version_id=sv_id,
         schema_id="kojo-structure-reclaim-v3",
         values={
+            # TIMEFRAMES
+            "context_timeframe": "H1",
+            "confirmation_timeframe": "M15",
+            "execution_timeframe": "M5",
+            # STRUCTURE
             "pivot_strength": 2,
-            "retest_tolerance_atr": 0.5,
-            "max_retest_wait_h1_bars": 24,
-            "max_confirmation_wait_m15_bars": 16,
             "stop_buffer_type": "PRICE",
             "stop_buffer_value": 1.0,
+            # CONFIRMATION
+            "retest_tolerance_atr": 0.5,
+            # LIFECYCLE
+            "max_retest_wait_h1_bars": 24,
+            "max_confirmation_wait_m15_bars": 16,
+            "trade_management_mode": "OBSERVE",
+            # ENTRY
+            "allow_wick_rejection": True,
+            "allow_body_close_rejection": True,
+            "entry_type": "MARKET",
+            # PULLBACK
+            "simple_pullback_enabled": True,
+            "complex_pullback_enabled": True,
+            # TARGETS
+            "tp1_min_rr": 1.0,
+            "reaction_lookback_scope": "CURRENT_TRADING_DAY",
+            "tp2_selection_policy": "NEAREST_VALID_EXTERNAL_LIQUIDITY",
         },
         provenance={
             "source": "RESEARCH_HYPOTHESIS_FROM_LIVE_OBSERVATION",
             "instrument": INSTRUMENT,
             "context_timeframe": TIMEFRAME_H1,
             "entry_timeframe": TIMEFRAME_M15,
-            "source_fidelity_status": "SOURCE_FIDELITY_BLOCKED",
+            "source_fidelity_status": "SOURCE_FIDELITY_BLOCKED_RESOLVED",
             "baseline_rationale": (
                 "Same causal deterministic defaults as V1/V2. "
-                "V3 implements opportunity retirement repair only. "
-                "H1 confirmation semantics and target meaningfulness boundary remain "
-                "SOURCE_RULE_REQUIRED. PARAMETER_SEARCH=false."
+                "V3 implements opportunity retirement repair, H1 confirmation source rule, "
+                "TP1 current-day M15 reaction zone, and TP2 liquidity objective. "
+                "All 18 parameters reproduce c82d290 evaluator behavior exactly. "
+                "PARAMETER_SEARCH=false."
             ),
+        },
+    )
+
+
+def kojo_structure_reclaim_v3_default_parameter_set(
+    strategy_version_id: str | None = None,
+) -> ParameterSet:
+    """Managed 'Kojo V3 Default' parameter set — identical to baseline, registered in DB.
+
+    This is the parameter set used by the Kojo V3 Forward managed strategy instance.
+    Values reproduce c82d290 V3 evaluator behavior exactly.
+    DEFAULT_PARAMETER_SET_PARITY = true.
+    """
+    sv_id = strategy_version_id or f"{STRATEGY_ID}@{VERSION}"
+    return ParameterSet(
+        parameter_set_id="kojo-v3-default",
+        strategy_version_id=sv_id,
+        schema_id="kojo-structure-reclaim-v3",
+        values={
+            # TIMEFRAMES
+            "context_timeframe": "H1",
+            "confirmation_timeframe": "M15",
+            "execution_timeframe": "M5",
+            # STRUCTURE
+            "pivot_strength": 2,
+            "stop_buffer_type": "PRICE",
+            "stop_buffer_value": 1.0,
+            # CONFIRMATION
+            "retest_tolerance_atr": 0.5,
+            # LIFECYCLE
+            "max_retest_wait_h1_bars": 24,
+            "max_confirmation_wait_m15_bars": 16,
+            "trade_management_mode": "OBSERVE",
+            # ENTRY
+            "allow_wick_rejection": True,
+            "allow_body_close_rejection": True,
+            "entry_type": "MARKET",
+            # PULLBACK
+            "simple_pullback_enabled": True,
+            "complex_pullback_enabled": True,
+            # TARGETS
+            "tp1_min_rr": 1.0,
+            "reaction_lookback_scope": "CURRENT_TRADING_DAY",
+            "tp2_selection_policy": "NEAREST_VALID_EXTERNAL_LIQUIDITY",
+        },
+        provenance={
+            "baseline_rationale": (
+                "Default parameter set for KOJO_STRUCTURE_RECLAIM_V3 managed strategy instance. "
+                "Values reproduce c82d290 V3 evaluator behavior exactly. PARAMETER_SEARCH=false."
+            ),
+            "created_by": "migration_043",
+            "source": "MANAGED_STRATEGY_DEFAULT",
+            "strategy": STRATEGY_ID,
         },
     )

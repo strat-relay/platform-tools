@@ -59,6 +59,10 @@ def apply_migrations(conn, migrations_dir: Path = MIGRATIONS) -> list[str]:
     files = sorted(migrations_dir.glob("*.sql"))
     with transaction(conn):
         with conn.cursor() as cur:
+            # If this process is killed while holding the transaction lock, the connection
+            # would stay idle in transaction indefinitely and block every query on locked
+            # tables. Self-terminate after 2 minutes so the DB cleans up automatically.
+            cur.execute("SET LOCAL idle_in_transaction_session_timeout = '120000'")
             cur.execute("CREATE SCHEMA IF NOT EXISTS platform")
             cur.execute("""CREATE TABLE IF NOT EXISTS platform.schema_migrations (
                 version text PRIMARY KEY, filename text NOT NULL, checksum_sha256 text NOT NULL,
