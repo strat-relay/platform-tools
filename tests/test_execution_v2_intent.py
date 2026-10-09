@@ -6,6 +6,7 @@ real schema is proven separately against real PostgreSQL, see docs/v2_execution/
 from __future__ import annotations
 
 import unittest
+import json
 from datetime import datetime, timedelta, timezone
 
 from execution_v2.fakes import FakeConnection
@@ -140,6 +141,16 @@ class CreateExecutionIntentTests(unittest.TestCase):
         evidence = conn.tables["execution_v2.execution_risk_evidence"][result.execution_intent_id]
         self.assertEqual(evidence["signal_age_seconds"], 75.0)
         self.assertEqual(evidence["max_signal_age_seconds"], 60.0)
+
+    def test_already_settled_signal_is_blocked_as_stale(self):
+        conn = self._seeded_conn(outcome_status="TARGET_HIT",
+                                 outcome_exit_timestamp=NOW - timedelta(minutes=5))
+        result = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT,
+                                         risk_policy=policy(), now_utc=NOW)
+        self.assertEqual(result.reason, "STALE_SIGNAL")
+        evidence = conn.tables["execution_v2.execution_risk_evidence"][result.execution_intent_id]
+        self.assertEqual(json.loads(evidence["diagnostics"])["stale_cause"],
+                         "CANONICAL_OUTCOME_ALREADY_SETTLED")
 
     def test_duplicate_call_for_the_same_signal_and_account_is_idempotent(self):
         conn = self._seeded_conn()

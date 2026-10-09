@@ -33,6 +33,7 @@ from .trace import emit as trace_emit
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
 RESEARCH_ONLY_STRATEGIES = frozenset({"CONTEXT_STRUCTURE_RETRACE_V2"})
+TERMINAL_SIGNAL_OUTCOMES = frozenset({"TARGET_HIT", "STOPPED", "TIME_EXIT", "INVALIDATED"})
 
 
 def _bridge_risk_diagnostics(risk_context: dict[str, Any]) -> dict[str, Any]:
@@ -133,16 +134,22 @@ def check_eligibility(record: dict[str, Any], *, risk_policy: RiskPolicy, accoun
 
 def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
-        cur.execute("""SELECT signal_id, strategy_id, strategy_version, strategy_ref, instrument,
-                             direction, decision_time, signal_emitted_at, entry_price, stop_price, target_price,
-                             entry_signal_hash
-                      FROM strategy.entry_signals WHERE signal_id=%s""", (signal_id,))
+        cur.execute("""SELECT strategy.entry_signals.signal_id, strategy.entry_signals.strategy_id,
+                             strategy.entry_signals.strategy_version, strategy.entry_signals.strategy_ref,
+                             strategy.entry_signals.instrument, strategy.entry_signals.direction,
+                             strategy.entry_signals.decision_time, strategy.entry_signals.signal_emitted_at,
+                             strategy.entry_signals.entry_price, strategy.entry_signals.stop_price,
+                             strategy.entry_signals.target_price, strategy.entry_signals.entry_signal_hash,
+                             outcome.status, outcome.exit_timestamp
+                      FROM strategy.entry_signals
+                      LEFT JOIN strategy.entry_signal_outcomes AS outcome USING (signal_id)
+                      WHERE strategy.entry_signals.signal_id=%s""", (signal_id,))
         row = cur.fetchone()
     if row is None:
         return None
     keys = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
             "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
-            "entry_signal_hash")
+            "entry_signal_hash", "outcome_status", "outcome_exit_timestamp")
     return dict(zip(keys, row))
 
 
@@ -188,8 +195,20 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                                 eligible=False, reason="STRATEGY_NOT_EXECUTION_ENABLED")
 
         diagnostics: dict[str, Any] = {}
+        outcome_status = record.get("outcome_status")
+        outcome_exit_timestamp = record.get("outcome_exit_timestamp")
+        outcome_already_settled = (outcome_status in TERMINAL_SIGNAL_OUTCOMES and
+                                   outcome_exit_timestamp is not None and
+                                   outcome_exit_timestamp <= now_utc)
         eligibility = (EligibilityResult(False, blocked_reason) if blocked_reason else
                        check_eligibility(record, risk_policy=risk_policy, account_id=account_id, now_utc=now_utc))
+        if outcome_already_settled and not blocked_reason:
+            eligibility = EligibilityResult(False, "STALE_SIGNAL")
+            diagnostics.update({
+                "stale_cause": "CANONICAL_OUTCOME_ALREADY_SETTLED",
+                "outcome_status": outcome_status,
+                "outcome_exit_timestamp": outcome_exit_timestamp,
+            })
         measured_signal_age = signal_age_seconds(record, now_utc=now_utc)
         if measured_signal_age is not None:
             diagnostics.update({
