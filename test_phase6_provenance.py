@@ -60,7 +60,9 @@ class Phase6ProvenanceTests(unittest.TestCase):
                                     "source_market_data_timestamp": "2026-09-17T12:00:00+00:00", "gap_recovery": False}}
                 ]}}}
             (root / "context_structure_retrace_forward_state.json").write_text(json.dumps(state))
-            signals = ContextStructureRetraceAdapter(root, "2026-09-17T00:00:00+00:00").discover_new_signals(set())
+            signals = ContextStructureRetraceAdapter(
+                root, "2026-09-17T00:00:00+00:00", max_signal_age_seconds=None
+            ).discover_new_signals(set())
             self.assertEqual(len(signals), 1)
             self.assertTrue(signals[0].provenance["source_read_health"])
             self.assertEqual(signals[0].provenance["source_data_age"], 2.0)

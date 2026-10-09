@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -10,17 +11,26 @@ from orchestration.models import StrategySignal, stable_id
 from outcome_attribution import target_distance
 from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
 from execution_v2.trace import emit as trace_emit
+from observability.strategy_audit import audit
 
 
 class ContextStructureRetraceAdapter:
     strategy_id = "CONTEXT_STRUCTURE_RETRACE_V1"
     strategy_version = "V1"
 
-    def __init__(self, root: Path, freeze_timestamp: str, instance: dict[str, Any] | None = None):
+    def __init__(self, root: Path, freeze_timestamp: str, instance: dict[str, Any] | None = None,
+                 *, max_signal_age_seconds: float | None = ...):
         self.root = root
         self.freeze_timestamp = freeze_timestamp
         self.instance = instance or {}
         self.policy = self.instance.get("instance_policy") or {}
+        # An opportunity discovered long after its originating decision is not
+        # a fresh entry signal. Keep the guard at this strategy boundary so an
+        # orchestrator restart cannot convert backlog into executable work.
+        if max_signal_age_seconds is ...:
+            configured_age = os.environ.get("CONTEXT_SIGNAL_MAX_AGE_SECONDS", "60").strip()
+            max_signal_age_seconds = float(configured_age) if configured_age else None
+        self.max_signal_age_seconds = max_signal_age_seconds
         # Membership rows are canonical (BTCUSD), while the forward producer's state uses
         # provider symbols (BTCUSDm). Store the membership set canonically and normalize the
         # producer symbol before applying the runtime filter.
@@ -47,11 +57,18 @@ class ContextStructureRetraceAdapter:
         return symbol
 
     def discover_new_signals(self, seen_signal_ids: set[str]) -> list[StrategySignal]:
+        scan_started = time.perf_counter()
         state = json.loads(self.state_path.read_text(encoding="utf-8"))
         result = []
         boundary = self._epoch(self.freeze_timestamp)
+        # This is invariant for the whole scan. Loading the replay watermark
+        # once per candidate made a large state file a serial disk-read loop.
+        epoch = load_epoch(EPOCH_PATH)
+        watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
+        candidates_seen = 0
         for setup in state.get("setups", {}).values():
             for position in setup.get("opportunities", []):
+                candidates_seen += 1
                 # A completed Phase6 opportunity is historical evidence, not
                 # a new StrategySignal candidate.  In particular, this keeps
                 # a missed opportunity from being replayed after a repair.
@@ -68,6 +85,22 @@ class ContextStructureRetraceAdapter:
                             "entry_opportunity_id": position.get("entry_opportunity_id"), "source_event_id": source_event_id}
                 signal_id = stable_id("SIG", identity)
                 if signal_id in seen_signal_ids:
+                    continue
+                signal_age_seconds = max(0.0, time.time() - fill_ts)
+                if (self.max_signal_age_seconds is not None and
+                        signal_age_seconds > self.max_signal_age_seconds):
+                    trace_emit("SIGNAL_STALE_SKIPPED", signal_id=signal_id,
+                               strategy_id=self.strategy_id, strategy_instance_id="phase6",
+                               instrument=self._canonical_instrument(setup.get("symbol") or position.get("symbol")),
+                               decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
+                               signal_age_seconds=round(signal_age_seconds, 3),
+                               max_signal_age_seconds=self.max_signal_age_seconds,
+                               reason="CONTEXT_SOURCE_OPPORTUNITY_STALE")
+                    audit("context_signal_stale_skipped", runner="signal-orchestrator",
+                          strategy_id=self.strategy_id, signal_id=signal_id,
+                          strategy_instance_id="phase6", signal_age_seconds=round(signal_age_seconds, 3),
+                          max_signal_age_seconds=self.max_signal_age_seconds,
+                          reason="CONTEXT_SOURCE_OPPORTUNITY_STALE")
                     continue
                 geometry = position.get("geometry") or {}
                 direction = setup.get("direction") or position.get("direction")
@@ -136,8 +169,10 @@ class ContextStructureRetraceAdapter:
                            strategy_instance_id=candidate.strategy_instance_id,
                            instrument=candidate.canonical_symbol,
                            producer="context_structure_retrace_adapter")
-                epoch = load_epoch(EPOCH_PATH)
-                watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
                 if watermark and not eligibility(candidate.to_dict(), watermark)[0]:
                     result.pop()
+        audit("context_signal_scan_completed", runner="signal-orchestrator",
+              strategy_id=self.strategy_id, candidates_seen=candidates_seen,
+              signals_found=len(result),
+              elapsed_ms=round((time.perf_counter() - scan_started) * 1000, 3))
         return result

@@ -11,6 +11,25 @@ from orchestration.adapters.context_structure_retrace import ContextStructureRet
 
 
 class ContextInstanceMembershipTest(unittest.TestCase):
+    def test_old_open_opportunity_is_not_republished_as_fresh_signal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "context_structure_retrace_forward_state_compact.json"
+            state_path.write_text(json.dumps({
+                "setups": {"setup-1": {"setup_id": "setup-1", "symbol": "BTCUSDm",
+                    "direction": "LONG", "pattern": "BULLISH_ENGULFING", "target_completed": False,
+                    "opportunities": [{"economic_position_id": "old-position", "entry_opportunity_id": "old-opportunity",
+                        "symbol": "BTCUSDm", "direction": "LONG", "fill_timestamp": 1,
+                        "executable_paper_entry": 100.0, "stop": 99.0, "target": 102.0,
+                        "geometry": {"stop_distance": 1.0, "target_R": 2.0},
+                        "entry_mechanisms": ["DEPTH_ONLY"], "status": "OPEN", "reentry_type": "INITIAL"}]}}}))
+            with patch.dict(os.environ, {"CONTEXT_RUNNER_STATE_DIR": directory}), \
+                    patch("orchestration.adapters.context_structure_retrace.EPOCH_PATH", Path(directory) / "missing.json"):
+                adapter = ContextStructureRetraceAdapter(
+                    Path(directory), "2026-01-01T00:00:00Z",
+                    {"active_instruments": ["BTCUSD"], "instance_policy": {"reentry_enabled": True}},
+                )
+                self.assertEqual(adapter.discover_new_signals(set()), [])
+
     def test_provider_symbol_matches_canonical_membership(self):
         with tempfile.TemporaryDirectory() as directory:
             state_path = Path(directory) / "context_structure_retrace_forward_state_compact.json"
@@ -44,6 +63,7 @@ class ContextInstanceMembershipTest(unittest.TestCase):
                 adapter = ContextStructureRetraceAdapter(
                     Path(directory), "2026-01-01T00:00:00Z",
                     {"active_instruments": ["BTCUSD"], "instance_policy": {"reentry_enabled": True}},
+                    max_signal_age_seconds=None,
                 )
                 signals = adapter.discover_new_signals(set())
 
