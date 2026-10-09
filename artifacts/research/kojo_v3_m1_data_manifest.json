@@ -1,0 +1,358 @@
+{
+  "study_type": "M1_DATA_MANIFEST",
+  "fetch_metadata": {
+    "symbol": "XAUUSDm",
+    "timeframe": "M1",
+    "requested_start": 1782864000,
+    "requested_end": 1786320000,
+    "requested_start_iso": "2026-07-01T00:00:00+00:00",
+    "requested_end_iso": "2026-08-10T00:00:00+00:00",
+    "received_start_ts": 1782864000,
+    "received_end_ts": 1786319940,
+    "received_start_iso": "2026-07-01T00:00:00+00:00",
+    "received_end_iso": "2026-08-09T23:59:00+00:00",
+    "total_raw_bars": 38340,
+    "deduped_bars": 38340,
+    "duplicate_count": 0,
+    "non_monotonic_count": 0,
+    "gap_count": 28,
+    "gaps_over_5m": [
+      {
+        "from_ts": 1782939420,
+        "to_ts": 1782943200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783025820,
+        "to_ts": 1783029600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783097940,
+        "to_ts": 1783288860,
+        "gap_minutes": 3182
+      },
+      {
+        "from_ts": 1783371420,
+        "to_ts": 1783375200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783457820,
+        "to_ts": 1783461600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783544220,
+        "to_ts": 1783548000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783630620,
+        "to_ts": 1783634400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783717020,
+        "to_ts": 1783893660,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1783976220,
+        "to_ts": 1783980000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784062620,
+        "to_ts": 1784066400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784149020,
+        "to_ts": 1784152800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784235420,
+        "to_ts": 1784239200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784321820,
+        "to_ts": 1784498460,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1784581020,
+        "to_ts": 1784584800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784667420,
+        "to_ts": 1784671200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784753820,
+        "to_ts": 1784757600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784840220,
+        "to_ts": 1784844000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784926620,
+        "to_ts": 1785103260,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1785185820,
+        "to_ts": 1785189600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785272220,
+        "to_ts": 1785276000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785358620,
+        "to_ts": 1785362400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785445020,
+        "to_ts": 1785448800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785531420,
+        "to_ts": 1785708060,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1785790620,
+        "to_ts": 1785794400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785877020,
+        "to_ts": 1785880800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785963420,
+        "to_ts": 1785967200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1786049820,
+        "to_ts": 1786053600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1786136220,
+        "to_ts": 1786312860,
+        "gap_minutes": 2944
+      }
+    ],
+    "pages_fetched": 77,
+    "fetch_elapsed_s": 55.15,
+    "bridge_url": "http://127.0.0.1:22347/mcp",
+    "broker": "Exness-MT5Real27",
+    "symbol_info": {
+      "symbol": "XAUUSDm",
+      "trade_mode": 4,
+      "trade_enabled": true,
+      "digits": 3,
+      "point": 0.001,
+      "tick_size": 0.001,
+      "tick_value": 0.1,
+      "contract_size": 100.0,
+      "min_lot": 0.01,
+      "max_lot": 200.0,
+      "lot_step": 0.01,
+      "stops_level": 0,
+      "freeze_level": 0,
+      "trade_execution": 2,
+      "filling_mode": 3,
+      "order_mode": 127,
+      "expiration_mode": 15
+    }
+  },
+  "phase2_aggregation": {
+    "M1_DATASET_FINGERPRINT": "ff55b44afd7d8973ba5d7e0df62ab3dcd44b89e435b6f0b77c9919050acd262f",
+    "m1_bar_count": 38340,
+    "m1_received_start_ts": 1782864000,
+    "m1_received_end_ts": 1786319940,
+    "m1_received_start_iso": "2026-07-01T00:00:00+00:00",
+    "m1_received_end_iso": "2026-08-09T23:59:00+00:00",
+    "duplicate_count": 0,
+    "non_monotonic_count": 0,
+    "gap_count": 28,
+    "gaps_over_5m": [
+      {
+        "from_ts": 1782939420,
+        "to_ts": 1782943200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783025820,
+        "to_ts": 1783029600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783097940,
+        "to_ts": 1783288860,
+        "gap_minutes": 3182
+      },
+      {
+        "from_ts": 1783371420,
+        "to_ts": 1783375200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783457820,
+        "to_ts": 1783461600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783544220,
+        "to_ts": 1783548000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783630620,
+        "to_ts": 1783634400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1783717020,
+        "to_ts": 1783893660,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1783976220,
+        "to_ts": 1783980000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784062620,
+        "to_ts": 1784066400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784149020,
+        "to_ts": 1784152800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784235420,
+        "to_ts": 1784239200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784321820,
+        "to_ts": 1784498460,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1784581020,
+        "to_ts": 1784584800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784667420,
+        "to_ts": 1784671200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784753820,
+        "to_ts": 1784757600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784840220,
+        "to_ts": 1784844000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1784926620,
+        "to_ts": 1785103260,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1785185820,
+        "to_ts": 1785189600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785272220,
+        "to_ts": 1785276000,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785358620,
+        "to_ts": 1785362400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785445020,
+        "to_ts": 1785448800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785531420,
+        "to_ts": 1785708060,
+        "gap_minutes": 2944
+      },
+      {
+        "from_ts": 1785790620,
+        "to_ts": 1785794400,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785877020,
+        "to_ts": 1785880800,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1785963420,
+        "to_ts": 1785967200,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1786049820,
+        "to_ts": 1786053600,
+        "gap_minutes": 63
+      },
+      {
+        "from_ts": 1786136220,
+        "to_ts": 1786312860,
+        "gap_minutes": 2944
+      }
+    ],
+    "dedup_policy": "EXACT_TIMESTAMP_FIRST_OCCURRENCE",
+    "interpolation_applied": false,
+    "fabrication_applied": false,
+    "M1_TO_M5_BAR_COUNT_COMPARED": 7680,
+    "M1_TO_M5_EXACT_OHLC_MATCH_COUNT": 7680,
+    "M1_TO_M5_MISMATCH_COUNT": 0,
+    "mismatches": [],
+    "note": "Mismatches expected for M5 bars with partial M1 coverage (nightly gaps). M5 bars at the gap boundary may span a market-close period where M1 data does not exist but the M5 bar still has broker-native OHLC. These do not indicate data corruption."
+  },
+  "M1_DATASET_FINGERPRINT": "ff55b44afd7d8973ba5d7e0df62ab3dcd44b89e435b6f0b77c9919050acd262f",
+  "audit_date": "2026-10-08",
+  "source_commit_base": {
+    "v3_entry": "c82d290",
+    "m5_retest_cf": "5d18892",
+    "lower_tf_feasibility": "35dde76"
+  },
+  "broker_writes": 0,
+  "validation_outcomes_accessed": false,
+  "production_changed": false,
+  "m1_exit_policy_created": false,
+  "manifest_fingerprint": "e5b240d8a04075ace4dad2981f649a13f90fa136d5f02cf80eb3f314ab1e207b"
+}
