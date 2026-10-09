@@ -42,8 +42,12 @@ class OutboxRelay:
             # preserve the event's occurred_at as the fallback age baseline for those callers.
             outbox_created_at = row[10] if len(row) > 10 else row[7]
             try:
+                payload = row[6] if isinstance(row[6], dict) else {}
                 trace_emit("OUTBOX_PUBLISH_ATTEMPT", event_id=row[0], signal_id=row[3] if row[2] == "signal" else None,
-                           outbox_event_type=row[1], outbox_age_ms=elapsed_ms(outbox_created_at))
+                           outbox_event_type=row[1], outbox_age_ms=elapsed_ms(outbox_created_at),
+                           decision_time=payload.get("decision_time"),
+                           signal_emitted_at=payload.get("signal_emitted_at"),
+                           created_at=payload.get("created_at"), transport="DB_PRIMARY")
                 # Keep validation and transport failures inside the row-level failure boundary.
                 # One malformed/unsupported row must not terminate the relay and hide the
                 # outbox identity needed to diagnose it.  Failed rows remain unpublished and
@@ -54,7 +58,10 @@ class OutboxRelay:
                     cur.execute("UPDATE platform.outbox_events SET publish_status='PUBLISHED', published_at=now(), attempts=attempts+1, lease_owner=NULL, leased_until=NULL WHERE event_id=%s", (row[0],))
                 self.conn.commit(); result["published"] += 1
                 trace_emit("OUTBOX_PUBLISHED", event_id=row[0], signal_id=row[3] if row[2] == "signal" else None,
-                           outbox_event_type=row[1], outbox_age_ms=elapsed_ms(outbox_created_at), outcome="PUBLISHED")
+                           outbox_event_type=row[1], outbox_age_ms=elapsed_ms(outbox_created_at), outcome="PUBLISHED",
+                           decision_time=payload.get("decision_time"),
+                           signal_emitted_at=payload.get("signal_emitted_at"),
+                           created_at=payload.get("created_at"), transport="DB_PRIMARY")
             except Exception as exc:
                 error = f"outbox_id={row[0]} subject={row[1]} event_type={row[1]} error={exc}"
                 with self.conn.cursor() as cur:
@@ -62,6 +69,9 @@ class OutboxRelay:
                 self.conn.commit(); result["failed"] += 1
                 trace_emit("OUTBOX_FAILED", event_id=row[0], signal_id=row[3] if row[2] == "signal" else None,
                            outbox_event_type=row[1], outbox_age_ms=elapsed_ms(outbox_created_at), outcome="FAILED",
+                           decision_time=payload.get("decision_time"),
+                           signal_emitted_at=payload.get("signal_emitted_at"),
+                           created_at=payload.get("created_at"), transport="DB_PRIMARY",
                            error=f"{type(exc).__name__}: {exc}")
         return result
 
