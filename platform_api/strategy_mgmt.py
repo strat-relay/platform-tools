@@ -426,29 +426,44 @@ class StrategyMgmtRepository:
                         result["parameter_schema"] = schema[0]
                 return _serialize_row(result)
 
+    def list_instances(self) -> list[dict[str, Any]]:
+        """List registered instances for UI identity resolution.
+
+        The UUID is the write identity.  Legacy ``attributes.instance_id`` values
+        are returned as metadata only so clients can migrate away from slugs.
+        """
+        with self._conn(readonly=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM strategy_mgmt.strategy_instance_v2 ORDER BY created_at DESC")
+                return [_serialize_row(_row_to_dict(cur, row)) for row in cur.fetchall()]
+
     def patch_instance_online(self, instance_id: str, online: bool, updated_by: str) -> dict[str, Any]:
         """Toggle online flag only.  execution_eligible is never changed here."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 # Read current execution_eligible to assert it won't change.
                 cur.execute(
-                    "SELECT execution_eligible FROM strategy_mgmt.strategy_instance_v2 WHERE id = %s FOR UPDATE",
-                    (instance_id,),
+                    """SELECT id, execution_eligible
+                         FROM strategy_mgmt.strategy_instance_v2
+                        WHERE id::text = %s OR attributes->>'instance_id' = %s
+                        FOR UPDATE""",
+                    (instance_id, instance_id),
                 )
                 before = cur.fetchone()
                 if before is None:
                     raise KeyError(f"StrategyInstance {instance_id} not found")
+                resolved_id, execution_eligible = before
                 # Update only online; the DB trigger will reject any execution_eligible change.
                 cur.execute(
                     """UPDATE strategy_mgmt.strategy_instance_v2
                        SET online = %s, updated_at = now()
                        WHERE id = %s
                        RETURNING *""",
-                    (online, instance_id),
+                    (online, resolved_id),
                 )
                 row = _row_to_dict(cur, cur.fetchone())
                 # Assert invariant: execution_eligible must be unchanged.
-                assert row["execution_eligible"] == before[0], \
+                assert row["execution_eligible"] == execution_eligible, \
                     "INVARIANT VIOLATION: execution_eligible changed during online toggle"
             conn.commit()
         return _serialize_row(row)
@@ -649,6 +664,8 @@ class StrategyMgmtApi:
 
         # Strategy instances (new pipeline)
         if p == "/api/v1/strategy-instances":
+            if method == "GET":
+                return self._list_instances()
             if method == "POST":
                 return self._create_instance(body)
             return 405, self._err("METHOD_NOT_ALLOWED")
@@ -979,6 +996,9 @@ class StrategyMgmtApi:
                 raise KeyError(f"StrategyInstance {inst_id} not found")
             return self._ok(row)
         return self._wrap(_do)
+
+    def _list_instances(self) -> tuple[int, dict[str, Any]]:
+        return self._wrap(lambda: self._ok(self._repo.list_instances()))
 
     def _patch_instance(self, inst_id: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
         """PATCH can only change `online`.  execution_eligible changes are refused."""
