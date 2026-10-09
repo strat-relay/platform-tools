@@ -766,5 +766,270 @@ class ParameterInventoryTests(unittest.TestCase):
                                 "requiring high tp1_min_rr must reduce or maintain signal count")
 
 
+# ─── EXECUTION MODE ───────────────────────────────────────────────────────────
+
+class ExecutionModeTests(unittest.TestCase):
+    """Verify execution_mode (OFF/SHADOW/LIVE) is independent of runtime_state."""
+
+    def _make_adapter(self, execution_mode="SHADOW", execution_mode_revision=0):
+        from orchestration.adapters.kojo_structure_reclaim_v3_adapter import KojoStructureReclaimV3Adapter
+        sv = _make_sv()
+        ps = kojo_structure_reclaim_v3_default_parameter_set()
+        adapter = KojoStructureReclaimV3Adapter(
+            instance_id="em-test",
+            display_name="Execution Mode Test",
+            instruments=["XAUUSDm"],
+            parameter_set_fingerprint=ps.fingerprint,
+            execution_mode=execution_mode,
+            execution_mode_revision=execution_mode_revision,
+        )
+        adapter.initialize(sv, ps)
+        return adapter
+
+    def test_adapter_carries_execution_mode_from_config(self):
+        adapter = self._make_adapter("SHADOW", 0)
+        self.assertEqual(adapter._execution_mode, "SHADOW")
+        self.assertEqual(adapter._execution_mode_revision, 0)
+
+    def test_adapter_diagnostics_report_execution_mode(self):
+        adapter = self._make_adapter("SHADOW", 1)
+        diag = adapter.diagnostics()
+        self.assertEqual(diag["execution_mode"], "SHADOW")
+        self.assertEqual(diag["execution_mode_revision"], 1)
+        self.assertFalse(diag["execution_eligible"])
+        self.assertEqual(diag["broker_writes"], 0)
+
+    def test_signal_carries_execution_mode_at_decision(self):
+        from strategy_backtest.models import EntrySignal
+        adapter = self._make_adapter("SHADOW", 3)
+        bars = _build_synthetic_session()
+        for event in bars:
+            for output in adapter.consume_market_event(event):
+                if isinstance(output, EntrySignal):
+                    self.assertEqual(output.provenance["execution_mode_at_decision"], "SHADOW")
+                    self.assertEqual(output.provenance["execution_mode_revision"], 3)
+                    return
+        self.skipTest("synthetic session produced no signal")
+
+    def test_old_shadow_signal_not_retroactively_executable(self):
+        """Changing execution_mode after emit does NOT change already-emitted signals."""
+        from strategy_backtest.models import EntrySignal
+        adapter = self._make_adapter("SHADOW", 0)
+        bars = _build_synthetic_session()
+        first_signal = None
+        for event in bars:
+            for output in adapter.consume_market_event(event):
+                if isinstance(output, EntrySignal):
+                    first_signal = output
+                    break
+            if first_signal is not None:
+                break
+        if first_signal is None:
+            self.skipTest("synthetic session produced no signal")
+
+        # Simulate a mode change after the signal was emitted
+        adapter._execution_mode = "LIVE"
+        adapter._execution_mode_revision = 1
+
+        # The already-emitted signal must still carry SHADOW, not LIVE
+        self.assertEqual(first_signal.provenance["execution_mode_at_decision"], "SHADOW")
+        self.assertEqual(first_signal.provenance["execution_mode_revision"], 0)
+
+    def test_execution_mode_reloads_from_config(self):
+        from orchestration.adapters.kojo_structure_reclaim_v3_adapter import KojoStructureReclaimV3Adapter
+        sv = _make_sv()
+        ps = kojo_structure_reclaim_v3_default_parameter_set()
+        adapter = KojoStructureReclaimV3Adapter(
+            instance_id="reload-test", display_name="Reload Test", instruments=[],
+            execution_mode="OFF", execution_mode_revision=0,
+        )
+        adapter.initialize(sv, ps)
+        self.assertEqual(adapter._execution_mode, "OFF")
+
+        # Simulate config update carrying SHADOW mode
+        config = {
+            "instances": [{
+                "instance_id": "reload-test",
+                "parameter_set_fingerprint": ps.fingerprint,
+                "execution_mode": "SHADOW",
+                "execution_mode_revision": 1,
+            }]
+        }
+        reloaded = adapter.maybe_reload_parameter_set(config)
+        self.assertTrue(reloaded)
+        self.assertEqual(adapter._execution_mode, "SHADOW")
+        self.assertEqual(adapter._execution_mode_revision, 1)
+
+    def test_execution_mode_snapshot_and_restore(self):
+        adapter = self._make_adapter("SHADOW", 2)
+        state = adapter.snapshot_state()
+        self.assertEqual(state["_execution_mode"], "SHADOW")
+        self.assertEqual(state["_execution_mode_revision"], 2)
+
+        adapter2 = self._make_adapter("OFF", 0)
+        adapter2.restore_state(state)
+        self.assertEqual(adapter2._execution_mode, "SHADOW")
+        self.assertEqual(adapter2._execution_mode_revision, 2)
+
+    def test_execution_mode_dimensions_are_independent(self):
+        """runtime_state=ONLINE can coexist with execution_mode=OFF (no signals routed)."""
+        # The adapter exists only when online=true (ONLINE), but execution_mode is separate.
+        adapter_off = self._make_adapter("OFF", 0)
+        adapter_shadow = self._make_adapter("SHADOW", 0)
+        adapter_live = self._make_adapter("LIVE", 0)
+
+        # All three adapters generate the same signals from the evaluator
+        bars = _build_synthetic_session()
+        from strategy_backtest.models import EntrySignal
+        sigs_off = [o for o in _run_synthetic_session(adapter_off, bars) if isinstance(o, EntrySignal)]
+        sigs_shadow = [o for o in _run_synthetic_session(adapter_shadow, bars) if isinstance(o, EntrySignal)]
+        sigs_live = [o for o in _run_synthetic_session(adapter_live, bars) if isinstance(o, EntrySignal)]
+
+        # Same signal count regardless of execution mode (routing happens elsewhere)
+        self.assertEqual(len(sigs_off), len(sigs_shadow))
+        self.assertEqual(len(sigs_shadow), len(sigs_live))
+
+        # Execution mode at decision differs
+        for sig in sigs_off:
+            self.assertEqual(sig.provenance["execution_mode_at_decision"], "OFF")
+        for sig in sigs_shadow:
+            self.assertEqual(sig.provenance["execution_mode_at_decision"], "SHADOW")
+        for sig in sigs_live:
+            self.assertEqual(sig.provenance["execution_mode_at_decision"], "LIVE")
+
+
+class ExecutionModeApiTests(unittest.TestCase):
+    """Verify StrategyMgmtApi execution mode endpoint logic."""
+
+    def _make_api(self, preflight_passes=True):
+        from platform_api.strategy_mgmt import StrategyMgmtApi, StrategyMgmtRepository, VALID_EXECUTION_MODES
+
+        # In-memory stub repository
+        class FakeRepo:
+            def __init__(self):
+                self._instances = {
+                    "inst-1": {
+                        "id": "inst-1",
+                        "online": True,
+                        "execution_eligible": False,
+                        "execution_mode": "SHADOW",
+                        "execution_mode_revision": 0,
+                    }
+                }
+
+            def get_instance(self, instance_id):
+                return dict(self._instances.get(instance_id) or {}) or None
+
+            def set_instance_execution_mode(self, instance_id, mode, updated_by, *, expected_revision=None):
+                from platform_api.strategy_mgmt import ExecutionModeRevisionConflict
+                inst = self._instances.get(instance_id)
+                if inst is None:
+                    raise KeyError(f"not found: {instance_id}")
+                if expected_revision is not None and inst["execution_mode_revision"] != expected_revision:
+                    raise ExecutionModeRevisionConflict("revision mismatch")
+                inst["execution_mode"] = mode
+                inst["execution_mode_revision"] += 1
+                return dict(inst)
+
+        def preflight():
+            if preflight_passes:
+                return {"passed": True, "checks": [], "reasons": []}
+            return {"passed": False, "checks": [], "reasons": ["execution_bridge not healthy"]}
+
+        repo = FakeRepo()
+        return StrategyMgmtApi(repository=repo, job_runner=object(), live_preflight_fn=preflight)
+
+    def test_get_execution_mode(self):
+        api = self._make_api()
+        status, body = api.handle("GET", "/api/v1/strategy-instances/inst-1/execution-mode", None)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["execution_mode"], "SHADOW")
+        self.assertEqual(body["data"]["execution_mode_revision"], 0)
+
+    def test_shadow_to_off_no_preflight_required(self):
+        api = self._make_api(preflight_passes=False)  # preflight would fail but isn't called
+        body = json.dumps({"mode": "OFF", "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 200)
+        self.assertEqual(resp["data"]["execution_mode"], "OFF")
+
+    def test_shadow_to_live_preflight_passes(self):
+        api = self._make_api(preflight_passes=True)
+        body = json.dumps({"mode": "LIVE", "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 200)
+        self.assertEqual(resp["data"]["execution_mode"], "LIVE")
+        self.assertTrue(resp["preflight"]["passed"])
+
+    def test_shadow_to_live_preflight_fails(self):
+        api = self._make_api(preflight_passes=False)
+        body = json.dumps({"mode": "LIVE", "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 409)
+        self.assertEqual(resp["error"], "PREFLIGHT_FAILED")
+        self.assertFalse(resp["preflight"]["passed"])
+
+    def test_live_to_shadow_no_preflight(self):
+        api = self._make_api(preflight_passes=False)
+        # First put instance in LIVE mode directly
+        api._repo._instances["inst-1"]["execution_mode"] = "LIVE"
+        body = json.dumps({"mode": "SHADOW", "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 200)
+        self.assertEqual(resp["data"]["execution_mode"], "SHADOW")
+
+    def test_live_to_off_supported(self):
+        api = self._make_api(preflight_passes=False)
+        api._repo._instances["inst-1"]["execution_mode"] = "LIVE"
+        body = json.dumps({"mode": "OFF", "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 200)
+        self.assertEqual(resp["data"]["execution_mode"], "OFF")
+
+    def test_invalid_mode_rejected(self):
+        api = self._make_api()
+        body = json.dumps({"mode": "ARMED", "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 400)
+
+    def test_live_to_live_already_in_mode(self):
+        api = self._make_api()
+        api._repo._instances["inst-1"]["execution_mode"] = "LIVE"
+        body = json.dumps({"mode": "LIVE", "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 200)
+        self.assertIn("already in LIVE", resp["data"].get("message", ""))
+
+    def test_no_preflight_fn_blocks_live(self):
+        from platform_api.strategy_mgmt import StrategyMgmtApi
+
+        class FakeRepo:
+            def get_instance(self, _):
+                return {"id": "x", "online": True, "execution_eligible": False,
+                        "execution_mode": "SHADOW", "execution_mode_revision": 0}
+
+            def set_instance_execution_mode(self, *args, **kwargs):
+                raise AssertionError("must not be called if preflight not wired")
+
+        api = StrategyMgmtApi(repository=FakeRepo(), job_runner=object(), live_preflight_fn=None)
+        body = json.dumps({"mode": "LIVE"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/x/execution-mode", body)
+        self.assertEqual(status, 409)
+        self.assertEqual(resp["error"], "PREFLIGHT_FAILED")
+
+    def test_patch_execution_mode_via_patch_refused(self):
+        api = self._make_api()
+        body = json.dumps({"executionMode": "LIVE"}).encode()
+        status, resp = api.handle("PATCH", "/api/v1/strategy-instances/inst-1", body)
+        self.assertEqual(status, 400)
+
+    def test_revision_conflict_rejected(self):
+        api = self._make_api()
+        body = json.dumps({"mode": "OFF", "expectedRevision": 99, "updatedBy": "operator"}).encode()
+        status, resp = api.handle("POST", "/api/v1/strategy-instances/inst-1/execution-mode", body)
+        self.assertEqual(status, 409)
+        self.assertEqual(resp["error"], "REVISION_CONFLICT")
+
+
 if __name__ == "__main__":
     unittest.main()

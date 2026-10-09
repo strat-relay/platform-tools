@@ -50,12 +50,16 @@ class KojoStructureReclaimV3Adapter:
         instruments: list[str],
         parameter_set_fingerprint: str | None = None,
         configuration_revision: int = 1,
+        execution_mode: str = "OFF",
+        execution_mode_revision: int = 0,
     ) -> None:
         self.instance_id = instance_id
         self.display_name = display_name
         self.instruments = instruments
         self._active_fingerprint: str | None = parameter_set_fingerprint
         self._configuration_revision: int = configuration_revision
+        self._execution_mode: str = execution_mode
+        self._execution_mode_revision: int = execution_mode_revision
         self._evaluator: Any | None = None
         self._initialized = False
 
@@ -78,7 +82,7 @@ class KojoStructureReclaimV3Adapter:
         strategy_version: Any = None,
         parameter_set_loader: Any = None,
     ) -> bool:
-        """Check config for a parameter set change; reinitialize evaluator if changed.
+        """Check config for a parameter set or execution_mode change; reload if changed.
 
         Returns True if a reload occurred.
 
@@ -91,20 +95,27 @@ class KojoStructureReclaimV3Adapter:
         if not self._initialized or self._evaluator is None:
             return False
 
+        reloaded = False
+
+        # Check execution_mode change (runtime, no evaluator reinit needed)
+        new_mode, new_mode_rev = _execution_mode_for_instance(config, self.instance_id)
+        if new_mode is not None and new_mode != self._execution_mode:
+            self._execution_mode = new_mode
+            self._execution_mode_revision = new_mode_rev or 0
+            reloaded = True
+
+        # Check parameter set change
         new_fingerprint = _fingerprint_for_instance(config, self.instance_id)
         if new_fingerprint is None or new_fingerprint == self._active_fingerprint:
-            return False
+            return reloaded
 
-        if parameter_set_loader is None:
-            return False
+        if parameter_set_loader is None or strategy_version is None:
+            return reloaded
 
         try:
             new_ps = parameter_set_loader(new_fingerprint)
         except Exception:
-            return False
-
-        if strategy_version is None:
-            return False
+            return reloaded
 
         self._configuration_revision += 1
         self._evaluator.initialize(
@@ -119,7 +130,15 @@ class KojoStructureReclaimV3Adapter:
     def consume_market_event(self, event: Any) -> tuple:
         if not self._initialized or self._evaluator is None:
             return ()
-        return self._evaluator.consume_market_event(event)
+        outputs = self._evaluator.consume_market_event(event)
+        # Stamp execution mode provenance onto each signal.
+        # The mode captured here is the authoritative value at decision time.
+        # Old SHADOW signals are never retroactively executable even if the
+        # instance later transitions to LIVE; execution_mode_at_decision is immutable.
+        return tuple(
+            _stamp_execution_mode(o, self._execution_mode, self._execution_mode_revision)
+            for o in outputs
+        )
 
     def snapshot_state(self) -> dict[str, Any]:
         if self._evaluator is None:
@@ -128,6 +147,8 @@ class KojoStructureReclaimV3Adapter:
             **self._evaluator.snapshot_state(),
             "_configuration_revision": self._configuration_revision,
             "_active_fingerprint": self._active_fingerprint,
+            "_execution_mode": self._execution_mode,
+            "_execution_mode_revision": self._execution_mode_revision,
         }
 
     def restore_state(self, state: dict[str, Any]) -> None:
@@ -137,6 +158,10 @@ class KojoStructureReclaimV3Adapter:
             self._configuration_revision = int(state["_configuration_revision"])
         if "_active_fingerprint" in state:
             self._active_fingerprint = state["_active_fingerprint"]
+        if "_execution_mode" in state:
+            self._execution_mode = str(state["_execution_mode"])
+        if "_execution_mode_revision" in state:
+            self._execution_mode_revision = int(state["_execution_mode_revision"])
 
     def diagnostics(self) -> dict[str, Any]:
         base = {} if self._evaluator is None else self._evaluator.diagnostics()
@@ -145,6 +170,8 @@ class KojoStructureReclaimV3Adapter:
             "instance_id": self.instance_id,
             "configuration_revision": self._configuration_revision,
             "active_parameter_set_fingerprint": self._active_fingerprint,
+            "execution_mode": self._execution_mode,
+            "execution_mode_revision": self._execution_mode_revision,
             "execution_eligible": False,
             "broker_writes": 0,
         }
@@ -161,3 +188,32 @@ def _fingerprint_for_instance(config: dict[str, Any], instance_id: str) -> str |
         if inst.get("instance_id") == instance_id:
             return inst.get("parameter_set_fingerprint")
     return None
+
+
+def _execution_mode_for_instance(
+    config: dict[str, Any], instance_id: str
+) -> tuple[str | None, int | None]:
+    """Look up current execution_mode and execution_mode_revision for this instance."""
+    for inst in config.get("instances", []):
+        if inst.get("instance_id") == instance_id:
+            return inst.get("execution_mode"), inst.get("execution_mode_revision")
+    return None, None
+
+
+def _stamp_execution_mode(output: Any, mode: str, revision: int) -> Any:
+    """Stamp execution_mode_at_decision and execution_mode_revision onto a signal.
+
+    Only modifies objects that carry a `provenance` dict.  Other outputs pass through.
+    The stamp is immutable at emit time — old SHADOW signals cannot become executable
+    merely because the instance later transitions to LIVE.
+    """
+    from strategy_backtest.models import EntrySignal, SetupLifecycleEvent
+    if isinstance(output, (EntrySignal, SetupLifecycleEvent)):
+        prov = dict(output.provenance or {})
+        prov["execution_mode_at_decision"] = mode
+        prov["execution_mode_revision"] = revision
+        try:
+            return output.__class__(**{**output.__dict__, "provenance": prov})
+        except Exception:
+            return output
+    return output

@@ -588,11 +588,6 @@ class PlatformControlApi:
         self.instrument_membership = InstrumentMembershipRepository()
         from .strategy_catalog import StrategyCatalogRepository
         self.strategy_catalog = StrategyCatalogRepository()
-        # Dynamic strategy creation pipeline (migration 042)
-        if strategy_mgmt_api is None:
-            from .strategy_mgmt import StrategyMgmtApi
-            strategy_mgmt_api = StrategyMgmtApi()
-        self.strategy_mgmt_api = strategy_mgmt_api
         self.environ = os.environ if environ is None else environ
         # platform.json is no longer read. `strategy_config_path` is accepted for compatibility only.
         self.strategy_config_path = strategy_config_path
@@ -626,6 +621,15 @@ class PlatformControlApi:
             from .trade_manager_mode import TradeManagerModeApi
             trade_manager_mode_api = TradeManagerModeApi()
         self.trade_manager_mode_api = trade_manager_mode_api
+        # Dynamic strategy creation pipeline (migration 042).
+        # Wire the execution authority preflight so SHADOW→LIVE transitions reuse
+        # the existing system-level execution safety checks without duplication.
+        if strategy_mgmt_api is None:
+            from .strategy_mgmt import StrategyMgmtApi
+            strategy_mgmt_api = StrategyMgmtApi(
+                live_preflight_fn=self.execution_authority_api._preflight,
+            )
+        self.strategy_mgmt_api = strategy_mgmt_api
 
     @staticmethod
     def _strategy_write_route(path: str) -> tuple[str, str] | None:

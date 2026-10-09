@@ -149,7 +149,9 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
                 """SELECT v.id, sv.evaluator_key, v.display_name, v.online,
                           v.instruments, v.attributes,
                           ps.fingerprint AS parameter_set_fingerprint,
-                          COALESCE(ps.updated_at, ps.created_at) AS config_rev
+                          COALESCE(ps.updated_at, ps.created_at) AS config_rev,
+                          COALESCE(v.execution_mode, 'OFF') AS execution_mode,
+                          COALESCE(v.execution_mode_revision, 0) AS execution_mode_revision
                    FROM strategy_mgmt.strategy_instance_v2 v
                    JOIN strategy_mgmt.strategy_version sv ON sv.id = v.strategy_version_id
                    JOIN strategy_mgmt.parameter_set ps ON ps.id = v.parameter_set_id
@@ -168,7 +170,8 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
     }
     result = []
     for row in rows:
-        inst_id, evaluator_key, display_name, online, instruments_json, attrs_json, ps_fingerprint, config_rev = row
+        (inst_id, evaluator_key, display_name, online, instruments_json,
+         attrs_json, ps_fingerprint, config_rev, execution_mode, execution_mode_revision) = row
         strategy_id = _KEY_TO_STRATEGY.get(evaluator_key)
         if strategy_id is None:
             # Unknown evaluator key — skip; do not invent an adapter.
@@ -185,6 +188,8 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
             "active_instruments": instruments,
             "parameter_set_fingerprint": ps_fingerprint,
             "configuration_revision": config_rev,
+            "execution_mode": str(execution_mode or "OFF"),
+            "execution_mode_revision": int(execution_mode_revision or 0),
             "_source": "strategy_instance_v2",  # provenance marker
         })
     return result

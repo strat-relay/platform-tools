@@ -5,13 +5,14 @@
 --   strategy_mgmt.parameter_schema     — 18-parameter V3 schema
 --   strategy_mgmt.strategy_version     — KOJO_STRUCTURE_RECLAIM@V3 (lifecycle=IMPLEMENTED)
 --   strategy_mgmt.parameter_set        — "Kojo V3 Default" (frozen, parity with c82d290)
---   strategy_mgmt.strategy_instance_v2 — "Kojo V3 Forward" (online=false, execution_eligible=false)
---   platform.strategy_definition       — runtime routing entry (enabled=false initially)
+--   strategy_mgmt.strategy_instance_v2 — "Kojo V3 Forward" (online=TRUE, execution_mode=SHADOW)
+--   platform.strategy_definition       — runtime routing entry (enabled=true, shadow only)
 --
 -- All inserts are idempotent (ON CONFLICT DO NOTHING).
--- The strategy instance starts OFFLINE; an operator must toggle online=true.
+-- Initial forward state: runtime_state=ONLINE, execution_mode=SHADOW.
 -- BROKER_WRITES = 0.  EXECUTION_ELIGIBLE remains false.
--- Do NOT activate execution in this migration.
+-- LIVE transition requires operator action via Control API after explicit confirmation.
+-- Do NOT activate LIVE execution in this migration.
 
 -- ─── 1. Strategy Definition ────────────────────────────────────────────────────
 
@@ -129,19 +130,25 @@ VALUES (
 ON CONFLICT (parameter_set_id) DO NOTHING;
 
 -- ─── 5. Strategy Instance ──────────────────────────────────────────────────────
--- Starts OFFLINE (online=false).  execution_eligible=false always.
--- An operator must explicitly toggle online=true to begin forward shadow evaluation.
+-- Initial forward state: ONLINE + SHADOW.
+--   online=true          → runtime_state=ONLINE; evaluator generates signals immediately.
+--   execution_mode=SHADOW → signals are prospective/observed; no broker orders.
+--   execution_eligible=false → never changed here; execution authority is separate.
+--
+-- LIVE transition requires explicit operator action via Control API after confirmation.
+-- Migration 044 adds the execution_mode and execution_mode_revision columns.
 
 INSERT INTO strategy_mgmt.strategy_instance_v2
     (id, strategy_version_id, parameter_set_id, display_name, online, execution_eligible,
-     instruments, attributes, created_by)
+     execution_mode, instruments, attributes, created_by)
 VALUES (
     'e5f7a9b1-c3d5-4e7f-a1b3-5c7e9f1b3d5e',
     'a2b4c6d8-e0f2-4a6c-8e0a-2c4e6f8a0b2d',  -- V3 version id
     'c3d5e7f9-a1b3-4c5d-9e1f-3a5c7e9b1d3f',  -- default parameter set id
     'Kojo V3 Forward',
-    false,   -- OFFLINE at creation; operator toggles online
-    false,   -- execution_eligible NEVER changed here
+    true,       -- ONLINE; evaluator generates signals for forward cohort
+    false,      -- execution_eligible NEVER changed here
+    'SHADOW',   -- execution_mode=SHADOW; signals observed, no broker orders
     '[{"canonical_instrument": "XAUUSDm"}]'::jsonb,
     '{
         "shadow_only": true,
@@ -149,7 +156,7 @@ VALUES (
         "forward_testing": true,
         "source_fidelity_blocked": false,
         "ready_for_discovery": true,
-        "ready_for_shadow_signals": false,
+        "ready_for_shadow_signals": true,
         "production_eligible": false
     }'::jsonb,
     'migration_043'
@@ -158,8 +165,8 @@ ON CONFLICT DO NOTHING;
 
 -- ─── 6. Platform strategy_definition entry (runtime routing) ──────────────────
 -- Registers V3 in the platform schema so the signal orchestrator can discover
--- the managed strategy instance.  Starts enabled=false; operator enables it
--- at the same time as toggling the instance online.
+-- the managed strategy instance.  Starts enabled=true to match instance ONLINE state.
+-- execution_mode is governed by strategy_instance_v2.execution_mode, not this flag.
 
 INSERT INTO platform.strategy_definition
     (strategy_id, strategy_version, display_name, description, adapter,
@@ -171,10 +178,10 @@ VALUES (
     'Trend-aligned H1 structural close followed by M15 retest/rejection, '
     'with structural stop, current-day M15 reaction-zone TP1, and liquidity TP2.',
     'KojoStructureReclaimV3Adapter',
-    false,   -- enabled=false; toggled when instance goes online
+    true,    -- enabled=true; instance is ONLINE from initial state
     '{"audit": true, "shadow_execution": false, "distribution_queue": true}'::jsonb,
     '{"mode": "OBSERVE", "broker_writes": 0}'::jsonb,
-    '{"shadow_only": true, "source_fidelity_blocked": false}'::jsonb
+    '{"shadow_only": true, "source_fidelity_blocked": false, "execution_mode": "SHADOW"}'::jsonb
 )
 ON CONFLICT (strategy_id) DO NOTHING;
 

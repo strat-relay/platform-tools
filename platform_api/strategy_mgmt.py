@@ -7,9 +7,13 @@ Provides the intake/creation path:
 ARCHITECTURAL INVARIANTS (enforced here and in the DB):
   * StrategyVersion is immutable once frozen.
   * ParameterSet is immutable once frozen.
-  * New StrategyInstance always starts with online=False, execution_eligible=False.
+  * New StrategyInstance always starts with online=False, execution_eligible=False,
+    execution_mode='OFF'.
   * PATCH /strategy-instances/{id} can toggle `online` only.
+  * PATCH /strategy-instances/{id}/execution-mode changes execution_mode (OFF/SHADOW/LIVE).
   * Execution eligibility is NEVER changed here — it belongs to the authority system.
+  * SHADOW→LIVE transition requires system-level execution authority preflight.
+  * execution_mode_revision increments on every execution_mode change.
   * BROKER_WRITES = 0.
 """
 from __future__ import annotations
@@ -56,6 +60,13 @@ def _serialize(v: Any) -> Any:
 
 def _serialize_row(row: dict[str, Any]) -> dict[str, Any]:
     return {k: _serialize(v) for k, v in row.items()}
+
+
+class ExecutionModeRevisionConflict(Exception):
+    """execution_mode_revision did not match the expected value."""
+
+
+VALID_EXECUTION_MODES = frozenset({"OFF", "SHADOW", "LIVE"})
 
 
 # ─── repository ─────────────────────────────────────────────────────────────
@@ -366,21 +377,80 @@ class StrategyMgmtRepository:
 
     def create_instance(self, *, strategy_version_id: str, parameter_set_id: str,
                          display_name: str, created_by: str) -> dict[str, Any]:
-        """Create a new instance.  Always starts online=false, execution_eligible=false."""
+        """Create a new instance.
+
+        Always starts online=false, execution_eligible=false, execution_mode='OFF'.
+        Migration 044 adds execution_mode/execution_mode_revision columns; the
+        INSERT explicitly sets them so the repo works after either migration order.
+        """
         row_id = str(uuid.uuid4())
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO strategy_mgmt.strategy_instance_v2
                         (id, strategy_version_id, parameter_set_id, display_name,
-                         online, execution_eligible, created_by)
-                       VALUES (%s,%s,%s,%s, false, false, %s)
+                         online, execution_eligible, execution_mode,
+                         execution_mode_revision, created_by)
+                       VALUES (%s,%s,%s,%s, false, false, 'OFF', 0, %s)
                        RETURNING *""",
                     (row_id, strategy_version_id, parameter_set_id, display_name, created_by),
                 )
                 row = _row_to_dict(cur, cur.fetchone())
             conn.commit()
         return _serialize_row(row)
+
+    def set_instance_execution_mode(
+        self,
+        instance_id: str,
+        mode: str,
+        updated_by: str,
+        *,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Change execution_mode; increments execution_mode_revision.
+
+        LIVE transitions must be gated by a preflight check in the caller — this
+        method persists whatever mode is passed after the caller has verified it
+        is safe.  It does NOT call the preflight itself.
+
+        Raises:
+          ValueError — invalid mode
+          KeyError — instance not found
+          ExecutionModeRevisionConflict — expected_revision mismatch
+        """
+        if mode not in VALID_EXECUTION_MODES:
+            raise ValueError(f"execution_mode must be one of {sorted(VALID_EXECUTION_MODES)}, got {mode!r}")
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                if expected_revision is not None:
+                    cur.execute(
+                        "SELECT execution_mode_revision FROM strategy_mgmt.strategy_instance_v2"
+                        " WHERE id = %s FOR UPDATE",
+                        (instance_id,),
+                    )
+                    rev_row = cur.fetchone()
+                    if rev_row is None:
+                        raise KeyError(f"StrategyInstance {instance_id} not found")
+                    if rev_row[0] != expected_revision:
+                        raise ExecutionModeRevisionConflict(
+                            f"expected execution_mode_revision={expected_revision}, "
+                            f"got {rev_row[0]}"
+                        )
+                cur.execute(
+                    """UPDATE strategy_mgmt.strategy_instance_v2
+                       SET execution_mode = %s,
+                           execution_mode_revision = execution_mode_revision + 1,
+                           updated_at = now()
+                       WHERE id = %s
+                       RETURNING *""",
+                    (mode, instance_id),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise KeyError(f"StrategyInstance {instance_id} not found")
+                updated = _row_to_dict(cur, row)
+            conn.commit()
+        return _serialize_row(updated)
 
     def get_instance(self, instance_id: str) -> dict[str, Any] | None:
         with self._conn(readonly=True) as conn:
@@ -561,12 +631,20 @@ class StrategyMgmtApi:
     """HTTP-style handler that maps (method, path, body) → (status_code, response_dict).
 
     Wire this into PlatformControlApi.execute() before the catch-all 404.
+
+    live_preflight_fn:
+        Callable[[], dict] that returns {"passed": bool, "checks": [...], "reasons": [...]}.
+        Called before any SHADOW→LIVE transition.  If None, LIVE transitions are refused
+        (fail-closed).  Pass ExecutionAuthorityApi._preflight from PlatformControlApi so
+        the existing execution authority preflight is reused without duplication.
     """
 
     def __init__(self, repository: StrategyMgmtRepository | None = None,
-                 job_runner: BacktestJobRunner | None = None):
+                 job_runner: BacktestJobRunner | None = None,
+                 live_preflight_fn: Any | None = None):
         self._repo = repository or StrategyMgmtRepository()
         self._runner = job_runner or BacktestJobRunner(self._repo)
+        self._live_preflight_fn = live_preflight_fn
 
     def registry_rows(self) -> list[dict[str, Any]]:
         """Read the unified strategy registry for the compatibility catalog endpoint."""
@@ -654,12 +732,22 @@ class StrategyMgmtApi:
             return 405, self._err("METHOD_NOT_ALLOWED")
 
         if p.startswith("/api/v1/strategy-instances/"):
-            inst_id = p[len("/api/v1/strategy-instances/"):]
-            if "/" not in inst_id and inst_id:
+            rest = p[len("/api/v1/strategy-instances/"):]
+            parts = rest.split("/")
+            inst_id = parts[0]
+
+            if len(parts) == 1 and inst_id:
                 if method == "GET":
                     return self._get_instance(inst_id)
                 if method == "PATCH":
                     return self._patch_instance(inst_id, body)
+                return 405, self._err("METHOD_NOT_ALLOWED")
+
+            if len(parts) == 2 and parts[1] == "execution-mode" and inst_id:
+                if method == "GET":
+                    return self._get_instance_execution_mode(inst_id)
+                if method == "POST":
+                    return self._set_instance_execution_mode(inst_id, body)
                 return 405, self._err("METHOD_NOT_ALLOWED")
 
         # Not owned by this handler
@@ -981,7 +1069,8 @@ class StrategyMgmtApi:
         return self._wrap(_do)
 
     def _patch_instance(self, inst_id: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
-        """PATCH can only change `online`.  execution_eligible changes are refused."""
+        """PATCH can only change `online` or `instruments`.  execution_eligible changes are refused.
+        Use POST /execution-mode for execution mode transitions."""
         def _do():
             p = self._parse(body)
 
@@ -990,6 +1079,11 @@ class StrategyMgmtApi:
                 raise ValueError(
                     "execution_eligible cannot be changed through this endpoint; "
                     "it is managed by the execution authority system"
+                )
+            if "executionMode" in p or "execution_mode" in p:
+                raise ValueError(
+                    "execution_mode cannot be changed via PATCH; "
+                    "use POST /api/v1/strategy-instances/{id}/execution-mode"
                 )
 
             if "parameterSetId" in p or "parameter_set_id" in p:
@@ -1015,4 +1109,135 @@ class StrategyMgmtApi:
                 return self._ok(row)
 
             raise ValueError("PATCH body must include 'online' or 'instruments'")
+        return self._wrap(_do)
+
+    def _get_instance_execution_mode(self, inst_id: str) -> tuple[int, dict[str, Any]]:
+        def _do():
+            row = self._repo.get_instance(inst_id)
+            if row is None:
+                raise KeyError(f"StrategyInstance {inst_id} not found")
+            return self._ok({
+                "instance_id": inst_id,
+                "execution_mode": row.get("execution_mode", "OFF"),
+                "execution_mode_revision": row.get("execution_mode_revision", 0),
+                "online": row.get("online", False),
+                "execution_eligible": row.get("execution_eligible", False),
+            })
+        return self._wrap(_do)
+
+    def _set_instance_execution_mode(self, inst_id: str, body: bytes | None) -> tuple[int, dict[str, Any]]:
+        """POST /api/v1/strategy-instances/{id}/execution-mode
+
+        Body: {"mode": "SHADOW", "expectedRevision": 0, "updatedBy": "operator"}
+
+        Allowed transitions (all others refused):
+          OFF    → SHADOW   (no preflight required)
+          SHADOW → OFF      (no preflight required)
+          SHADOW → LIVE     (requires system-level execution authority preflight)
+          LIVE   → SHADOW   (no preflight required)
+          LIVE   → OFF      (no preflight required)
+
+        LIVE transition requires passing the injected live_preflight_fn.
+        If no preflight_fn is wired, LIVE transitions are refused (fail-closed).
+
+        OLD SHADOW signals are never retroactively executable.
+        execution_mode_at_decision in signal provenance captures the mode at emit time.
+        """
+        def _do():
+            p = self._parse(body)
+            mode = str(p.get("mode") or p.get("executionMode") or "").strip().upper()
+            if not mode:
+                raise ValueError("'mode' is required (OFF | SHADOW | LIVE)")
+            if mode not in VALID_EXECUTION_MODES:
+                raise ValueError(f"mode must be one of {sorted(VALID_EXECUTION_MODES)}")
+
+            expected_revision = p.get("expectedRevision")
+            if expected_revision is not None and not isinstance(expected_revision, int):
+                raise ValueError("expectedRevision must be an integer")
+            updated_by = str(p.get("updatedBy") or "api")
+
+            # Read current state for transition validation
+            current = self._repo.get_instance(inst_id)
+            if current is None:
+                raise KeyError(f"StrategyInstance {inst_id} not found")
+            current_mode = str(current.get("execution_mode") or "OFF")
+            online = bool(current.get("online", False))
+
+            # Validate transition
+            _ALLOWED_TRANSITIONS = {
+                ("OFF",    "SHADOW"),
+                ("SHADOW", "OFF"),
+                ("SHADOW", "LIVE"),
+                ("LIVE",   "SHADOW"),
+                ("LIVE",   "OFF"),
+            }
+            if current_mode == mode:
+                return self._ok({
+                    **{k: current[k] for k in ("execution_mode", "execution_mode_revision", "online") if k in current},
+                    "message": f"already in {mode}",
+                })
+            if (current_mode, mode) not in _ALLOWED_TRANSITIONS:
+                raise ValueError(
+                    f"transition {current_mode}→{mode} is not supported; "
+                    f"allowed: {sorted(_ALLOWED_TRANSITIONS)}"
+                )
+
+            # SHADOW→LIVE: system-level preflight required
+            preflight_result: dict[str, Any] | None = None
+            if mode == "LIVE":
+                # Instance-level checks
+                instance_checks = [
+                    {"name": "instance_online", "passed": online,
+                     "detail": "instance must be ONLINE to activate LIVE" if not online else None},
+                ]
+                # System-level preflight (reuses existing execution authority checks)
+                if self._live_preflight_fn is None:
+                    instance_checks.append({
+                        "name": "system_preflight_available",
+                        "passed": False,
+                        "detail": "no system preflight function is wired; LIVE transition is blocked",
+                    })
+                    preflight_result = {
+                        "passed": False,
+                        "checks": instance_checks,
+                        "reasons": [c["detail"] for c in instance_checks if not c["passed"]],
+                    }
+                else:
+                    try:
+                        sys_preflight = self._live_preflight_fn()
+                        all_checks = instance_checks + sys_preflight.get("checks", [])
+                        all_reasons = (
+                            [c["detail"] for c in instance_checks if not c["passed"]]
+                            + sys_preflight.get("reasons", [])
+                        )
+                        preflight_result = {
+                            "passed": not all_reasons,
+                            "checks": all_checks,
+                            "reasons": all_reasons,
+                        }
+                    except Exception as exc:  # noqa: BLE001
+                        preflight_result = {
+                            "passed": False,
+                            "checks": instance_checks,
+                            "reasons": [f"system preflight failed: {exc}"],
+                        }
+                if not preflight_result["passed"]:
+                    return 409, {
+                        "status": "error",
+                        "error": "PREFLIGHT_FAILED",
+                        "message": "LIVE transition refused; execution mode remains unchanged",
+                        "preflight": preflight_result,
+                    }
+
+            try:
+                updated = self._repo.set_instance_execution_mode(
+                    inst_id, mode, updated_by, expected_revision=expected_revision
+                )
+            except ExecutionModeRevisionConflict as exc:
+                return 409, self._err("REVISION_CONFLICT", str(exc))
+
+            result = self._ok(updated)
+            if preflight_result is not None:
+                result[1]["preflight"] = preflight_result
+            return result
         return self._wrap(_do)
