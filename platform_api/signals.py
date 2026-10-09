@@ -588,6 +588,15 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
             status, body = instance.execute("POST", self.path, raw_body)
             self._send(status, body)
 
+        def do_PATCH(self) -> None:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            raw_body = self.rfile.read(min(length, 1_048_576)) if length > 0 else None
+            status, body = instance.execute("PATCH", self.path, raw_body)
+            self._send(status, body)
+
         # Paths that accept POST in addition to GET - kept as an explicit, narrow allowlist here
         # too so a browser's CORS preflight never promises more than the actual route dispatch
         # (PlatformControlApi.execute) is willing to accept.
@@ -610,7 +619,10 @@ def create_server(host: str = "0.0.0.0", port: int = 22350,
             post_allowed = (path in self._POST_ALLOWED_PATHS
                             or PlatformControlApi._instance_lifecycle_route(path) is not None
                             or PlatformControlApi._strategy_write_route(path) is not None)
+            strategy_instance_patch = path.startswith("/api/v1/strategy-instances/") and "/" not in path[len("/api/v1/strategy-instances/"):]
             allowed_methods = {"GET", "OPTIONS"} | ({"POST"} if post_allowed else set())
+            if strategy_instance_patch:
+                allowed_methods.add("PATCH")
             requested_method = self.headers.get("Access-Control-Request-Method", "GET").upper()
             if requested_method not in allowed_methods:
                 self._send(403, {"error": "CORS_METHOD_DENIED"})
