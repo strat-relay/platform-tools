@@ -20,15 +20,17 @@ class ContextV2ForwardTests(unittest.TestCase):
                 self.assertEqual(v2._v1.STATE.parent, Path(directory))
                 self.assertNotEqual(v2.V2_DECISION_FINGERPRINT, v1_fingerprint)
 
-    def test_v2_manifest_is_not_v1_manifest(self):
+    def test_v2_runtime_identity_is_not_a_freeze_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.dict(os.environ, {"CONTEXT_V2_RUNNER_STATE_DIR": directory}):
                 v2._configure_runtime()
-                manifest = v2.freeze()
+                manifest = v2.runtime_identity()
                 self.assertEqual(manifest["strategy_version"], "CONTEXT_STRUCTURE_RETRACE_V2")
                 self.assertEqual(manifest["configuration"]["derived_from"], "CONTEXT_STRUCTURE_RETRACE_V1@V1")
                 self.assertEqual(manifest["configuration"]["v2_contract_hash"], v2.V2_CONTRACT_HASH)
                 self.assertEqual(manifest["configuration"]["v2_parameter_hash"], v2.V2_PARAMETER_HASH)
+                self.assertEqual(manifest["identity_mode"], "RUNTIME_MUTABLE")
+                self.assertNotIn("freeze_timestamp", manifest)
 
     def test_v2_adapter_identity_is_explicit(self):
         with tempfile.TemporaryDirectory() as directory:
