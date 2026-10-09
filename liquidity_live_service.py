@@ -53,10 +53,15 @@ def run_once() -> dict[str, Any]:
 def main() -> None:
     configure_strategy_audit_logging()
     audit("runner_started", runner="liquidity-live", broker_writes=0)
-    interval = max(1.0, float(os.environ.get("LIQUIDITY_LIVE_POLL_SECONDS", "5")))
+    # Anchor the cadence to cycle starts. Sleeping the full interval after a
+    # cycle used to add cycle runtime to the configured interval. Redis-backed
+    # snapshots are cheap enough for a 1s default and completed candles should
+    # be observed on the next poll rather than waiting for an extra cycle.
+    interval = max(0.25, float(os.environ.get("LIQUIDITY_LIVE_POLL_SECONDS", "1")))
     check_configuration()
     runner_consecutive_failures = 0
     while True:
+        cycle_started = time.monotonic()
         # One failed cycle (a bridge/cache timeout, a transient database error) must not kill the
         # process: nothing is published from a failed tick, and the next tick starts clean.
         try:
@@ -67,7 +72,21 @@ def main() -> None:
             audit("tick_failed", runner="liquidity-live", error=f"{type(exc).__name__}: {exc}"[:300],
                   runner_consecutive_failures=runner_consecutive_failures,
                   market_data_consecutive_failures=0)
-        time.sleep(interval * min(2 ** max(runner_consecutive_failures - 1, 0), 12))
+        # Schedule from this cycle's start, not from the previous target. This
+        # preserves fixed cadence for healthy cycles and prevents backoff from
+        # accumulating into an ever-growing delay after one slow/failing tick.
+        next_cycle = cycle_started + interval * min(2 ** max(runner_consecutive_failures - 1, 0), 12)
+        delay = next_cycle - time.monotonic()
+        if delay <= 0:
+            # A slow cycle must not turn into a tight retry loop.
+            next_cycle = time.monotonic() + interval
+            delay = interval
+        audit("runner_cycle_scheduled", runner="liquidity-live",
+              cycle_elapsed_ms=round((time.monotonic() - cycle_started) * 1000, 3),
+              configured_interval_ms=round(interval * 1000, 3),
+              next_cycle_delay_ms=round(delay * 1000, 3),
+              runner_consecutive_failures=runner_consecutive_failures)
+        time.sleep(delay)
 
 
 if __name__ == "__main__":
