@@ -96,8 +96,21 @@ def load_config_from_database(conn: Any) -> dict[str, Any]:
             if tm is not None:
                 record["trade_management"] = _json(tm)
             strategies.append(record)
+    instances = load_instances_from_database(conn)
+    known = {row["strategy_id"] for row in strategies}
+    # Pipeline-created research instances are authoritative in strategy_mgmt and
+    # do not require a duplicate legacy platform.strategy_definition row.
+    for instance in instances:
+        if instance["strategy_id"] not in known and instance.get("_source") == "strategy_instance_v2":
+            strategies.append({"strategy_id": instance["strategy_id"], "strategy_version": "V2",
+                                "enabled": bool(instance.get("enabled")),
+                                "adapter": "ContextStructureRetraceAdapter",
+                                "routes": {"audit": True, "shadow_execution": False,
+                                           "distribution_queue": True},
+                                "research_only": True, "paper_only": True})
+            known.add(instance["strategy_id"])
     return {**settings, "accounts": accounts, "portfolios": portfolios,
-            "strategies": strategies, "instances": load_instances_from_database(conn)}
+            "strategies": strategies, "instances": instances}
 
 
 def load_instances_from_database(conn: Any) -> list[dict[str, Any]]:
@@ -134,9 +147,11 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT v.id, sv.evaluator_key, v.display_name, v.online,
-                          v.instruments, v.attributes
+                          v.instruments, v.attributes, p.parameter_set_id, p.fingerprint,
+                          p.values
                    FROM strategy_mgmt.strategy_instance_v2 v
                    JOIN strategy_mgmt.strategy_version sv ON sv.id = v.strategy_version_id
+                   JOIN strategy_mgmt.parameter_set p ON p.id = v.parameter_set_id
                    WHERE v.online = true
                    ORDER BY sv.evaluator_key, v.id"""
             )
@@ -147,10 +162,12 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
     from strategy_backtest.kojo_structure_reclaim import STRATEGY_ID as KSR_ID, EVALUATOR_KEY as KSR_KEY
     result = []
     for row in rows:
-        inst_id, evaluator_key, display_name, online, instruments_json, attrs_json = row
+        inst_id, evaluator_key, display_name, online, instruments_json, attrs_json, parameter_set_id, parameter_fingerprint, parameter_values = row
         # Map evaluator_key → strategy_id.  Currently only KOJO_STRUCTURE_RECLAIM_V1 uses v2.
         if evaluator_key == KSR_KEY:
             strategy_id = KSR_ID
+        elif evaluator_key == "context_structure_retrace_v2_research":
+            strategy_id = "CONTEXT_STRUCTURE_RETRACE_V2"
         else:
             # Unknown evaluator key — skip; do not invent an adapter.
             continue
@@ -159,11 +176,14 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
             raw = instruments_json if isinstance(instruments_json, list) else []
             instruments = [str(x.get("canonical_instrument") or x) for x in raw if x]
         result.append({
-            "instance_id": str(inst_id),
+            "instance_id": str((attrs_json or {}).get("instance_id") or inst_id),
             "strategy_id": strategy_id,
             "display_name": display_name,
             "enabled": bool(online),
             "active_instruments": instruments,
+            "parameter_set_id": parameter_set_id,
+            "parameter_fingerprint": parameter_fingerprint,
+            "parameter_values": _json(parameter_values),
             "_source": "strategy_instance_v2",  # provenance marker
         })
     return result

@@ -159,6 +159,14 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
                 adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp, instances[0]))
             else:
                 adapters.append(ContextStructureRetraceAdapter(ROOT, freeze_timestamp))
+        elif record["strategy_id"] == "CONTEXT_STRUCTURE_RETRACE_V2":
+            instances = [x for x in config.get("instances", [])
+                         if x.get("strategy_id") == record["strategy_id"] and x.get("enabled")]
+            for instance in instances:
+                adapters.append(ContextStructureRetraceAdapter(
+                    ROOT, freeze_timestamp, instance,
+                    strategy_id="CONTEXT_STRUCTURE_RETRACE_V2", strategy_version="V2",
+                    state_dir_env="CONTEXT_V2_RUNNER_STATE_DIR"))
         elif record["strategy_id"] == "LIQUIDITY_DISPLACEMENT_SCALP_V1":
             # The parent owns the adapter family.  Enabled children are persisted as
             # strategy instances and each keeps an isolated state/dedupe namespace.
@@ -809,7 +817,9 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
     def handler(signum: int, frame: Any) -> None: halt["x"] = True
     signal.signal(signal.SIGINT, handler); signal.signal(signal.SIGTERM, handler)
     try:
+        next_cycle = time.monotonic()
         while not halt["x"] and not stop_path.exists():
+            cycle_started = time.monotonic()
             # Instance ONLINE/OFFLINE is re-read every cycle; the rest of the config is fixed at start.
             config = refresh_lifecycle(config)
             try: poll_once(store, config, mf, orchestration_mode,
@@ -836,7 +846,17 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
                     authorize_pending_proposals()
                 except Exception as management_exc:
                     atomic(RUNTIME / "management_health.json", {"status": "DEGRADED", "error": str(management_exc), "timestamp": now()})
-            time.sleep(max(1, args.interval))
+            # Schedule from the cycle start. Sleeping after work used to add
+            # scan, persistence, and routing time to the configured interval.
+            next_cycle = cycle_started + max(0.25, float(args.interval))
+            delay = next_cycle - time.monotonic()
+            if delay <= 0:
+                delay = max(0.25, float(args.interval))
+            audit("orchestrator_cycle_scheduled", runner="signal-orchestrator",
+                  cycle_elapsed_ms=round((time.monotonic() - cycle_started) * 1000, 3),
+                  configured_interval_ms=round(max(0.25, float(args.interval)) * 1000, 3),
+                  next_cycle_delay_ms=round(delay * 1000, 3))
+            time.sleep(delay)
     finally:
         state = store.load_state(); state["status"] = "STOPPED"; store.save_state(state); PID.unlink(missing_ok=True)
         if db_conn is not None:
@@ -847,10 +867,10 @@ def main() -> None:
     configure_strategy_audit_logging()
     p = argparse.ArgumentParser(description="Signal orchestration with independent signal and execution authority")
     sub = p.add_subparsers(dest="command", required=True)
-    start = sub.add_parser("shadow-start"); start.add_argument("--interval", type=int, default=15)
+    start = sub.add_parser("shadow-start"); start.add_argument("--interval", type=float, default=1)
     primary_start = sub.add_parser("primary-start", help="start authoritative DB_PRIMARY orchestration with execution disabled")
-    primary_start.add_argument("--interval", type=int, default=15)
-    real_start = sub.add_parser("real-start"); real_start.add_argument("--interval", type=int, default=15)
+    primary_start.add_argument("--interval", type=float, default=1)
+    real_start = sub.add_parser("real-start"); real_start.add_argument("--interval", type=float, default=1)
     startup_audit_cmd = sub.add_parser("startup-audit")
     startup_audit_cmd.add_argument("--mode", choices=("SHADOW", "PRIMARY", "REAL_EXECUTION"))
     for name in ("shadow-stop", "primary-stop", "real-stop", "status", "health", "account", "report", "signals", "decisions", "distribution", "audit-order-isolation", "freeze", "live-audit", "live-enable", "live-status"):
