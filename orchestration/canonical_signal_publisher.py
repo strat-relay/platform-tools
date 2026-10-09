@@ -75,6 +75,10 @@ class CanonicalSignalPublisher:
             raise RuntimeError("pre-cutoff StrategySignal cannot enter DB_PRIMARY")
         raw = signal.to_dict()
         raw["signal_emitted_at"] = emitted_at
+        trace_emit("SIGNAL_DB_PERSIST_STARTED", signal_id=signal.signal_id,
+                   decision_time=signal.decision_time or signal.signal_timestamp,
+                   signal_emitted_at=emitted_at, created_at=signal.created_at,
+                   strategy_id=signal.strategy_id, transport="DB_PRIMARY")
         canonical = canonical_signal(raw, source_reference={
             "source_id": self.source_id,
             "source_offset": None,
@@ -87,6 +91,9 @@ class CanonicalSignalPublisher:
         inserted = ingest_signal(self.conn, canonical, occurred_at=canonical.fields["signal_emitted_at"])
         trace_emit("SIGNAL_INGESTED", signal_id=canonical.signal_id,
                    signal_emitted_at=canonical.fields.get("signal_emitted_at"),
+                   decision_time=canonical.fields.get("decision_time"),
+                   created_at=canonical.fields.get("created_at"),
                    strategy_id=canonical.fields.get("strategy_id"),
-                   source_id=self.source_id, outcome="INSERTED" if inserted else "DUPLICATE")
+                   source_id=self.source_id, transport="DB_PRIMARY",
+                   outcome="INSERTED" if inserted else "DUPLICATE")
         return canonical, inserted

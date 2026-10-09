@@ -36,6 +36,7 @@ from orchestration.tradeability import evaluate as evaluate_tradeability, load_p
 from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
 from platform_runtime import trading_platform_runtime_dir
 from observability.strategy_audit import audit, configure_strategy_audit_logging
+from execution_v2.trace import emit as trace_emit
 
 ROOT = Path(__file__).resolve().parent
 PLATFORM_RUNTIME = trading_platform_runtime_dir(root=ROOT)
@@ -396,6 +397,11 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                     k: row[k] for k in StrategySignal.__dataclass_fields__ if k in row
                 }))
     for signal in discovered:
+        trace_emit("SIGNAL_ORCHESTRATOR_RECEIVED", signal_id=signal.signal_id,
+                   decision_time=signal.decision_time or signal.signal_timestamp,
+                   signal_emitted_at=signal.signal_emitted_at, created_at=signal.created_at,
+                   strategy_id=signal.strategy_id, strategy_instance_id=signal.strategy_instance_id,
+                   instrument=signal.canonical_symbol, transport="ORCHESTRATOR")
         audit("signal_received", runner="signal-orchestrator", signal_id=signal.signal_id,
               strategy_id=signal.strategy_id, strategy_instance_id=signal.strategy_instance_id,
               canonical_instrument=signal.canonical_symbol, provider_symbol=signal.broker_symbol_hint,
@@ -405,6 +411,11 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
         if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
             assert canonical_publisher is not None
             _, inserted = canonical_publisher.publish(signal)
+            trace_emit("SIGNAL_DB_PERSIST_RESULT", signal_id=signal.signal_id,
+                       decision_time=signal.decision_time or signal.signal_timestamp,
+                       signal_emitted_at=signal.signal_emitted_at, created_at=signal.created_at,
+                       strategy_id=signal.strategy_id, transport="DB_PRIMARY",
+                       outcome="INSERTED" if inserted else "DUPLICATE")
             audit("canonical_signal_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
                   strategy_id=signal.strategy_id,
                   decision="ACCEPTED" if inserted else "DUPLICATE", inserted=inserted)
@@ -438,6 +449,10 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                 continue
             store.append("delivery_status", {"signal_id": signal.signal_id, "status": "DELIVERY_ATTEMPTED", "timestamp": now()}, delivery_key + ":attempt")
             route_signal(store, signal, config, provider, orchestration_mode)
+            trace_emit("SIGNAL_ORCHESTRATOR_ROUTED", signal_id=signal.signal_id,
+                       decision_time=signal.decision_time or signal.signal_timestamp,
+                       signal_emitted_at=signal.signal_emitted_at, created_at=signal.created_at,
+                       strategy_id=signal.strategy_id, transport="ORCHESTRATOR", outcome="ROUTED")
             store.append("delivery_status", {"signal_id": signal.signal_id, "status": "DELIVERY_COMPLETE", "timestamp": now()}, delivery_key)
             audit("signal_delivery_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
                   strategy_id=signal.strategy_id, decision="COMPLETE", orchestration_mode=orchestration_mode)

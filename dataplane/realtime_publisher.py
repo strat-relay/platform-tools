@@ -20,6 +20,7 @@ from typing import Any, Mapping
 from infrastructure.messaging.contracts import EventEnvelope
 from infrastructure.messaging.jetstream import JetStreamPublisher
 from migration.signal import CanonicalSignal, canonical_signal
+from execution_v2.trace import emit as trace_emit
 
 REALTIME_SIGNAL_SUBJECT = "realtime.signal.entry.accepted.v1"
 
@@ -85,12 +86,24 @@ class RealtimeSignalPublisher:
             occurred_at=occurred_at, payload=dict(raw), correlation_id=canonical.signal_id,
             causation_id=None, producer=self.producer,
         )
+        trace_emit("SIGNAL_NATS_PUBLISH_STARTED", signal_id=canonical.signal_id,
+                   event_id=envelope.event_id, decision_time=canonical.fields.get("decision_time"),
+                   signal_emitted_at=raw.get("signal_emitted_at"), created_at=raw.get("created_at"),
+                   strategy_id=canonical.fields.get("strategy_id"), transport="NATS_FIRST")
         if on_publish_initiated is not None:
             on_publish_initiated()
         try:
             ack = await self.publisher.publish(envelope)
         except Exception as exc:  # noqa: BLE001 - deliberately broad: any transport failure is REALTIME_SIGNAL_PUBLICATION_FAILED
+            trace_emit("SIGNAL_NATS_PUBLISH_FAILED", signal_id=canonical.signal_id,
+                       event_id=envelope.event_id, decision_time=canonical.fields.get("decision_time"),
+                       signal_emitted_at=raw.get("signal_emitted_at"), created_at=raw.get("created_at"),
+                       transport="NATS_FIRST", outcome="FAILED", error=f"{type(exc).__name__}: {exc}")
             raise RealtimePublicationFailed(canonical.signal_id, cause=exc) from exc
+        trace_emit("SIGNAL_NATS_PUBLISHED", signal_id=canonical.signal_id,
+                   event_id=envelope.event_id, decision_time=canonical.fields.get("decision_time"),
+                   signal_emitted_at=raw.get("signal_emitted_at"), created_at=raw.get("created_at"),
+                   strategy_id=canonical.fields.get("strategy_id"), transport="NATS_FIRST", outcome="PUBACK")
         return RealtimePublishResult(
             signal_id=canonical.signal_id, entry_signal_hash=canonical.entry_signal_hash,
             evaluation_hash=canonical.evaluation.evaluation_hash, event_id=envelope.event_id,

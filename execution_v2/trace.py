@@ -31,9 +31,26 @@ def elapsed_ms(start: Any, end: Any | None = None) -> float | None:
         return None
 
 
+def between_ms(start: Any, end: Any) -> float | None:
+    """Return a safe timestamp delta for observability; tracing must never break a path."""
+    if start is None or end is None:
+        return None
+    try:
+        start_dt = start if isinstance(start, datetime) else datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+        end_dt = end if isinstance(end, datetime) else datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+        return round((end_dt - start_dt).total_seconds() * 1000, 3)
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
 def emit(stage: str, *, signal_id: str | None = None,
          intent_id: str | None = None, attempt_id: str | None = None,
          event_id: str | None = None, signal_emitted_at: Any = None,
+         decision_time: Any = None, created_at: Any = None,
          outcome: str | None = None, error: str | None = None,
          **fields: Any) -> None:
     payload = {
@@ -45,6 +62,10 @@ def emit(stage: str, *, signal_id: str | None = None,
         "attempt_id": attempt_id,
         "event_id": event_id,
         "signal_to_stage_ms": elapsed_ms(signal_emitted_at),
+        "decision_to_stage_ms": elapsed_ms(decision_time),
+        "emission_to_stage_ms": elapsed_ms(signal_emitted_at),
+        "decision_to_emission_ms": between_ms(decision_time, signal_emitted_at),
+        "created_to_stage_ms": elapsed_ms(created_at),
         "outcome": outcome,
         "error": error,
         **fields,

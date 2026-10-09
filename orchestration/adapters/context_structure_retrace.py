@@ -9,6 +9,7 @@ from typing import Any
 from orchestration.models import StrategySignal, stable_id
 from outcome_attribution import target_distance
 from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
+from execution_v2.trace import emit as trace_emit
 
 
 class ContextStructureRetraceAdapter:
@@ -127,6 +128,14 @@ class ContextStructureRetraceAdapter:
                                 # the execution consumer rejects it closed.
                                 "gap_recovery": gap_recovery }))
                 candidate = result[-1]
+                trace_emit("SIGNAL_DISCOVERED", signal_id=candidate.signal_id,
+                           decision_time=candidate.decision_time,
+                           signal_emitted_at=candidate.signal_emitted_at,
+                           created_at=candidate.created_at,
+                           strategy_id=candidate.strategy_id,
+                           strategy_instance_id=candidate.strategy_instance_id,
+                           instrument=candidate.canonical_symbol,
+                           producer="context_structure_retrace_adapter")
                 epoch = load_epoch(EPOCH_PATH)
                 watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
                 if watermark and not eligibility(candidate.to_dict(), watermark)[0]:
