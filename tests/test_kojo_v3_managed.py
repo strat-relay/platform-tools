@@ -343,8 +343,14 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._schema.validate(bad)
 
-    def test_missing_required_parameter(self):
-        bad = {k: v for k, v in self._valid_values.items() if k != "pivot_strength"}
+    def test_required_parameter_with_default_is_optional(self):
+        # V3 schema fields carry defaults; omitting one is valid — the evaluator
+        # fills the default at runtime.  Only required fields with no default hard-fail.
+        values_without_pivot = {k: v for k, v in self._valid_values.items() if k != "pivot_strength"}
+        self._schema.validate(values_without_pivot)  # must not raise
+
+    def test_unknown_parameter_is_rejected(self):
+        bad = {**self._valid_values, "no_such_param": 99}
         with self.assertRaises(ValueError):
             self._schema.validate(bad)
 
