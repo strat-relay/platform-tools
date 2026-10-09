@@ -252,8 +252,7 @@ class FakeCursor:
 _ENTRY_SIGNAL_COLUMNS = ("signal_id", "strategy_id", "strategy_version", "strategy_ref",
                          "parameter_set_ref", "parameter_set_status", "strategy_instance_id",
                          "instrument", "direction", "decision_time", "entry_price", "stop_price",
-                         "risk_distance", "target_price", "strategy_metadata", "publication_state",
-                         "entry_signal_hash")
+                         "risk_distance", "target_price", "strategy_metadata", "entry_signal_hash")
 
 _INSERT_TABLE_MARKERS = (
     ("PLATFORM.INBOX_EVENTS", "platform.inbox_events"),
