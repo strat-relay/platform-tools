@@ -71,6 +71,10 @@ class KojoStructureReclaimV3Adapter:
         the evaluator resumes streaming rather than replaying history each cycle.
         On the first cycle (no state file) all bars in Redis are processed; any
         signals emitted are filtered by seen_signal_ids so DB duplicates are safe.
+
+        One evaluator instance is maintained per instrument.  State is persisted
+        in separate files: kojo_v3_{instance_id}_{instrument}_evaluator.json so
+        each instrument's bar history and setup state remain independent.
         """
         import json
         import os
@@ -80,14 +84,6 @@ class KojoStructureReclaimV3Adapter:
         runtime_dir = Path(os.environ.get("TRADING_PLATFORM_RUNTIME_DIR", "/tmp"))
         state_dir = runtime_dir / "orchestration"
         state_dir.mkdir(parents=True, exist_ok=True)
-        state_file = state_dir / f"kojo_v3_{self.instance_id}_evaluator.json"
-
-        persisted: dict[str, Any] = {}
-        if state_file.exists():
-            try:
-                persisted = json.loads(state_file.read_text(encoding="utf-8"))
-            except Exception:
-                persisted = {}
 
         from strategy_backtest.kojo_structure_reclaim_v3 import (
             KojoStructureReclaimV3Evaluator,
@@ -105,32 +101,41 @@ class KojoStructureReclaimV3Adapter:
             parameter_schema=kojo_structure_reclaim_v3_parameter_schema(),
             lifecycle="IMPLEMENTED",
         )
-        evaluator = KojoStructureReclaimV3Evaluator()
-        evaluator.initialize(
-            strategy_version, parameter_set,
-            instance_id=self.instance_id,
-            configuration_revision=str(self._configuration_revision),
-        )
-        self._evaluator = evaluator
-        self._initialized = True
         self._active_fingerprint = parameter_set.fingerprint
-
-        if persisted:
-            evaluator.restore_state(persisted)
-
-        h1_watermark = int(persisted.get("_h1_watermark", 0))
-        m15_watermark = int(persisted.get("_m15_watermark", 0))
 
         entry_signals: list[tuple[Any, str]] = []
         try:
             import redis as redis_module
             redis_url = os.environ.get("MARKET_DATA_REDIS_URL", "")
-            if redis_url:
-                r = redis_module.from_url(redis_url, decode_responses=True)
-                for canonical_instrument in self.instruments:
-                    provider_symbol = canonical_instrument
-                    raw_h1 = json.loads(r.get(f"md:bars:{provider_symbol}:H1") or "[]")
-                    raw_m15 = json.loads(r.get(f"md:bars:{provider_symbol}:M15") or "[]")
+            r = redis_module.from_url(redis_url, decode_responses=True) if redis_url else None
+
+            for canonical_instrument in self.instruments:
+                safe_name = canonical_instrument.replace("/", "_").replace(":", "_")
+                state_file = state_dir / f"kojo_v3_{self.instance_id}_{safe_name}_evaluator.json"
+
+                persisted: dict[str, Any] = {}
+                if state_file.exists():
+                    try:
+                        persisted = json.loads(state_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        persisted = {}
+
+                evaluator = KojoStructureReclaimV3Evaluator()
+                evaluator.initialize(
+                    strategy_version, parameter_set,
+                    instance_id=self.instance_id,
+                    configuration_revision=str(self._configuration_revision),
+                    instrument=canonical_instrument,
+                )
+                if persisted:
+                    evaluator.restore_state(persisted)
+
+                h1_watermark = int(persisted.get("_h1_watermark", 0))
+                m15_watermark = int(persisted.get("_m15_watermark", 0))
+
+                if r is not None:
+                    raw_h1 = json.loads(r.get(f"md:bars:{canonical_instrument}:H1") or "[]")
+                    raw_m15 = json.loads(r.get(f"md:bars:{canonical_instrument}:M15") or "[]")
                     new_h1 = [b for b in raw_h1 if int(b["time"]) > h1_watermark]
                     new_m15 = [b for b in raw_m15 if int(b["time"]) > m15_watermark]
                     # Interleave H1 and M15 bars in open-timestamp order; within the
@@ -155,7 +160,7 @@ class KojoStructureReclaimV3Adapter:
                                 completed=True,
                                 source="redis_canonical_cache",
                             )
-                            for output in self.consume_market_event(event):
+                            for output in evaluator.consume_market_event(event):
                                 if isinstance(output, EntrySignal):
                                     entry_signals.append((output, canonical_instrument))
                         except Exception:
@@ -164,16 +169,22 @@ class KojoStructureReclaimV3Adapter:
                         h1_watermark = max(h1_watermark, max(int(b["time"]) for b in new_h1))
                     if new_m15:
                         m15_watermark = max(m15_watermark, max(int(b["time"]) for b in new_m15))
-        except Exception:
-            pass
 
-        try:
-            state = evaluator.snapshot_state()
-            state["_h1_watermark"] = h1_watermark
-            state["_m15_watermark"] = m15_watermark
-            state_file.write_text(
-                json.dumps(state, sort_keys=True, default=str), encoding="utf-8"
-            )
+                try:
+                    state = evaluator.snapshot_state()
+                    state["_h1_watermark"] = h1_watermark
+                    state["_m15_watermark"] = m15_watermark
+                    state_file.write_text(
+                        json.dumps(state, sort_keys=True, default=str), encoding="utf-8"
+                    )
+                except Exception:
+                    pass
+
+                # Keep self._evaluator pointing at the last-processed instrument so
+                # that the consume_market_event / initialize test path still works.
+                self._evaluator = evaluator
+                self._initialized = True
+
         except Exception:
             pass
 
@@ -234,13 +245,17 @@ class KojoStructureReclaimV3Adapter:
         return result
 
     def initialize(self, strategy_version: Any, parameter_set: Any) -> None:
-        from strategy_backtest.kojo_structure_reclaim_v3 import KojoStructureReclaimV3Evaluator
+        from strategy_backtest.kojo_structure_reclaim_v3 import (
+            KojoStructureReclaimV3Evaluator, INSTRUMENT,
+        )
+        instrument = self.instruments[0] if self.instruments else INSTRUMENT
         self._evaluator = KojoStructureReclaimV3Evaluator()
         self._evaluator.initialize(
             strategy_version,
             parameter_set,
             instance_id=self.instance_id,
             configuration_revision=str(self._configuration_revision),
+            instrument=instrument,
         )
         self._active_fingerprint = parameter_set.fingerprint
         self._initialized = True
