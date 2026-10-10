@@ -28,6 +28,18 @@ def check_configuration() -> None:
     """Configuration errors stop the process (fail closed); they are checked before the loop."""
     if os.environ.get("LIQUIDITY_LIVE_RUNTIME_ENABLED", "false").lower() != "true":
         raise RuntimeError("Liquidity live runtime is disabled")
+    # When the orchestrator has taken over canonical publication the standalone service
+    # must not run concurrently: it would bypass orchestrator admission (provenance
+    # validation, replay guard, tradeability) and publish directly to the canonical DB.
+    # Scale this deployment to 0 replicas BEFORE setting LIQUIDITY_LIVE_ORCHESTRATOR_MODE.
+    if os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "false").lower() == "true":
+        raise RuntimeError(
+            "Standalone Liquidity live service cannot run while "
+            "LIQUIDITY_LIVE_ORCHESTRATOR_MODE is active — the orchestrator now owns "
+            "canonical publication.  Scale this deployment to 0 before enabling "
+            "orchestrator mode, or unset LIQUIDITY_LIVE_ORCHESTRATOR_MODE to keep "
+            "the standalone path."
+        )
     source = os.environ.get("MARKET_DATA_SOURCE", "BRIDGE").strip().upper()
     if source != "REDIS":
         mcp_url = _required("LIQUIDITY_LIVE_MCP_URL")

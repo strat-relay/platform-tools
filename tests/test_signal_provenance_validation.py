@@ -89,7 +89,7 @@ def test_allows_in_shadow_mode_with_audit_when_provenance_absent():
     name, kwargs = audit_events[0]
     assert name == "signal_provenance_incomplete"
     assert kwargs["orchestration_mode"] == "SHADOW"
-    assert "source_read_health" in kwargs["missing_fields"]
+    assert any("source_read_health" in f for f in kwargs["missing_fields"])
 
 
 def test_allows_in_primary_mode_with_audit_when_provenance_absent():
@@ -115,11 +115,10 @@ def test_passes_real_execution_when_source_read_health_is_true():
     assert so._validate_signal_provenance(signal, "REAL_EXECUTION") is True
 
 
-def test_passes_real_execution_when_source_read_health_is_false():
-    # False = health known but unhealthy; downstream handles it.
-    # The orchestrator only blocks absent (None/missing) health.
+def test_fails_closed_in_real_execution_when_source_read_health_is_false():
+    # False = adapter explicitly marks its data as unhealthy → block, same as missing.
     signal = _make_signal({"source_read_health": False})
-    assert so._validate_signal_provenance(signal, "REAL_EXECUTION") is True
+    assert so._validate_signal_provenance(signal, "REAL_EXECUTION") is False
 
 
 def test_passes_shadow_when_source_read_health_is_true():
@@ -133,7 +132,8 @@ def test_passes_shadow_when_source_read_health_is_true():
 
 def test_does_not_audit_when_provenance_is_present():
     audit_events: list[tuple] = []
-    signal = _make_signal({"source_read_health": True, "source_market_data_timestamp": "2026-10-10T11:00:00Z"})
+    # source_market_data_timestamp within 600s of signal_emitted_at (12:00Z); no stale trigger.
+    signal = _make_signal({"source_read_health": True, "source_market_data_timestamp": "2026-10-10T11:55:00Z"})
     with patch.object(so, "audit", side_effect=lambda *a, **k: audit_events.append(a)):
         so._validate_signal_provenance(signal, "SHADOW")
     assert audit_events == []
@@ -190,6 +190,6 @@ def test_all_three_missing_fields_reported_in_one_audit_event():
     assert len(audit_events) == 1
     _, kwargs = audit_events[0]
     missing = kwargs["missing_fields"]
-    assert "source_read_health" in missing
+    assert any("source_read_health" in f for f in missing)
     assert "decision_time" in missing
     assert "signal_emitted_at" in missing

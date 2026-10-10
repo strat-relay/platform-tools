@@ -187,7 +187,7 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
             # Liquidity Live: if the live runtime is enabled and a DB connection is
             # available (DB_PRIMARY mode), register it as an orchestrator adapter so
             # all signals pass through the canonical admission pipeline.
-            if conn is not None and os.environ.get("LIQUIDITY_LIVE_RUNTIME_ENABLED", "").lower() == "true":
+            if conn is not None and os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "").lower() == "true":
                 try:
                     from orchestration.adapters.liquidity_live import LiquidityLiveAdapter
                     from liquidity_live_runtime import LiquidityLiveRuntime
@@ -263,23 +263,33 @@ def _validate_adapter_interfaces(adapters: list[Any]) -> None:
             )
 
 
+# Maximum age of source market data at signal emission time to be considered live-safe.
+_MAX_DATA_AGE_SECONDS = 600.0
+
+
 def _validate_signal_provenance(signal: StrategySignal, orchestration_mode: str) -> bool:
     """Return True if the signal may proceed; False means block before publication.
 
-    Fail-closed checks (REAL_EXECUTION only):
-      - source_read_health absent → blocked; KOJO V3 and any adapter that
-        forgets to set it will be blocked until the adapter is fixed.
-      - decision_time absent → blocked; live signals must carry a causal
-        market-event timestamp for reliable replay protection.
-      - signal_emitted_at absent → blocked; absent emission timestamp means
-        the orchestrator cannot verify liveness and the signal cannot become
-        live-eligible (intentional paper-only constraint per models.py comment).
+    Accepted contract for REAL_EXECUTION:
+      - source_read_health must be exactly True (not False, None, missing, or any other value).
+        False means the adapter knows its data is unhealthy; block it.
+      - gap_recovery must not be True — data in active gap-recovery is unsafe for live execution.
+      - decision_time and signal_emitted_at must be present.
+      - If source_market_data_timestamp is present, the data age at emission must not exceed
+        _MAX_DATA_AGE_SECONDS (stale snapshot detected at gate level for defense-in-depth).
 
-    In non-REAL modes all missing fields emit audit warnings only so that
-    paper/shadow operation is not disrupted while adapters are migrated.
+    In non-REAL modes all violations emit audit warnings only so paper/shadow operation
+    is not disrupted while adapters are migrated.
     """
     prov = signal.provenance or {}
-    missing_provenance = prov.get("source_read_health") is None
+    source_read_health = prov.get("source_read_health")
+
+    # Only exactly True is healthy; None/missing/False/unknown all indicate a problem.
+    unhealthy_source = source_read_health is not True
+
+    # Gap-recovery data is structurally complete but temporally unsafe for live execution.
+    unsafe_gap_recovery = prov.get("gap_recovery") is True
+
     missing_timestamps = [
         f for f, v in (
             ("decision_time", signal.decision_time),
@@ -288,17 +298,38 @@ def _validate_signal_provenance(signal: StrategySignal, orchestration_mode: str)
         if v is None
     ]
 
+    # Staleness: compare source_market_data_timestamp against signal_emitted_at.
+    stale_market_data = False
+    raw_data_ts = prov.get("source_market_data_timestamp")
+    if raw_data_ts and signal.signal_emitted_at:
+        try:
+            emitted = datetime.fromisoformat(signal.signal_emitted_at.replace("Z", "+00:00"))
+            data_ts = datetime.fromisoformat(str(raw_data_ts).replace("Z", "+00:00"))
+            if (emitted - data_ts).total_seconds() > _MAX_DATA_AGE_SECONDS:
+                stale_market_data = True
+        except (ValueError, TypeError, AttributeError):
+            stale_market_data = True  # unparseable timestamp → fail closed in REAL_EXECUTION
+
     if orchestration_mode == "REAL_EXECUTION":
-        if missing_provenance or missing_timestamps:
+        if unhealthy_source or unsafe_gap_recovery or missing_timestamps or stale_market_data:
             return False
         return True
 
     # Non-REAL modes: warn but allow.
-    missing_fields = (["source_read_health"] if missing_provenance else []) + missing_timestamps
-    if missing_fields:
+    problem_fields: list[str] = []
+    if source_read_health is None:
+        problem_fields.append("source_read_health:missing")
+    elif unhealthy_source:
+        problem_fields.append(f"source_read_health:{source_read_health!r}")
+    if unsafe_gap_recovery:
+        problem_fields.append("gap_recovery:active")
+    if stale_market_data:
+        problem_fields.append("source_market_data_timestamp:stale")
+    problem_fields.extend(missing_timestamps)
+    if problem_fields:
         audit("signal_provenance_incomplete", runner="signal-orchestrator",
               signal_id=signal.signal_id, strategy_id=signal.strategy_id,
-              missing_fields=missing_fields, orchestration_mode=orchestration_mode)
+              missing_fields=problem_fields, orchestration_mode=orchestration_mode)
     return True
 
 

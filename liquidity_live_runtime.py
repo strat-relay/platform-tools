@@ -227,6 +227,11 @@ class LiquidityLiveRuntime:
         return pending
 
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
+        if self.publisher is None:
+            raise RuntimeError(
+                "LiquidityLiveRuntime.tick() requires a publisher; in orchestrator-adapter "
+                "mode the runtime is constructed without one — use collect_signals() instead."
+            )
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         cycle_started = time.perf_counter()
         published: list[str] = []
