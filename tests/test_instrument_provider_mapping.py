@@ -64,22 +64,8 @@ class ApiWiringTests(unittest.TestCase):
             def execution_runtime_status(self):
                 return {}
 
-        class FakeMgmtApi:
-            def handle(self, method, path, body):
-                return None
-
-            def registry_rows(self):
-                return []
-
-            def get_instance_instruments(self, *_args):
-                return None
-
-            def sync_instance_instrument(self, *_args):
-                return False
-
         api = PlatformControlApi(repository=Repo(), environ={}, bridge_reader=object(), v2_risk_api=object(),
-                                 trade_manager_mode_api=object(), strategy_config_path="/nonexistent/platform.json",
-                                 strategy_mgmt_api=FakeMgmtApi())
+                                 trade_manager_mode_api=object(), strategy_config_path="/nonexistent/platform.json")
         class Catalog:  # membership guards (tests/test_strategy_instances.py) need PostgreSQL
             def check_membership_change(self, *args):
                 return None

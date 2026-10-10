@@ -557,61 +557,6 @@ class StrategyMgmtRepository:
             conn.commit()
         return _serialize_row(updated)
 
-    def sync_v2_instrument(self, instance_id: str, canonical: str, state: str, updated_by: str) -> bool:
-        """Add or remove one instrument entry in strategy_instance_v2.instruments JSONB.
-
-        Returns True if a V2 row was found and updated; False when no row matches
-        (instance is not V2-managed — caller treats this as a no-op).
-        """
-        canonical_upper = canonical.upper()
-        entry_json = json.dumps({"canonical_instrument": canonical_upper})
-        array_json = f"[{entry_json}]"
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                if state == "ACTIVE":
-                    cur.execute(
-                        """UPDATE strategy_mgmt.strategy_instance_v2
-                           SET instruments = CASE
-                               WHEN instruments @> %s::jsonb THEN instruments
-                               ELSE instruments || %s::jsonb
-                           END,
-                           updated_at = now()
-                           WHERE id::text = %s OR attributes->>'instance_id' = %s
-                           RETURNING id""",
-                        (array_json, array_json, instance_id, instance_id),
-                    )
-                else:
-                    cur.execute(
-                        """UPDATE strategy_mgmt.strategy_instance_v2
-                           SET instruments = (
-                               SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-                               FROM jsonb_array_elements(instruments) elem
-                               WHERE NOT elem @> %s::jsonb
-                           ),
-                           updated_at = now()
-                           WHERE id::text = %s OR attributes->>'instance_id' = %s
-                           RETURNING id""",
-                        (entry_json, instance_id, instance_id),
-                    )
-                found = cur.fetchone() is not None
-            conn.commit()
-        return found
-
-    def get_v2_instruments(self, instance_id: str) -> list[dict[str, Any]] | None:
-        """Return instruments JSONB for a V2 instance, or None if no row matches."""
-        with self._conn(readonly=True) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT instruments FROM strategy_mgmt.strategy_instance_v2 "
-                    "WHERE id::text = %s OR attributes->>'instance_id' = %s",
-                    (instance_id, instance_id),
-                )
-                row = cur.fetchone()
-                if row is None:
-                    return None
-                instruments = row[0]
-                return instruments if isinstance(instruments, list) else []
-
     def patch_instance_parameter_set(self, instance_id: str, parameter_set_id: str,
                                      updated_by: str) -> dict[str, Any]:
         """Bind a new immutable ParameterSet only while the instance is offline."""
@@ -719,19 +664,6 @@ class StrategyMgmtApi:
     def registry_rows(self) -> list[dict[str, Any]]:
         """Read the unified strategy registry for the compatibility catalog endpoint."""
         return self._repo.list_registry()
-
-    def get_instance_instruments(self, instance_id: str) -> list[dict[str, Any]] | None:
-        """Return the V2 instruments list for instrument-tab merge, or None for V1 instances."""
-        return self._repo.get_v2_instruments(instance_id)
-
-    def sync_instance_instrument(self, instance_id: str, canonical: str, state: str,
-                                 updated_by: str) -> bool:
-        """Sync one instrument into/out of a V2 instance's instruments JSONB.
-
-        Returns True if the instance is V2-managed and was updated; False if no
-        matching V2 row exists (not a V2 instance — safe to ignore).
-        """
-        return self._repo.sync_v2_instrument(instance_id, canonical, state, updated_by)
 
     # ── routing ──────────────────────────────────────────────────────────────
 
