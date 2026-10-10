@@ -1099,7 +1099,7 @@ class PlatformControlApi:
                                          or item.get("registry_instance_id") == parts[2]), None)
                         if instance is None:
                             return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
-                        page = {**summary, "instance": instance}
+                        page = {**summary, **instance}
                     return 200, self._body(page, source="canonical_postgres")
                 report_config = STRATEGY_REPORT_REGISTRY.get(parts[0]) if parts else None
                 if len(parts) == 4 and parts[1] == "instances" and parts[3] == "report" and report_config:

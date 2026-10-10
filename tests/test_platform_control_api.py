@@ -10,6 +10,41 @@ from platform_api.control import PlatformControlApi, PlatformControlRepository
 from platform_api.signals import CanonicalSourceUnavailable, UnifiedPlatformApi
 
 
+class FakeStrategyMgmtApi:
+    """Minimal strategy_mgmt_api stub for registry-fallback path tests."""
+
+    def __init__(self, rows=None):
+        self._rows = rows or []
+
+    def registry_rows(self):
+        return list(self._rows)
+
+    def handle(self, method, path, body):
+        return None
+
+
+def _v3_registry_row(instance_uuid="e5f7a9b1-c3d5-4e7f-a1b3-5c7e9f1b3d5e") -> dict:
+    return {
+        "definition_id": "7f3a9c10-b4e2-4d8a-9c15-2e6f8b3a1d05",
+        "name": "Kojo Structure Reclaim",
+        "family_key": "KOJO",
+        "description": "V3 test row",
+        "version_id": "a2b4c6d8-e0f2-4a6c-8e0a-2c4e6f8a0b2d",
+        "version_label": "V3",
+        "evaluator_key": "kojo_structure_reclaim_v3",
+        "lifecycle": "IMPLEMENTED",
+        "instance_id": instance_uuid,
+        "instance_display_name": "Kojo V3 Forward",
+        "online": True,
+        "execution_eligible": False,
+        "instruments": [{"canonical_instrument": "XAUUSDm"}],
+        "attributes": {},
+        "parameter_set_id": "kojo-v3-default",
+        "parameter_fingerprint": "abc",
+        "parameter_values": {},
+    }
+
+
 class FakeStrategyCatalog:
     """Stands in for platform_api.strategy_catalog.StrategyCatalogRepository (migration 028)."""
 
@@ -437,6 +472,26 @@ class PlatformControlApiTests(unittest.TestCase):
         combined = UnifiedPlatformApi(signals=SignalSpy(), control_api=self.make_api())
         self.assertEqual(combined.execute("GET", "/api/v1/signals?limit=1")[0], 209)
         self.assertEqual(combined.execute("GET", "/api/v1/system")[0], 200)
+
+    def test_registry_fallback_instance_detail_exposes_instance_id_at_root(self):
+        """instance_page returns None for managed (strategy_mgmt) instances; the registry
+        fallback must spread instance fields at the top level so the frontend adapter can
+        find instanceId without it being nested under an 'instance' key."""
+        uuid = "e5f7a9b1-c3d5-4e7f-a1b3-5c7e9f1b3d5e"
+        api = self.make_api()
+        api.strategy_mgmt_api = FakeStrategyMgmtApi([_v3_registry_row(uuid)])
+        status, body = api.execute("GET", f"/api/v1/strategies/KOJO/instances/{uuid}")
+        self.assertEqual(status, 200)
+        data = body["data"]
+        self.assertEqual(data["instance_id"], uuid)
+        self.assertEqual(data["strategy_id"], "KOJO")
+        self.assertNotIn("instance", data)
+
+    def test_registry_fallback_instance_detail_404_when_uuid_not_in_registry(self):
+        api = self.make_api()
+        api.strategy_mgmt_api = FakeStrategyMgmtApi([_v3_registry_row()])
+        status, _ = api.execute("GET", "/api/v1/strategies/KOJO/instances/00000000-0000-0000-0000-000000000000")
+        self.assertEqual(status, 404)
 
 
 if __name__ == "__main__":
