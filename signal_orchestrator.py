@@ -263,6 +263,28 @@ def _validate_adapter_interfaces(adapters: list[Any]) -> None:
             )
 
 
+def _validate_signal_provenance(signal: StrategySignal, orchestration_mode: str) -> bool:
+    """Return True if the signal may proceed; False means block before publication.
+
+    In REAL_EXECUTION mode, a signal whose provenance lacks source_read_health
+    is blocked (fail-closed).  The field may be absent on KOJO V3 signals and
+    on any adapter that forgets to set it.  Blocking before canonical publication
+    means no invalid signals reach the DB or the broker.
+
+    In non-REAL modes the missing field is recorded as an audit warning so the
+    operator can fix the adapter without disrupting paper/shadow operation.
+    """
+    prov = signal.provenance or {}
+    if prov.get("source_read_health") is not None:
+        return True
+    if orchestration_mode == "REAL_EXECUTION":
+        return False
+    audit("signal_provenance_incomplete", runner="signal-orchestrator",
+          signal_id=signal.signal_id, strategy_id=signal.strategy_id,
+          missing_fields=["source_read_health"], orchestration_mode=orchestration_mode)
+    return True
+
+
 def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict[str, Any], provider: MT5ShadowProvider | None,
                  orchestration_mode: str = "SHADOW") -> None:
     audit("signal_routing_started", runner="signal-orchestrator", signal_id=signal.signal_id,
@@ -494,6 +516,13 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
               direction=signal.direction, signal_timestamp=signal.signal_timestamp,
               decision_time=signal.decision_time, entry=signal.entry_price,
               stop=signal.stop_price, target=signal.target_price)
+        if not _validate_signal_provenance(signal, orchestration_mode):
+            audit("signal_blocked_missing_provenance", runner="signal-orchestrator",
+                  signal_id=signal.signal_id, strategy_id=signal.strategy_id,
+                  orchestration_mode=orchestration_mode, missing_fields=["source_read_health"],
+                  decision="BLOCKED_FAIL_CLOSED")
+            seen.add(signal.signal_id)
+            continue
         if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
             assert canonical_publisher is not None
             _, inserted = canonical_publisher.publish(signal)
