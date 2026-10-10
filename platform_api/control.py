@@ -576,6 +576,7 @@ class PlatformControlApi:
     V2_AUTHORITY_PATH = "/api/v1/v2-execution/authority"
     V2_CANARY_WINDOW_PATH = "/api/v1/v2-execution/canary-windows"
     TRADE_MANAGER_MODE_PATH = "/api/v1/trade-manager/mode"
+    TRADE_MANAGER_POLICY_PATH = "/api/v1/trade-manager/policy"
 
     def __init__(self, repository: PlatformControlRepository | None = None,
                  environ: dict[str, str] | None = None,
@@ -979,6 +980,11 @@ class PlatformControlApi:
                 return self.trade_manager_mode_api.read()
             if method == "POST":
                 return self.trade_manager_mode_api.save(body)
+        if path == self.TRADE_MANAGER_POLICY_PATH:
+            from .trade_manager_policy import TradeManagerPolicyApi
+            api = TradeManagerPolicyApi()
+            if method == "GET": return api.read()
+            if method == "POST": return api.save(body)
         if method == "POST" and path == self.V2_CANARY_WINDOW_PATH:
             return self.v2_risk_api.open_window(body)
         if method != "GET":
