@@ -138,6 +138,14 @@ INSTANCE_POLICY_DEFAULTS = {
 }
 SETUP_EVENTS = frozenset({"BULLISH_ENGULFING", "BEARISH_ENGULFING", "MORNING_STAR",
                           "EVENING_STAR", "BULLISH_REJECTION_WICK", "BEARISH_REJECTION_WICK"})
+KOJO_SETUP_EVENTS = frozenset({"BULLISH_ENGULFING", "BEARISH_ENGULFING", "REJECTION_WICK", "CONTINUATION_CLOSE"})
+
+
+def supported_setup_events(strategy_id: str) -> list[str]:
+    """Return the setup-event vocabulary accepted by this strategy's runner."""
+    if strategy_id == "KOJO" or strategy_id.startswith("KOJO_STRUCTURE_RECLAIM"):
+        return sorted(KOJO_SETUP_EVENTS)
+    return sorted(SETUP_EVENTS)
 
 
 def _policy_fingerprint(policy: dict[str, Any]) -> str:
@@ -145,7 +153,7 @@ def _policy_fingerprint(policy: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def instance_policy(attributes: dict[str, Any]) -> dict[str, Any]:
+def instance_policy(attributes: dict[str, Any], strategy_id: str | None = None) -> dict[str, Any]:
     raw = attributes.get("instance_policy") if isinstance(attributes, dict) else None
     values = dict(INSTANCE_POLICY_DEFAULTS)
     if isinstance(raw, dict):
@@ -156,6 +164,7 @@ def instance_policy(attributes: dict[str, Any]) -> dict[str, Any]:
     else:
         values.update({"revision": 0, "effective_at": None, "updated_by": None})
     values["fingerprint"] = _policy_fingerprint({key: values[key] for key in INSTANCE_POLICY_DEFAULTS})
+    values["supported_setup_events"] = supported_setup_events(strategy_id or "")
     return values
 
 
@@ -256,7 +265,7 @@ def _instance(row: dict[str, Any], execution: dict[str, Any] | None,
         "revision": int(row["revision"]), "created_at": row["created_at"], "updated_at": row["updated_at"],
         "updated_by": row["updated_by"],
         "attributes": attributes, "parameters": _parameters(attributes),
-        "instance_policy": instance_policy(attributes),
+        "instance_policy": instance_policy(attributes, row["strategy_id"]),
         "instruments": {"active": instruments, "active_count": len(instruments),
                         "disabled_count": int(row["instruments_disabled"]), "source": "INSTRUMENT_MEMBERSHIP"},
         "stats": {"scope": "STRATEGY_INSTANCE", "signals": int(row["signals"]),
@@ -503,7 +512,7 @@ class StrategyCatalogRepository:
                 "events": events,
                 "trade_management": self._trade_management(
                     cur, strategy_id, parent.get("trade_management"),
-                    instance_policy(page.get("attributes") or {}), page.get("attributes") or {},
+                    instance_policy(page.get("attributes") or {}, strategy_id), page.get("attributes") or {},
                 ),
             })
             return page
@@ -529,7 +538,8 @@ class StrategyCatalogRepository:
         if "enabled_setup_events" in patch:
             events = patch["enabled_setup_events"]
             if events is not None or not isinstance(events, list):
-                if not isinstance(events, list) or not all(isinstance(x, str) and x in SETUP_EVENTS for x in events):
+                allowed_events = set(supported_setup_events(strategy_id))
+                if not isinstance(events, list) or not all(isinstance(x, str) and x in allowed_events for x in events):
                     raise ValueError("enabled_setup_events must contain only supported setup event names")
                 if len(set(events)) != len(events):
                     raise ValueError("enabled_setup_events must not contain duplicates")
@@ -559,7 +569,7 @@ class StrategyCatalogRepository:
                         raise InstanceRevisionConflict(
                             f"revision conflict: expected {expected_revision}, current {row[1]}")
                     attributes = row[0] if isinstance(row[0], dict) else {}
-                    current = instance_policy(attributes)
+                    current = instance_policy(attributes, strategy_id)
                     next_policy = {key: current[key] for key in INSTANCE_POLICY_DEFAULTS}
                     next_policy.update(patch)
                     next_policy.update({"revision": int(row[1]) + 1,
