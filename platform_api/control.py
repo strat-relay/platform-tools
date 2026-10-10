@@ -808,7 +808,8 @@ class PlatformControlApi:
             })
             if row.get("online"):
                 item["enabled"] = True
-            legacy_instance_id = (row.get("attributes") or {}).get("legacy_instance_id")
+            attrs = row.get("attributes") or {}
+            legacy_instance_id = attrs.get("legacy_instance_id") or attrs.get("instance_id")
             instance_id = legacy_instance_id or str(row["instance_id"])
             raw_instruments = row.get("instruments") or []
             instruments = [x.get("canonical_instrument") if isinstance(x, dict) else x
