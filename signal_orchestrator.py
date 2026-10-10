@@ -816,11 +816,11 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
             db_conn.close()
             raise
     try:
-        audit = startup_audit(config, orchestration_mode, store,
-                              signal_authority_mode=signal_authority_mode,
-                              execution_authority_mode=execution_authority_mode)
-        if not audit["pass"]:
-            raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {audit}")
+        startup_result = startup_audit(config, orchestration_mode, store,
+                                       signal_authority_mode=signal_authority_mode,
+                                       execution_authority_mode=execution_authority_mode)
+        if not startup_result["pass"]:
+            raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {startup_result}")
         mf = manifest_for_orchestration_mode(manifest(config), orchestration_mode, canonical_publisher)
         stop_path = {"SHADOW": STOP, "PRIMARY": PRIMARY_STOP,
                      "REAL_EXECUTION": REAL_STOP}[orchestration_mode]
