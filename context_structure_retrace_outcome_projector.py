@@ -134,7 +134,7 @@ def project_entry_only_outcomes(
                     (signal_id,),
                 )
                 existing_row = cur.fetchone()
-                if existing_row and existing_row[0] in {"TIME_EXIT", "PROFIT_EXIT"}:
+                if existing_row and existing_row[0] in {"TIME_EXIT", "PROFIT_EXIT", "INVALIDATED"}:
                     counts["matched"] += 1
                     counts["unchanged"] += 1
                     continue

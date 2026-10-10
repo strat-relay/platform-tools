@@ -167,7 +167,7 @@ class EntryOnlyProjectionTests(unittest.TestCase):
         self.assertEqual(result, {"matched": 4, "projected": 0, "unchanged": 4, "unmatched": 0})
         self.assertEqual(self.db.outcomes["SIG-TARGET"][2], Decimal("0.742819059469595"))
 
-    def test_runner_state_overwrites_a_stale_terminal_database_outcome(self):
+    def test_invalidated_outcome_is_not_overwritten_by_runner(self):
         state = {"positions": {"POS-STALE": {
             "economic_position_id": "POS-STALE",
             "entry_opportunity_id": "OPP-STALE",
@@ -182,8 +182,8 @@ class EntryOnlyProjectionTests(unittest.TestCase):
 
         result = project_entry_only_outcomes(state, **self.kwargs)
 
-        self.assertEqual(result, {"matched": 1, "projected": 1, "unchanged": 0, "unmatched": 4})
-        self.assertEqual(self.db.outcomes["SIG-STALE"][1], "OPEN")
+        self.assertEqual(result, {"matched": 1, "projected": 0, "unchanged": 1, "unmatched": 4})
+        self.assertEqual(self.db.outcomes["SIG-STALE"][1], "INVALIDATED")
 
     def test_time_exit_is_not_overwritten_by_runner_open_state(self):
         self.db.signals.append(("SIG-TIME", "CONTEXT_STRUCTURE_RETRACE_V1", "POS-TIME",
