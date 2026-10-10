@@ -22,6 +22,9 @@ class FakeStrategyMgmtApi:
     def handle(self, method, path, body):
         return None
 
+    def sync_instance_instrument(self, *_args):
+        return False
+
 
 def _v3_registry_row(instance_uuid="e5f7a9b1-c3d5-4e7f-a1b3-5c7e9f1b3d5e") -> dict:
     return {

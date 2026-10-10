@@ -897,9 +897,12 @@ class PlatformControlApi:
                     if state == "ACTIVE" and not catalog[canonical].provider_symbol:
                         raise UnsupportedInstrument(f"{canonical} has no provider mapping")
                     self.strategy_catalog.check_membership_change(strategy_id, instance_id, canonical, state)
+                    updated_by = str(payload.get("updatedBy") or "control-api")
                     row = self.instrument_membership.save_membership(
                         strategy_id, instance_id, canonical, state,
-                        payload.get("expectedRevision"), str(payload.get("updatedBy") or "control-api"))
+                        payload.get("expectedRevision"), updated_by)
+                    self.strategy_mgmt_api.sync_instance_instrument(
+                        instance_id, canonical, state, updated_by)
                     return 200, self._body(row, source="canonical_postgres")
                 except UnsupportedInstrument as exc:
                     return 409, self._body(None, source="canonical_postgres", status="DEGRADED",
