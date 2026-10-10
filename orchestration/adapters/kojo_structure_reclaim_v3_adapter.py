@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from orchestration.symbols import canonical_to_broker_hint
 
 STRATEGY_ID = "KOJO_STRUCTURE_RECLAIM_V3"
 EVALUATOR_KEY = "kojo_structure_reclaim_v3"
@@ -258,7 +259,7 @@ class KojoStructureReclaimV3Adapter:
                 signal_timestamp=ts_iso,
                 symbol=canonical_instrument,
                 canonical_symbol=canonical_instrument,
-                broker_symbol_hint=canonical_instrument,
+                broker_symbol_hint=canonical_to_broker_hint(canonical_instrument),
                 direction=es.direction,
                 entry_type=es.order_type,
                 entry_price=es.entry_price,
