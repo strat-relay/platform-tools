@@ -1133,9 +1133,11 @@ def print_report(symbol: str | None = None, recent: int | None = None) -> None:
 def run(args: argparse.Namespace) -> None:
     manifest = assert_frozen(); acquire_lock(); STOP_FILE.unlink(missing_ok=True)
     state = load_state(); state["runner_status"] = "ACTIVE"; state["poll_interval_seconds"] = args.interval; state["prospective_boundary"] = manifest["freeze_timestamp"]; save_state(state); write_heartbeat(state)
-    # Outcome persistence is a post-checkpoint projection. It never runs in
-    # _process_bar() or participates in frozen ENTRY_ONLY decisions.
-    _project_entry_only_outcomes(state)
+    # Compatibility only: until the shared Outcome Resolver runtime is deployed,
+    # the frozen V1 runner remains the legacy state observer.  Its SQL mutation is
+    # centralized in outcome_resolver.persist_outcome_row; this hook is removed
+    # only after resolver cutover validation, never as part of a code-only merge.
+    _legacy_project_entry_only_outcomes(state)
     stopping = {"value": False}
     last_membership_refresh = 0.0
     membership_symbols = tuple(args.symbols)
@@ -1153,7 +1155,7 @@ def run(args: argparse.Namespace) -> None:
                 state["instrument_membership_symbols"] = list(membership_symbols)
                 last_membership_refresh = time.monotonic()
             poll(state, membership_symbols, args.mcp_url, args.limit)
-            _project_entry_only_outcomes(state)
+            _legacy_project_entry_only_outcomes(state)
             if args.once: break
             next_cycle = cycle_started + max(0.25, float(args.interval))
             delay = next_cycle - time.monotonic()
@@ -1172,22 +1174,16 @@ def run(args: argparse.Namespace) -> None:
         print("CONTEXT_STRUCTURE_RETRACE_V1 paper runner stopped cleanly")
 
 
-def _project_entry_only_outcomes(state: dict[str, Any]) -> None:
-    """Best-effort projection after a poll; a PG outage never changes strategy decisions."""
+def _legacy_project_entry_only_outcomes(state: dict[str, Any]) -> None:
+    """Temporary compatibility observer; not part of the strategy decision path."""
     if not os.getenv("ENTRY_OUTCOME_SIGNAL_CUTOFF_ID"):
         return
     try:
         from context_structure_retrace_outcome_projector import project_entry_only_outcomes
-        # Project from the lifecycle authority (setup-held positions, as project_state defines
-        # it), not the in-memory positions map: after load_state() those are separate objects,
-        # and exits recorded on the setup-held position would otherwise stay invisible to the
-        # canonical outcome table until the next runner restart.
         result = project_entry_only_outcomes(project_state(state))
-        print(f"ENTRY_ONLY_OUTCOME_PROJECTION {json.dumps(result, sort_keys=True)}")
+        print(f"LEGACY_ENTRY_ONLY_OUTCOME_PROJECTION {json.dumps(result, sort_keys=True)}")
     except Exception as exc:
-        # The next completed poll retries. The frozen runner remains live and
-        # its already-checkpointed state remains authoritative during an outage.
-        print(f"ENTRY_ONLY_OUTCOME_PROJECTION_UNAVAILABLE {type(exc).__name__}: {exc}")
+        print(f"LEGACY_ENTRY_ONLY_OUTCOME_PROJECTION_UNAVAILABLE {type(exc).__name__}: {exc}")
 
 
 def stop() -> None:
