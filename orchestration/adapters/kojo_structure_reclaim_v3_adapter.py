@@ -53,6 +53,7 @@ class KojoStructureReclaimV3Adapter:
         execution_mode: str = "OFF",
         execution_mode_revision: int = 0,
     ) -> None:
+        self.strategy_id = STRATEGY_ID
         self.instance_id = instance_id
         self.display_name = display_name
         self.instruments = instruments
@@ -62,6 +63,175 @@ class KojoStructureReclaimV3Adapter:
         self._execution_mode_revision: int = execution_mode_revision
         self._evaluator: Any | None = None
         self._initialized = False
+
+    def discover_new_signals(self, seen_signal_ids: set[str]) -> list[Any]:
+        """Evaluate new H1/M15 bars from Redis and return unseen entry signals.
+
+        Called every orchestrator cycle (~15 s).  State is persisted to disk so
+        the evaluator resumes streaming rather than replaying history each cycle.
+        On the first cycle (no state file) all bars in Redis are processed; any
+        signals emitted are filtered by seen_signal_ids so DB duplicates are safe.
+        """
+        import json
+        import os
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        runtime_dir = Path(os.environ.get("TRADING_PLATFORM_RUNTIME_DIR", "/tmp"))
+        state_dir = runtime_dir / "orchestration"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state_file = state_dir / f"kojo_v3_{self.instance_id}_evaluator.json"
+
+        persisted: dict[str, Any] = {}
+        if state_file.exists():
+            try:
+                persisted = json.loads(state_file.read_text(encoding="utf-8"))
+            except Exception:
+                persisted = {}
+
+        from strategy_backtest.kojo_structure_reclaim_v3 import (
+            KojoStructureReclaimV3Evaluator,
+            kojo_structure_reclaim_v3_default_parameter_set,
+            VERSION, EVALUATOR_KEY,
+            kojo_structure_reclaim_v3_parameter_schema,
+        )
+        from strategy_backtest.models import MarketEvent, EntrySignal, StrategyVersion
+
+        parameter_set = kojo_structure_reclaim_v3_default_parameter_set()
+        strategy_version = StrategyVersion(
+            strategy_id=STRATEGY_ID,
+            version=VERSION,
+            evaluator_key=EVALUATOR_KEY,
+            parameter_schema=kojo_structure_reclaim_v3_parameter_schema(),
+            lifecycle="IMPLEMENTED",
+        )
+        evaluator = KojoStructureReclaimV3Evaluator()
+        evaluator.initialize(
+            strategy_version, parameter_set,
+            instance_id=self.instance_id,
+            configuration_revision=str(self._configuration_revision),
+        )
+        self._evaluator = evaluator
+        self._initialized = True
+        self._active_fingerprint = parameter_set.fingerprint
+
+        if persisted:
+            evaluator.restore_state(persisted)
+
+        h1_watermark = int(persisted.get("_h1_watermark", 0))
+        m15_watermark = int(persisted.get("_m15_watermark", 0))
+
+        entry_signals: list[tuple[Any, str]] = []
+        try:
+            import redis as redis_module
+            redis_url = os.environ.get("MARKET_DATA_REDIS_URL", "")
+            if redis_url:
+                r = redis_module.from_url(redis_url, decode_responses=True)
+                for canonical_instrument in self.instruments:
+                    provider_symbol = canonical_instrument
+                    raw_h1 = json.loads(r.get(f"md:bars:{provider_symbol}:H1") or "[]")
+                    raw_m15 = json.loads(r.get(f"md:bars:{provider_symbol}:M15") or "[]")
+                    new_h1 = [b for b in raw_h1 if int(b["time"]) > h1_watermark]
+                    new_m15 = [b for b in raw_m15 if int(b["time"]) > m15_watermark]
+                    # Interleave H1 and M15 bars in open-timestamp order; within the
+                    # same second H1 precedes M15 (H1 provides the structural context).
+                    events = sorted(
+                        [(int(b["time"]), 0, "H1", b) for b in new_h1] +
+                        [(int(b["time"]), 1, "M15", b) for b in new_m15],
+                        key=lambda x: (x[0], x[1]),
+                    )
+                    for ts, _, tf, bar in events:
+                        try:
+                            dur = 3600 if tf == "H1" else 900
+                            event = MarketEvent(
+                                canonical_instrument=canonical_instrument,
+                                timeframe=tf,
+                                open_timestamp=ts,
+                                close_timestamp=ts + dur,
+                                open=float(bar["open"]),
+                                high=float(bar["high"]),
+                                low=float(bar["low"]),
+                                close=float(bar["close"]),
+                                completed=True,
+                                source="redis_canonical_cache",
+                            )
+                            for output in self.consume_market_event(event):
+                                if isinstance(output, EntrySignal):
+                                    entry_signals.append((output, canonical_instrument))
+                        except Exception:
+                            pass
+                    if new_h1:
+                        h1_watermark = max(h1_watermark, max(int(b["time"]) for b in new_h1))
+                    if new_m15:
+                        m15_watermark = max(m15_watermark, max(int(b["time"]) for b in new_m15))
+        except Exception:
+            pass
+
+        try:
+            state = evaluator.snapshot_state()
+            state["_h1_watermark"] = h1_watermark
+            state["_m15_watermark"] = m15_watermark
+            state_file.write_text(
+                json.dumps(state, sort_keys=True, default=str), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+        from orchestration.models import StrategySignal
+        now_iso = (
+            datetime.now(timezone.utc)
+            .isoformat(timespec="microseconds")
+            .replace("+00:00", "Z")
+        )
+        result: list[Any] = []
+        for es, canonical_instrument in entry_signals:
+            if es.signal_id in seen_signal_ids:
+                continue
+            risk = abs(es.entry_price - es.stop_price)
+            reward = abs(es.target_price - es.entry_price)
+            ts_iso = (
+                datetime.fromtimestamp(es.decision_timestamp, tz=timezone.utc)
+                .isoformat(timespec="microseconds")
+                .replace("+00:00", "Z")
+            )
+            result.append(StrategySignal(
+                signal_id=es.signal_id,
+                schema_version="strategy-signal-v1",
+                strategy_id=STRATEGY_ID,
+                strategy_version=VERSION,
+                strategy_instance_id=self.instance_id,
+                source_event_id=f"kojo-v3-m15-entry:{es.signal_id}",
+                market_event_id=str(es.provenance.get("market_event_id") or ""),
+                setup_id=str(es.provenance.get("setup_id") or ""),
+                entry_opportunity_id=None,
+                economic_position_id=None,
+                created_at=now_iso,
+                signal_timestamp=ts_iso,
+                symbol=canonical_instrument,
+                canonical_symbol=canonical_instrument,
+                broker_symbol_hint=canonical_instrument,
+                direction=es.direction,
+                entry_type=es.order_type,
+                entry_price=es.entry_price,
+                stop_price=es.stop_price,
+                target_price=es.target_price,
+                risk_distance=risk,
+                target_distance=reward,
+                target_r=round(reward / risk, 3) if risk > 0 else None,
+                timeframe="M15",
+                lower_timeframe=None,
+                higher_timeframes=("H1",),
+                entry_mechanism=("M15_OPEN",),
+                strategy_metadata={
+                    "parameter_set_fingerprint": self._active_fingerprint,
+                    "execution_mode": self._execution_mode,
+                    "execution_mode_revision": self._execution_mode_revision,
+                },
+                provenance=dict(es.provenance or {}),
+                decision_time=ts_iso,
+                signal_emitted_at=now_iso,
+            ))
+        return result
 
     def initialize(self, strategy_version: Any, parameter_set: Any) -> None:
         from strategy_backtest.kojo_structure_reclaim_v3 import KojoStructureReclaimV3Evaluator
