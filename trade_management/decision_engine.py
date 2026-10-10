@@ -77,9 +77,18 @@ def _load_trade(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
         cur.execute("""SELECT mt.direction, mt.reference_entry_price, mt.initial_stop, mt.risk_distance, mt.state,
                              mt.instrument, mt.initial_target, mt.decision_time, mt.time_exit_at,
                              mt.net_profit_target_usd, mt.profit_target_pips, mt.profit_target_r, mt.pip_size,
-                             (s.publication_state = 'PUBLISHED')
+                             (publication.publish_status = 'PUBLISHED')
                       FROM trade_management.managed_trade mt
                       JOIN strategy.entry_signals s ON s.signal_id = mt.entry_signal_id
+                      LEFT JOIN LATERAL (
+                          SELECT o.publish_status
+                            FROM platform.outbox_events o
+                           WHERE o.aggregate_type = 'signal'
+                             AND o.aggregate_id = s.signal_id
+                             AND o.event_type = 'signal.entry.created.v1'
+                           ORDER BY o.created_at DESC, o.event_id
+                           LIMIT 1
+                      ) AS publication ON TRUE
                      WHERE mt.managed_trade_id=%s""",
                     (managed_trade_id,))
         row = cur.fetchone()
