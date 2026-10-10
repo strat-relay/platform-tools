@@ -9,7 +9,6 @@ from typing import Any
 
 from orchestration.models import StrategySignal, stable_id
 from outcome_attribution import target_distance
-from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
 from execution_v2.trace import emit as trace_emit
 from observability.strategy_audit import audit
 
@@ -66,10 +65,6 @@ class ContextStructureRetraceAdapter:
         state = json.loads(self.state_path.read_text(encoding="utf-8"))
         result = []
         boundary = self._epoch(self.freeze_timestamp)
-        # This is invariant for the whole scan. Loading the replay watermark
-        # once per candidate made a large state file a serial disk-read loop.
-        epoch = load_epoch(EPOCH_PATH)
-        watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
         candidates_seen = 0
         for setup in state.get("setups", {}).values():
             for position in setup.get("opportunities", []):
@@ -182,10 +177,6 @@ class ContextStructureRetraceAdapter:
                            strategy_instance_id=candidate.strategy_instance_id,
                            instrument=candidate.canonical_symbol,
                            producer="context_structure_retrace_adapter")
-                epoch = load_epoch(EPOCH_PATH)
-                watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
-                if watermark and not eligibility(candidate.to_dict(), watermark)[0]:
-                    result.pop()
         audit("context_signal_scan_completed", runner="signal-orchestrator",
               strategy_id=self.strategy_id, candidates_seen=candidates_seen,
               signals_found=len(result),
