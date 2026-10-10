@@ -6,6 +6,7 @@ source_read_health is absent from a signal's provenance, and warns
 """
 import sys
 from pathlib import Path
+from typing import Optional
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,11 @@ from orchestration.models import StrategySignal
 import signal_orchestrator as so
 
 
-def _make_signal(provenance: dict) -> StrategySignal:
+def _make_signal(
+    provenance: dict,
+    decision_time: Optional[str] = "2026-10-10T11:00:00Z",
+    signal_emitted_at: Optional[str] = "2026-10-10T12:00:00Z",
+) -> StrategySignal:
     return StrategySignal(
         signal_id="SIG_test",
         schema_version="strategy-signal-v1",
@@ -46,6 +51,8 @@ def _make_signal(provenance: dict) -> StrategySignal:
         higher_timeframes=("H4",),
         entry_mechanism=("STRUCTURE_RECLAIM",),
         provenance=provenance,
+        decision_time=decision_time,
+        signal_emitted_at=signal_emitted_at,
     )
 
 
@@ -130,3 +137,59 @@ def test_does_not_audit_when_provenance_is_present():
     with patch.object(so, "audit", side_effect=lambda *a, **k: audit_events.append(a)):
         so._validate_signal_provenance(signal, "SHADOW")
     assert audit_events == []
+
+
+# ---------------------------------------------------------------------------
+# Timestamp fields (A-11)
+# ---------------------------------------------------------------------------
+
+def test_fails_closed_in_real_execution_when_decision_time_absent():
+    signal = _make_signal({"source_read_health": True}, decision_time=None)
+    assert so._validate_signal_provenance(signal, "REAL_EXECUTION") is False
+
+
+def test_fails_closed_in_real_execution_when_signal_emitted_at_absent():
+    signal = _make_signal({"source_read_health": True}, signal_emitted_at=None)
+    assert so._validate_signal_provenance(signal, "REAL_EXECUTION") is False
+
+
+def test_warns_and_allows_in_shadow_when_timestamps_absent():
+    audit_events: list[tuple] = []
+
+    def fake_audit(event_name, **kwargs):
+        audit_events.append((event_name, kwargs))
+
+    signal = _make_signal({"source_read_health": True}, decision_time=None, signal_emitted_at=None)
+    with patch.object(so, "audit", side_effect=fake_audit):
+        result = so._validate_signal_provenance(signal, "SHADOW")
+
+    assert result is True
+    assert len(audit_events) == 1
+    name, kwargs = audit_events[0]
+    assert name == "signal_provenance_incomplete"
+    assert "decision_time" in kwargs["missing_fields"]
+    assert "signal_emitted_at" in kwargs["missing_fields"]
+
+
+def test_passes_real_execution_when_all_fields_present():
+    signal = _make_signal({"source_read_health": True})
+    assert so._validate_signal_provenance(signal, "REAL_EXECUTION") is True
+
+
+def test_all_three_missing_fields_reported_in_one_audit_event():
+    """A single audit event names all three absent fields together."""
+    audit_events: list[tuple] = []
+
+    def fake_audit(event_name, **kwargs):
+        audit_events.append((event_name, kwargs))
+
+    signal = _make_signal({}, decision_time=None, signal_emitted_at=None)
+    with patch.object(so, "audit", side_effect=fake_audit):
+        so._validate_signal_provenance(signal, "PRIMARY")
+
+    assert len(audit_events) == 1
+    _, kwargs = audit_events[0]
+    missing = kwargs["missing_fields"]
+    assert "source_read_health" in missing
+    assert "decision_time" in missing
+    assert "signal_emitted_at" in missing

@@ -266,22 +266,39 @@ def _validate_adapter_interfaces(adapters: list[Any]) -> None:
 def _validate_signal_provenance(signal: StrategySignal, orchestration_mode: str) -> bool:
     """Return True if the signal may proceed; False means block before publication.
 
-    In REAL_EXECUTION mode, a signal whose provenance lacks source_read_health
-    is blocked (fail-closed).  The field may be absent on KOJO V3 signals and
-    on any adapter that forgets to set it.  Blocking before canonical publication
-    means no invalid signals reach the DB or the broker.
+    Fail-closed checks (REAL_EXECUTION only):
+      - source_read_health absent → blocked; KOJO V3 and any adapter that
+        forgets to set it will be blocked until the adapter is fixed.
+      - decision_time absent → blocked; live signals must carry a causal
+        market-event timestamp for reliable replay protection.
+      - signal_emitted_at absent → blocked; absent emission timestamp means
+        the orchestrator cannot verify liveness and the signal cannot become
+        live-eligible (intentional paper-only constraint per models.py comment).
 
-    In non-REAL modes the missing field is recorded as an audit warning so the
-    operator can fix the adapter without disrupting paper/shadow operation.
+    In non-REAL modes all missing fields emit audit warnings only so that
+    paper/shadow operation is not disrupted while adapters are migrated.
     """
     prov = signal.provenance or {}
-    if prov.get("source_read_health") is not None:
-        return True
+    missing_provenance = prov.get("source_read_health") is None
+    missing_timestamps = [
+        f for f, v in (
+            ("decision_time", signal.decision_time),
+            ("signal_emitted_at", signal.signal_emitted_at),
+        )
+        if v is None
+    ]
+
     if orchestration_mode == "REAL_EXECUTION":
-        return False
-    audit("signal_provenance_incomplete", runner="signal-orchestrator",
-          signal_id=signal.signal_id, strategy_id=signal.strategy_id,
-          missing_fields=["source_read_health"], orchestration_mode=orchestration_mode)
+        if missing_provenance or missing_timestamps:
+            return False
+        return True
+
+    # Non-REAL modes: warn but allow.
+    missing_fields = (["source_read_health"] if missing_provenance else []) + missing_timestamps
+    if missing_fields:
+        audit("signal_provenance_incomplete", runner="signal-orchestrator",
+              signal_id=signal.signal_id, strategy_id=signal.strategy_id,
+              missing_fields=missing_fields, orchestration_mode=orchestration_mode)
     return True
 
 
