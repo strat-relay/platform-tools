@@ -221,6 +221,28 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
     return adapters
 
 
+def _validate_adapter_interfaces(adapters: list[Any]) -> None:
+    """Verify every loaded adapter satisfies the StrategyAdapter protocol.
+
+    Called once per cycle after load_adapters() so that a misconfigured adapter
+    fails loudly at startup rather than silently skipping signals or crashing mid-cycle.
+    """
+    for adapter in adapters:
+        strategy_id = getattr(adapter, "strategy_id", None)
+        if strategy_id is None:
+            raise RuntimeError(
+                f"Adapter {adapter.__class__.__name__} is missing required lowercase "
+                "'strategy_id' instance attribute.  Add self.strategy_id = STRATEGY_ID "
+                "to its __init__."
+            )
+        if not callable(getattr(adapter, "discover_new_signals", None)):
+            raise RuntimeError(
+                f"Adapter for {strategy_id} ({adapter.__class__.__name__}) does not "
+                "implement discover_new_signals(seen_signal_ids).  This is required by "
+                "the StrategyAdapter protocol."
+            )
+
+
 def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict[str, Any], provider: MT5ShadowProvider | None,
                  orchestration_mode: str = "SHADOW") -> None:
     audit("signal_routing_started", runner="signal-orchestrator", signal_id=signal.signal_id,
@@ -393,8 +415,10 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
         provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
     adapters = load_adapters(config, orchestrator_boundary)
+    _validate_adapter_interfaces(adapters)
     audit("strategies_loaded", runner="signal-orchestrator",
           strategies=[getattr(adapter, "strategy_id", adapter.__class__.__name__) for adapter in adapters])
+    adapter_failures: list[str] = []
     for adapter in adapters:
         strategy_id = getattr(adapter, "strategy_id", adapter.__class__.__name__)
         before = len(discovered)
@@ -406,7 +430,18 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
         except Exception as exc:
             audit("strategy_scan_failed", runner="signal-orchestrator", strategy_id=strategy_id,
                   decision="ERROR", error=str(exc))
-            raise
+            adapter_failures.append(strategy_id)
+            # Per-adapter fault isolation: one broken adapter must not crash signal
+            # generation for all other strategies.  The failure is recorded above and
+            # the cycle continues.  A hard re-raise is preserved only when the
+            # orchestrator is in REAL_EXECUTION mode so that a degraded adapter
+            # cannot silently skip execution-eligible signals.
+            if orchestration_mode == "REAL_EXECUTION":
+                raise
+    if adapter_failures and orchestration_mode != "REAL_EXECUTION":
+        audit("adapter_failures_isolated", runner="signal-orchestrator",
+              failed_strategies=adapter_failures, isolated_count=len(adapter_failures),
+              message="one or more strategy adapters failed; their signals were skipped this cycle")
     known = (set(seen) if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY else
              {row.get("signal_id") for row in store.rows("signals")})
     if signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:

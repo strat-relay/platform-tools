@@ -136,8 +136,16 @@ class KojoStructureReclaimV3Adapter:
                 if r is not None:
                     raw_h1 = json.loads(r.get(f"md:bars:{canonical_instrument}:H1") or "[]")
                     raw_m15 = json.loads(r.get(f"md:bars:{canonical_instrument}:M15") or "[]")
-                    new_h1 = [b for b in raw_h1 if int(b["time"]) > h1_watermark]
-                    new_m15 = [b for b in raw_m15 if int(b["time"]) > m15_watermark]
+                    now_ts = int(datetime.now(timezone.utc).timestamp())
+                    # Exclude any bar whose close time (open + duration) is still in the
+                    # future — these are forming candles, not closed bars.  Treating a
+                    # forming candle as completed is lookahead bias.
+                    new_h1 = [b for b in raw_h1
+                               if int(b["time"]) > h1_watermark
+                               and int(b["time"]) + 3600 <= now_ts]
+                    new_m15 = [b for b in raw_m15
+                                if int(b["time"]) > m15_watermark
+                                and int(b["time"]) + 900 <= now_ts]
                     # Interleave H1 and M15 bars in open-timestamp order; within the
                     # same second H1 precedes M15 (H1 provides the structural context).
                     events = sorted(
@@ -163,8 +171,19 @@ class KojoStructureReclaimV3Adapter:
                             for output in evaluator.consume_market_event(event):
                                 if isinstance(output, EntrySignal):
                                     entry_signals.append((output, canonical_instrument))
-                        except Exception:
-                            pass
+                        except Exception as bar_exc:
+                            from observability.strategy_audit import audit as _audit
+                            _audit(
+                                "strategy_bar_processing_failed",
+                                runner="signal-orchestrator",
+                                strategy_id=STRATEGY_ID,
+                                instance_id=self.instance_id,
+                                canonical_instrument=canonical_instrument,
+                                timeframe=tf,
+                                open_timestamp=ts,
+                                error=str(bar_exc),
+                                error_type=type(bar_exc).__name__,
+                            )
                     if new_h1:
                         h1_watermark = max(h1_watermark, max(int(b["time"]) for b in new_h1))
                     if new_m15:
@@ -177,16 +196,35 @@ class KojoStructureReclaimV3Adapter:
                     state_file.write_text(
                         json.dumps(state, sort_keys=True, default=str), encoding="utf-8"
                     )
-                except Exception:
-                    pass
+                except Exception as persist_exc:
+                    from observability.strategy_audit import audit as _audit
+                    _audit(
+                        "strategy_state_persist_failed",
+                        runner="signal-orchestrator",
+                        strategy_id=STRATEGY_ID,
+                        instance_id=self.instance_id,
+                        canonical_instrument=canonical_instrument,
+                        state_file=str(state_file),
+                        error=str(persist_exc),
+                        error_type=type(persist_exc).__name__,
+                    )
 
                 # Keep self._evaluator pointing at the last-processed instrument so
                 # that the consume_market_event / initialize test path still works.
                 self._evaluator = evaluator
                 self._initialized = True
 
-        except Exception:
-            pass
+        except Exception as exc:
+            from observability.strategy_audit import audit as _audit
+            _audit(
+                "strategy_scan_failed",
+                runner="signal-orchestrator",
+                strategy_id=STRATEGY_ID,
+                instance_id=self.instance_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
 
         from orchestration.models import StrategySignal
         now_iso = (
