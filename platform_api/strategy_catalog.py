@@ -158,6 +158,37 @@ def instance_policy(attributes: dict[str, Any]) -> dict[str, Any]:
     values["fingerprint"] = _policy_fingerprint({key: values[key] for key in INSTANCE_POLICY_DEFAULTS})
     return values
 
+
+def _policy_values(value: Any) -> dict[str, Any]:
+    """Normalize policy params for the console's inheritance view."""
+    if not isinstance(value, dict):
+        return {}
+    params = value.get("params") if isinstance(value.get("params"), dict) else value
+    return {str(k): v for k, v in params.items() if str(k) not in {"policy", "label"}}
+
+
+def _policy_layers(bindings: list[dict[str, Any]], configured: Any,
+                   attributes: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return source values and the resolved Global -> Strategy -> Instance policy."""
+    binding = bindings[0] if bindings else {}
+    manifest = binding.get("manifest") if isinstance(binding.get("manifest"), dict) else {}
+    bundle = manifest.get("policy_bundle") if isinstance(manifest, dict) else {}
+    global_values = dict(bundle) if isinstance(bundle, dict) else {
+        str(k): v for item in (bundle or []) if isinstance(item, (list, tuple)) and len(item) == 2
+        for k, v in [item]
+    }
+    strategy_values = _policy_values(configured)
+    raw_instance = attributes.get("instance_policy") if isinstance(attributes, dict) else {}
+    instance_values = _policy_values(raw_instance)
+    effective = {**global_values, **strategy_values, **instance_values}
+    return {
+        "precedence": ["GLOBAL", "STRATEGY", "INSTANCE"],
+        "global": {"source": binding.get("label") or binding.get("tm_version_id"), "values": global_values},
+        "strategy": {"source": configured.get("label") if isinstance(configured, dict) else None, "values": strategy_values},
+        "instance": {"source": "instance_policy", "values": instance_values},
+        "effective": effective,
+    }
+
 # Friendly labels for known instance parameters (attributes); unknown keys are shown as-is.
 _PARAMETER_LABELS = {"symbol": "Symbol", "target_r": "Target (R)", "entry_fraction": "Entry fraction",
                      "max_hold_minutes": "Max hold (min)"}
@@ -434,7 +465,7 @@ class StrategyCatalogRepository:
                 return None
             page = rows[0]
             scope = (strategy_id, instance_id)
-            parent = self._rows(cur, "SELECT display_name, strategy_version FROM platform.strategy_definition "
+            parent = self._rows(cur, "SELECT display_name, strategy_version, trade_management FROM platform.strategy_definition "
                                      "WHERE strategy_id = %s", (strategy_id,))[0]
             membership = self._rows(cur, """SELECT m.canonical_instrument, m.state, m.revision, m.updated_at,
                     m.updated_by, p.provider_symbol, p.asset_class
@@ -470,6 +501,10 @@ class StrategyCatalogRepository:
                                   "simulated_rr": _num(o["simulated_rr"]), "realized_r": _num(o["realized_r"])}
                                  for o in observations],
                 "events": events,
+                "trade_management": self._trade_management(
+                    cur, strategy_id, parent.get("trade_management"),
+                    instance_policy(page.get("attributes") or {}), page.get("attributes") or {},
+                ),
             })
             return page
         return self._run(read)
@@ -704,7 +739,9 @@ class StrategyCatalogRepository:
         })
         return page
 
-    def _trade_management(self, cur: Any, strategy_id: str, policy: Any) -> dict[str, Any]:
+    def _trade_management(self, cur: Any, strategy_id: str, policy: Any,
+                          instance: dict[str, Any] | None = None,
+                          attributes: dict[str, Any] | None = None) -> dict[str, Any]:
         """Effective TM policy: explicit legacy_stream_binding rows if any, otherwise the default
         TM-NONE-1 resolution every unbound trade actually gets (never reported as 'unavailable')."""
         bindings = self._rows(cur, """SELECT b.binding_id, b.instrument, b.tm_version_id, b.valid_from,
@@ -721,6 +758,7 @@ class StrategyCatalogRepository:
                 count(*) FILTER (WHERE state = 'CLOSED') AS closed, count(*) AS total
             FROM trade_management.managed_trade WHERE strategy_id = %s""", (strategy_id,))
         return {"resolution": resolution, "bindings": bindings, "configured_policy": policy,
+                "policy_layers": _policy_layers(bindings, policy, attributes),
                 "managed_trades": trades[0] if trades else {"open": 0, "closed": 0, "total": 0}}
 
     def _write_definition(self, strategy_id: str, expected_revision: Any, updated_by: str,
