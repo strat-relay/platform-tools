@@ -151,6 +151,7 @@ VALUES (
     'SHADOW',   -- execution_mode=SHADOW; signals observed, no broker orders
     '[{"canonical_instrument": "XAUUSDm"}]'::jsonb,
     '{
+        "instance_id": "kojo-v3-forward",
         "shadow_only": true,
         "broker_writes": 0,
         "forward_testing": true,
