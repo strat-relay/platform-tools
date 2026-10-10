@@ -34,6 +34,11 @@ migration runner.
    persist-before-cursor crash tests. Require zero duplicate terminal rows.
 4. Confirm every legacy monitor has a shutdown/disable switch and that setup
    evaluation remains enabled. Confirm the Liquidity Live bypass is not active.
+   The standalone `monitor_open_liquidity_entries()` and
+   `ensure_open_liquidity_outcomes()` calls must be stopped as outcome writers;
+   the resolver must already discover both missing and `OPEN` rows. Liquidity
+   signals must carry an explicit `outcome_contract` and provider-symbol
+   provenance before they are admitted to resolver primary ownership.
 5. Before any fence transition, set `OUTCOME_RESOLVER_ENFORCE_WRITER_GATE=true`
    on every legacy writer and verify it can write only while the control row is
    `LEGACY_COMPAT`. The old compatibility SQL path otherwise predates the
@@ -45,6 +50,9 @@ migration runner.
 2. Stop the Context V1 outcome projector and Liquidity outcome monitor while
    leaving strategy setup/signal production intact. Confirm their processes
    are terminated, not merely idle, and observe zero compatibility writes.
+   Any `after_publish` hook that creates an initial outcome row is included in
+   this shutdown gate. Signal publication remains allowed, but canonical OPEN
+   creation belongs to the resolver and is idempotent with existing OPEN rows.
 3. Set the resolver control row to `STOPPED`, verify legacy processes have no
    active canonical writer, then advance the generation to
    `RESOLVER_PRIMARY`. Do not start the resolver before this committed fence

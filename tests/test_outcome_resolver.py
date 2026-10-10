@@ -68,6 +68,24 @@ class OutcomeResolverTests(unittest.TestCase):
         self.assertEqual(result.realized_r, 3)
         self.assertEqual(result.evidence["price_source"], "CANDLE_CLOSE")
 
+    def test_liquidity_contract_can_preserve_stop_first_same_candle_semantics(self):
+        result = resolve_candle_path(
+            direction="LONG", entry=100, stop=99, target=101,
+            entry_timestamp=START, same_candle_priority="STOP_FIRST",
+            candles=[self.candle(0, high=102, low=98)],
+        )
+        self.assertEqual(result.status, "STOPPED")
+
+    def test_liquidity_contract_can_prioritize_time_exit_before_price(self):
+        result = resolve_candle_path(
+            direction="LONG", entry=100, stop=99, target=101,
+            entry_timestamp=START, max_hold_minutes=15,
+            time_exit_priority="BEFORE_PRICE",
+            candles=[Candle(START, START + timedelta(minutes=15), 102, 98, 100.5)],
+        )
+        self.assertEqual(result.status, "TIME_EXIT")
+        self.assertEqual(result.exit_price, 100.5)
+
     def test_contract_is_signal_versioned_and_strategy_agnostic(self):
         contract = EvaluationContract.from_signal({
             "entry_type": "LIMIT",

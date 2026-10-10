@@ -214,22 +214,43 @@ class OutcomeResolverRuntime:
         cursor = self._cursor(signal.signal_id)
         if cursor is not None:
             candles = [candle for candle in candles if _utc(candle.close_timestamp) > cursor]
-            if not candles:
-                return OutcomeResolution("OPEN", None, None, "INSUFFICIENT_DATA",
-                                         "CANDLE_REPLAY_V2", {"reason": "NO_NEW_COMPLETED_CANDLES",
-                                                               "cursor": cursor.isoformat()})
-        result = resolve_candle_path(
-            direction=signal.direction, entry=signal.entry, stop=signal.stop,
-            target=signal.target, entry_timestamp=signal.decision_time, candles=candles,
-            max_hold_minutes=contract.max_hold_minutes,
-            timeframe_minutes=contract.timeframe_minutes,
-            expiration_minutes=contract.expiration_minutes,
-            activation=contract.activation, time_exit_price=contract.time_exit_price,
-            price_basis=contract.price_basis,
-        )
+        if not candles and cursor is not None:
+            result = OutcomeResolution("OPEN", None, None, "INSUFFICIENT_DATA",
+                                       "CANDLE_REPLAY_V2", {"reason": "NO_NEW_COMPLETED_CANDLES",
+                                                             "cursor": cursor.isoformat()})
+        else:
+            result = resolve_candle_path(
+                direction=signal.direction, entry=signal.entry, stop=signal.stop,
+                target=signal.target, entry_timestamp=signal.decision_time, candles=candles,
+                max_hold_minutes=contract.max_hold_minutes,
+                timeframe_minutes=contract.timeframe_minutes,
+                expiration_minutes=contract.expiration_minutes,
+                activation=contract.activation, time_exit_price=contract.time_exit_price,
+                price_basis=contract.price_basis,
+                same_candle_priority=contract.same_candle_priority,
+                time_exit_priority=contract.time_exit_priority,
+            )
         try:
             with self.conn.cursor() as cur:
                 self._assert_lease(cur)
+                # The resolver owns the complete canonical lifecycle, including
+                # the initial OPEN row.  This makes missing rows and legacy OPEN
+                # rows converge through the same idempotent writer before a
+                # terminal transition is attempted.
+                persist_outcome_row(
+                    cur, signal_id=signal.signal_id, outcome_type="ENTRY_ONLY",
+                    status="OPEN", realized_r=None, exit_timestamp=None,
+                    source=signal.strategy_id, updated_at=datetime.now(timezone.utc),
+                    resolution_state=(result.resolution_state
+                                      if result.status == "OPEN" else "INSUFFICIENT_DATA"),
+                    resolution_method=result.resolution_method,
+                    resolution_evidence=result.evidence,
+                    outcome_contract_version=contract.version,
+                    price_basis=contract.price_basis,
+                    outcome_kind="STRATEGY_THEORETICAL",
+                    source_kind="STRATEGY_REPLAY",
+                    writer_id="unified-outcome-resolver",
+                )
                 if result.resolution_state == "RESOLVED" and result.status != "OPEN":
                     persist_outcome_row(cur, signal_id=signal.signal_id,
                                         outcome_type="ENTRY_ONLY", status=result.status,

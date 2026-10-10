@@ -17,6 +17,8 @@ OUTCOME_CONTRACT_VERSION = "entry-outcome.v2"
 STRATEGY_REPLAY_SOURCE_KIND = "STRATEGY_REPLAY"
 PRICE_BASES = frozenset({"THEORETICAL_TOUCH", "EXECUTABLE_BID_ASK"})
 OUTCOME_KINDS = frozenset({"STRATEGY_THEORETICAL", "BROKER_REALIZED"})
+SAME_CANDLE_PRIORITIES = frozenset({"AMBIGUOUS_INTRABAR", "STOP_FIRST", "TARGET_FIRST"})
+TIME_EXIT_PRIORITIES = frozenset({"AFTER_PRICE", "BEFORE_PRICE"})
 RESOLUTION_STATES = frozenset({"RESOLVED", "INSUFFICIENT_DATA", "AMBIGUOUS_INTRABAR", "REJECTED"})
 TERMINAL_STATUSES = frozenset({
     "TARGET_HIT", "STOPPED", "TIME_EXIT", "PROFIT_EXIT", "EXPIRED", "INVALIDATED",
@@ -83,6 +85,8 @@ class EvaluationContract:
     time_exit_price: str = "CLOSE"
     price_semantics: str = "OHLC_UNPROVABLE_INTRABAR"
     price_basis: str = "THEORETICAL_TOUCH"
+    same_candle_priority: str = "AMBIGUOUS_INTRABAR"
+    time_exit_priority: str = "AFTER_PRICE"
 
     @classmethod
     def from_signal(cls, signal: dict[str, Any]) -> "EvaluationContract":
@@ -110,11 +114,17 @@ class EvaluationContract:
             time_exit_price=str(raw.get("time_exit_price") or "CLOSE"),
             price_semantics=str(raw.get("price_semantics") or "OHLC_UNPROVABLE_INTRABAR"),
             price_basis=str(raw.get("price_basis") or "THEORETICAL_TOUCH"),
+            same_candle_priority=str(raw.get("same_candle_priority") or "AMBIGUOUS_INTRABAR"),
+            time_exit_priority=str(raw.get("time_exit_priority") or "AFTER_PRICE"),
         )
 
     def __post_init__(self) -> None:
         if self.price_basis not in PRICE_BASES:
             raise ValueError(f"unsupported price basis: {self.price_basis}")
+        if self.same_candle_priority not in SAME_CANDLE_PRIORITIES:
+            raise ValueError(f"unsupported same-candle priority: {self.same_candle_priority}")
+        if self.time_exit_priority not in TIME_EXIT_PRIORITIES:
+            raise ValueError(f"unsupported time-exit priority: {self.time_exit_priority}")
 
 
 def _utc(value: datetime) -> datetime:
@@ -130,7 +140,9 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
                         expiration_minutes: int | None = None,
                         activation: str = "SIGNAL_TIMESTAMP",
                         time_exit_price: str = "CLOSE",
-                        price_basis: str = "THEORETICAL_TOUCH") -> OutcomeResolution:
+                        price_basis: str = "THEORETICAL_TOUCH",
+                        same_candle_priority: str = "AMBIGUOUS_INTRABAR",
+                        time_exit_priority: str = "AFTER_PRICE") -> OutcomeResolution:
     """Resolve the first provable terminal event from completed candles.
 
     If one candle contains both stop and target, intrabar ordering is unknown and
@@ -146,6 +158,10 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
         raise ValueError("invalid entry/stop/target geometry")
     if price_basis not in PRICE_BASES:
         raise ValueError(f"unsupported price basis: {price_basis}")
+    if same_candle_priority not in SAME_CANDLE_PRIORITIES:
+        raise ValueError(f"unsupported same-candle priority: {same_candle_priority}")
+    if time_exit_priority not in TIME_EXIT_PRIORITIES:
+        raise ValueError(f"unsupported time-exit priority: {time_exit_priority}")
     executable = price_basis == "EXECUTABLE_BID_ASK"
     ordered = sorted(candles, key=lambda candle: _utc(candle.open_timestamp))
     if timeframe_minutes <= 0:
@@ -168,6 +184,12 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
         start, end = _utc(candle.open_timestamp), _utc(candle.close_timestamp)
         if end <= entry_timestamp:
             continue
+        if previous_end is None and start > entry_timestamp + timedelta(minutes=timeframe_minutes):
+            return OutcomeResolution(
+                "OPEN", None, None, "INSUFFICIENT_DATA", "CANDLE_REPLAY_V2",
+                {"reason": "CANDLE_GAP", "gap_start": entry_timestamp.isoformat(),
+                 "gap_end": start.isoformat(), "observed_candles": observed},
+            )
         if previous_end is not None and start > previous_end + timedelta(minutes=timeframe_minutes):
             return OutcomeResolution(
                 "OPEN", None, None, "INSUFFICIENT_DATA", "CANDLE_REPLAY_V2",
@@ -214,9 +236,10 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
         if expiration is not None and start >= expiration and activated_at is None:
             return OutcomeResolution("OPEN", None, None, "RESOLVED", "CANDLE_REPLAY_V2",
                                       {"event": "EXPIRED_UNFILLED", "expiration": expiration.isoformat()})
+        deadline_reached = deadline is not None and end >= deadline
         stop_hit = exit_low <= stop if direction == "LONG" else exit_high >= stop
         target_hit = exit_high >= target if direction == "LONG" else exit_low <= target
-        if activation_candle is candle and (stop_hit or target_hit):
+        if activation_candle is candle and (stop_hit or target_hit) and same_candle_priority == "AMBIGUOUS_INTRABAR":
             return OutcomeResolution(
                 "OPEN", None, None, "AMBIGUOUS_INTRABAR", "CANDLE_REPLAY_V2",
                 {"candle_open": start.isoformat(), "candle_close": end.isoformat(),
@@ -224,12 +247,35 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
                  "stop": stop, "target": target, "price_basis": price_basis},
                 price_basis=price_basis, activation_price=activation_price,
             )
-        if stop_hit and target_hit:
+        if deadline_reached and time_exit_priority == "BEFORE_PRICE":
+            if time_exit_price != "CLOSE":
+                return OutcomeResolution("OPEN", None, None, "REJECTED", "CANDLE_REPLAY_V2",
+                                          {"reason": "UNSUPPORTED_TIME_EXIT_PRICE", "requested": time_exit_price})
+            exit_price = close
+            if exit_price is None:
+                return OutcomeResolution("OPEN", None, None, "INSUFFICIENT_DATA", "CANDLE_REPLAY_V2",
+                                          {"reason": "TIME_EXIT_CLOSE_UNAVAILABLE", "candle_close": end.isoformat()})
+            return OutcomeResolution(
+                "TIME_EXIT", ((float(exit_price) - entry) / abs(entry - stop)) * (1 if direction == "LONG" else -1),
+                end, "RESOLVED", "CANDLE_REPLAY_V2",
+                {"candle_open": start.isoformat(), "candle_close": end.isoformat(),
+                 "event": "TIME_EXIT", "price": float(exit_price),
+                 "price_source": "BID_ASK_CLOSE" if executable else "CANDLE_CLOSE",
+                 "price_basis": price_basis, "time_exit_priority": time_exit_priority},
+                price_basis=price_basis, exit_price=float(exit_price),
+                activation_price=activation_price,
+            )
+        if stop_hit and target_hit and same_candle_priority == "AMBIGUOUS_INTRABAR":
             return OutcomeResolution(
                 "OPEN", None, None, "AMBIGUOUS_INTRABAR", "CANDLE_REPLAY_V2",
                 {"candle_open": start.isoformat(), "candle_close": end.isoformat(),
                  "stop": stop, "target": target},
             )
+        if stop_hit and target_hit:
+            if same_candle_priority == "STOP_FIRST":
+                target_hit = False
+            elif same_candle_priority == "TARGET_FIRST":
+                stop_hit = False
         if stop_hit or target_hit:
             status = "STOPPED" if stop_hit else "TARGET_HIT"
             signed = stop - entry if stop_hit else target - entry
@@ -246,7 +292,7 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
                 price_basis=price_basis, exit_price=float(stop if stop_hit else target),
                 activation_price=activation_price,
             )
-        if deadline is not None and end >= deadline:
+        if deadline_reached and time_exit_priority == "AFTER_PRICE":
             if time_exit_price != "CLOSE":
                 return OutcomeResolution("OPEN", None, None, "REJECTED", "CANDLE_REPLAY_V2",
                                           {"reason": "UNSUPPORTED_TIME_EXIT_PRICE", "requested": time_exit_price})

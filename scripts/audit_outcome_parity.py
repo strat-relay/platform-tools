@@ -15,6 +15,20 @@ from outcome_resolver import EvaluationContract, resolve_candle_path
 from outcome_resolver_runtime import ResolverRedisCandleStore, ResolverSignal
 
 
+REQUIRED_CONTRACT_FIELDS = ("version", "timeframe_minutes", "activation",
+                            "time_exit_price", "price_basis")
+
+
+def contract_gap(signal: dict) -> list[str]:
+    raw = (signal.get("strategy_metadata") or {}).get("outcome_contract")
+    if not isinstance(raw, dict):
+        return ["strategy_metadata.outcome_contract"]
+    missing = [field for field in REQUIRED_CONTRACT_FIELDS if raw.get(field) in (None, "")]
+    if raw.get("version") and not str(raw["version"]).startswith("entry-outcome."):
+        missing.append("outcome_contract.version_supported")
+    return missing
+
+
 def classify(existing, replay):
     if replay.resolution_state in {"INSUFFICIENT_DATA", "AMBIGUOUS_INTRABAR"}:
         return "INSUFFICIENT_EVIDENCE"
@@ -31,7 +45,7 @@ def _dsn():
     return os.environ.get("DATABASE_URL") or os.environ.get("TRADING_POSTGRES_DSN")
 
 
-def run(limit: int, strategies: list[str]) -> list[dict]:
+def run(limit: int, strategies: list[str], *, prospective: bool = False) -> list[dict]:
     import psycopg
     dsn = _dsn()
     if not dsn:
@@ -60,6 +74,18 @@ def run(limit: int, strategies: list[str]) -> list[dict]:
     report = []
     for row in rows:
         signal = ResolverSignal.from_row(row[:11])
+        contract_missing = contract_gap({"strategy_metadata": signal.strategy_metadata})
+        if prospective and contract_missing:
+            report.append({"signal_id": signal.signal_id, "strategy_id": signal.strategy_id,
+                "entry": {"decision_time": signal.decision_time, "entry_price": signal.entry,
+                           "stop_price": signal.stop, "target_price": signal.target,
+                           "entry_type": signal.entry_type},
+                "classification": "MISSING_CONTRACT",
+                "missing_contract_fields": contract_missing,
+                "existing": {"status": row[11], "exit_timestamp": row[12],
+                             "realized_r": row[13]},
+                "resolver": None})
+            continue
         contract = EvaluationContract.from_signal({"strategy_id": signal.strategy_id,
             "entry_type": signal.entry_type, "strategy_metadata": signal.strategy_metadata})
         candles = store.candles(signal, contract.timeframe_minutes)
@@ -69,11 +95,19 @@ def run(limit: int, strategies: list[str]) -> list[dict]:
             timeframe_minutes=contract.timeframe_minutes,
             expiration_minutes=contract.expiration_minutes,
             activation=contract.activation, time_exit_price=contract.time_exit_price,
-            price_basis=contract.price_basis)
+            price_basis=contract.price_basis,
+            same_candle_priority=contract.same_candle_priority,
+            time_exit_priority=contract.time_exit_priority)
         existing = {"status": row[11], "exit_timestamp": row[12],
                     "realized_r": row[13], "resolution_state": None,
                     "resolution_evidence": {}}
         report.append({"signal_id": signal.signal_id, "strategy_id": signal.strategy_id,
+            "entry": {"decision_time": signal.decision_time, "entry_price": signal.entry,
+                       "stop_price": signal.stop, "target_price": signal.target,
+                       "entry_type": signal.entry_type},
+            "contract": {"version": contract.version, "activation": contract.activation,
+                          "timeframe_minutes": contract.timeframe_minutes,
+                          "price_basis": contract.price_basis},
             "activation": {"contract": contract.activation,
                            "resolver": replay.activation_price,
                            "existing": (existing["resolution_evidence"] or {}).get("activated_at")
@@ -91,11 +125,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--strategy", action="append", dest="strategies")
+    parser.add_argument("--prospective", action="store_true",
+                        help="require a complete versioned contract and never infer legacy semantics")
     args = parser.parse_args()
     strategies = args.strategies or ["CONTEXT_STRUCTURE_RETRACE_V1",
-                                      "LIQUIDITY_DISPLACEMENT_SCALP_V1", "KOJO_V3"]
+                                      "LIQUIDITY_DISPLACEMENT_SCALP_V1", "KOJO_STRUCTURE_RECLAIM_V3"]
     print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(),
-                      "read_only": True, "signals": run(args.limit, strategies)},
+                      "read_only": True, "prospective": args.prospective,
+                      "persists_outcomes": False,
+                      "signals": run(args.limit, strategies, prospective=args.prospective)},
                      default=str, indent=2))
 
 
