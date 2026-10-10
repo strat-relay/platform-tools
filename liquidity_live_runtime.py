@@ -152,7 +152,8 @@ def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]
 
 class LiquidityLiveRuntime:
     def __init__(self, *, conn: Any, snapshot_reader: Callable[..., dict[str, Any]],
-                 publisher: CanonicalSignalPublisher, runtime_instance_id: str = "liquidity-live-runtime"):
+                 publisher: CanonicalSignalPublisher | None = None,
+                 runtime_instance_id: str = "liquidity-live-runtime"):
         self.conn = conn
         self.snapshot_reader = snapshot_reader
         self.publisher = publisher
@@ -178,6 +179,52 @@ class LiquidityLiveRuntime:
                     stopped_at = NULL""", (self.runtime_instance_id, lifecycle_status,
                                              json.dumps({"broker_writes": 0, "source": "LIVE_MARKET",
                                                          "health_status": status})))
+
+    def collect_signals(self, seen_signal_ids: set[str]) -> list[Any]:
+        """Evaluate active memberships and return new StrategySignal objects.
+
+        This is the canonical adapter path.  It does NOT publish, commit, or
+        call ensure_open_liquidity_outcome.  The orchestrator owns those steps.
+
+        Setup state is persisted to Postgres before this method returns.  If
+        publishing later fails the signal will not be re-emitted (seen_signal_ids
+        deduplication) but setup state will be consistent on the next cycle.
+        """
+        from orchestration.models import StrategySignal as _StrategySignal
+        evaluation_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        pending: list[Any] = []
+        memberships = active_instance_memberships(self.conn)
+        for row in memberships:
+            instance_id = row["instance_id"]
+            membership_key = f"{instance_id}:{row['canonical_instrument']}"
+            parameter_set = PARAMETER_SETS.get(instance_id)
+            if parameter_set is None or row["canonical_instrument"] != parameter_set.canonical_instrument:
+                continue
+            try:
+                evaluator = self.evaluators.setdefault(instance_id, LiquidityLiveEvaluator(parameter_set))
+                if instance_id not in self._restored:
+                    evaluator.restore(self.setup_store.load(instance_id, row["canonical_instrument"]))
+                    self._restored.add(instance_id)
+                snapshot = self.snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
+                if not isinstance(snapshot, LiveMarketSnapshot):
+                    raise MarketDataUnavailable("invalid live market snapshot")
+                signal = evaluator.evaluate(snapshot, evaluation_time=evaluation_time)
+                for state in evaluator.export_state():
+                    self.setup_store.save(state)
+                self.membership_consecutive_failures[membership_key] = 0
+                if signal is None or signal.signal_id in seen_signal_ids:
+                    continue
+                pending.append(signal)
+            except MarketDataUnavailable as exc:
+                failures = self.membership_consecutive_failures.get(membership_key, 0) + 1
+                self.membership_consecutive_failures[membership_key] = failures
+                reason = "MARKET_DATA_STALE" if "stale" in str(exc).lower() else "MARKET_DATA_UNAVAILABLE"
+                audit("membership_data_unavailable", runner="liquidity-live",
+                      strategy_id=STRATEGY_ID, instance_id=instance_id,
+                      canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"], reason=reason,
+                      error=str(exc)[:300], consecutive_failures=failures)
+        return pending
 
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

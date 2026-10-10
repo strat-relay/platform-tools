@@ -146,7 +146,8 @@ def event(store: OrchestrationStore, event_type: str, signal: StrategySignal | N
     store.append("events", row, row["event_id"])
 
 
-def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
+def load_adapters(config: dict[str, Any], freeze_timestamp: str,
+                  conn: Any = None) -> list[Any]:
     registry = StrategyRegistry(config)
     adapters = []
     for record in registry.enabled():
@@ -183,6 +184,25 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
                 # deployment is being migrated to explicit instance rows.
                 adapters.append(LiquidityDisplacementAdapter(ROOT, freeze_timestamp))
             # Instance rows exist but every one is OFFLINE: no Liquidity adapter at all.
+            # Liquidity Live: if the live runtime is enabled and a DB connection is
+            # available (DB_PRIMARY mode), register it as an orchestrator adapter so
+            # all signals pass through the canonical admission pipeline.
+            if conn is not None and os.environ.get("LIQUIDITY_LIVE_RUNTIME_ENABLED", "").lower() == "true":
+                try:
+                    from orchestration.adapters.liquidity_live import LiquidityLiveAdapter
+                    from liquidity_live_runtime import LiquidityLiveRuntime
+                    from liquidity_market_data import build_liquidity_market_data
+                    mcp_url = os.environ.get("LIQUIDITY_LIVE_MCP_URL", "").strip()
+                    market_data = build_liquidity_market_data(mcp_url)
+                    live_runtime = LiquidityLiveRuntime(
+                        conn=conn,
+                        snapshot_reader=market_data.snapshot,
+                    )
+                    adapters.append(LiquidityLiveAdapter(live_runtime))
+                    audit("liquidity_live_adapter_registered", runner="signal-orchestrator")
+                except Exception as exc:
+                    audit("liquidity_live_adapter_failed", runner="signal-orchestrator",
+                          error=str(exc), error_type=type(exc).__name__)
         elif record["strategy_id"] == "KOJO_STRUCTURE_RECLAIM_V1":
             # Pipeline-created instances from strategy_instance_v2.
             # Only ONLINE instances are present in config["instances"] (loaded by
@@ -414,8 +434,15 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     if orchestration_mode != "PRIMARY" and provider is None:
         provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
-    adapters = load_adapters(config, orchestrator_boundary)
+    publisher_conn = canonical_publisher.conn if canonical_publisher is not None else None
+    adapters = load_adapters(config, orchestrator_boundary, conn=publisher_conn)
     _validate_adapter_interfaces(adapters)
+    # Build a mapping from strategy_id → adapter to support after_publish hooks.
+    # If multiple adapters share a strategy_id, the LAST one's hook is used (live
+    # adapter is added last and takes precedence over the legacy paper adapter).
+    _adapter_by_strategy: dict[str, Any] = {
+        getattr(a, "strategy_id", ""): a for a in adapters
+    }
     audit("strategies_loaded", runner="signal-orchestrator",
           strategies=[getattr(adapter, "strategy_id", adapter.__class__.__name__) for adapter in adapters])
     adapter_failures: list[str] = []
@@ -478,6 +505,11 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
             audit("canonical_signal_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
                   strategy_id=signal.strategy_id,
                   decision="ACCEPTED" if inserted else "DUPLICATE", inserted=inserted)
+            if inserted:
+                # Call adapter-specific post-publish hooks (e.g. initial outcome creation).
+                _adapter = _adapter_by_strategy.get(signal.strategy_id)
+                if _adapter is not None and callable(getattr(_adapter, "after_publish_hook", None)):
+                    _adapter.after_publish_hook(signal.signal_id, canonical_publisher.conn)
             if not inserted:
                 seen.add(signal.signal_id)
                 continue
