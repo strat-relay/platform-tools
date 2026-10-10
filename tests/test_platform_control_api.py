@@ -22,6 +22,9 @@ class FakeStrategyMgmtApi:
     def handle(self, method, path, body):
         return None
 
+    def get_instance_instruments(self, *_args):
+        return None
+
     def sync_instance_instrument(self, *_args):
         return False
 

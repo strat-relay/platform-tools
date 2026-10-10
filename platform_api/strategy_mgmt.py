@@ -597,6 +597,21 @@ class StrategyMgmtRepository:
             conn.commit()
         return found
 
+    def get_v2_instruments(self, instance_id: str) -> list[dict[str, Any]] | None:
+        """Return instruments JSONB for a V2 instance, or None if no row matches."""
+        with self._conn(readonly=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT instruments FROM strategy_mgmt.strategy_instance_v2 "
+                    "WHERE id::text = %s OR attributes->>'instance_id' = %s",
+                    (instance_id, instance_id),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                instruments = row[0]
+                return instruments if isinstance(instruments, list) else []
+
     def patch_instance_parameter_set(self, instance_id: str, parameter_set_id: str,
                                      updated_by: str) -> dict[str, Any]:
         """Bind a new immutable ParameterSet only while the instance is offline."""
@@ -704,6 +719,10 @@ class StrategyMgmtApi:
     def registry_rows(self) -> list[dict[str, Any]]:
         """Read the unified strategy registry for the compatibility catalog endpoint."""
         return self._repo.list_registry()
+
+    def get_instance_instruments(self, instance_id: str) -> list[dict[str, Any]] | None:
+        """Return the V2 instruments list for instrument-tab merge, or None for V1 instances."""
+        return self._repo.get_v2_instruments(instance_id)
 
     def sync_instance_instrument(self, instance_id: str, canonical: str, state: str,
                                  updated_by: str) -> bool:

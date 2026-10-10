@@ -71,6 +71,9 @@ class ApiWiringTests(unittest.TestCase):
             def registry_rows(self):
                 return []
 
+            def get_instance_instruments(self, *_args):
+                return None
+
             def sync_instance_instrument(self, *_args):
                 return False
 

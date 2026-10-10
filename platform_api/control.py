@@ -880,6 +880,24 @@ class PlatformControlApi:
             if method == "GET":
                 try:
                     rows = self.instrument_membership.list_membership(strategy_id, instance_id)
+                    # For V2-managed instances, surface instruments from strategy_instance_v2.instruments
+                    # that are not already in the legacy membership table (e.g. set by migration).
+                    v2_instruments = self.strategy_mgmt_api.get_instance_instruments(instance_id)
+                    if v2_instruments:
+                        existing = {r["canonical_instrument"] for r in rows}
+                        for entry in v2_instruments:
+                            canonical = str(entry.get("canonical_instrument") or "").upper()
+                            if canonical and canonical not in existing:
+                                rows.append({
+                                    "strategy_instance_id": instance_id,
+                                    "strategy_id": strategy_id,
+                                    "canonical_instrument": canonical,
+                                    "state": "ACTIVE",
+                                    "revision": 0,
+                                    "created_at": None,
+                                    "updated_at": None,
+                                    "updated_by": "strategy_instance_v2",
+                                })
                     return 200, self._body({"strategyId": strategy_id, "strategyInstanceId": instance_id,
                                            "items": rows, "configuredRevision": max((int(r["revision"]) for r in rows), default=0)},
                                           source="canonical_postgres")
