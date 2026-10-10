@@ -146,8 +146,18 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute(
+                # Instruments come from strategy.instrument_membership (same table used by V1
+                # instances) so that one UI activation path drives all adapters uniformly.
+                # v.instruments (JSONB) is fetched as a fallback for instances provisioned
+                # before migration 049 seeded the membership table (e.g. active production
+                # instances between 047 and 049 being applied).
                 """SELECT v.id, sv.evaluator_key, v.display_name, v.online,
-                          v.instruments, v.attributes,
+                          COALESCE(
+                              array_agg(m.canonical_instrument ORDER BY m.canonical_instrument)
+                              FILTER (WHERE m.canonical_instrument IS NOT NULL), '{}'
+                          ) AS active_instruments,
+                          v.instruments AS v2_instruments,
+                          v.attributes,
                           ps.fingerprint AS parameter_set_fingerprint,
                           COALESCE(ps.updated_at, ps.created_at) AS config_rev,
                           COALESCE(v.execution_mode, 'OFF') AS execution_mode,
@@ -155,7 +165,13 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
                    FROM strategy_mgmt.strategy_instance_v2 v
                    JOIN strategy_mgmt.strategy_version sv ON sv.id = v.strategy_version_id
                    JOIN strategy_mgmt.parameter_set ps ON ps.id = v.parameter_set_id
+                   LEFT JOIN strategy.instrument_membership m
+                     ON m.strategy_instance_id = COALESCE(v.attributes->>'instance_id', v.id::text)
+                     AND m.state = 'ACTIVE'
                    WHERE v.online = true
+                   GROUP BY v.id, sv.evaluator_key, v.display_name, v.online, v.instruments,
+                            v.attributes, ps.fingerprint, ps.updated_at, ps.created_at,
+                            v.execution_mode, v.execution_mode_revision
                    ORDER BY sv.evaluator_key, v.id"""
             )
             rows = cur.fetchall()
@@ -170,15 +186,17 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
     }
     result = []
     for row in rows:
-        (inst_id, evaluator_key, display_name, online, instruments_json,
-         attrs_json, ps_fingerprint, config_rev, execution_mode, execution_mode_revision) = row
+        (inst_id, evaluator_key, display_name, online, membership_instruments,
+         v2_instruments_json, attrs_json, ps_fingerprint, config_rev,
+         execution_mode, execution_mode_revision) = row
         strategy_id = _KEY_TO_STRATEGY.get(evaluator_key)
         if strategy_id is None:
             # Unknown evaluator key — skip; do not invent an adapter.
             continue
-        instruments = []
-        if instruments_json:
-            raw = instruments_json if isinstance(instruments_json, list) else []
+        # Prefer membership table; fall back to V2 JSONB for bootstrapping (pre-049).
+        instruments = [i for i in (membership_instruments or []) if i]
+        if not instruments and v2_instruments_json:
+            raw = v2_instruments_json if isinstance(v2_instruments_json, list) else []
             instruments = [str(x.get("canonical_instrument") or x) for x in raw if x]
         result.append({
             "instance_id": str((attrs_json or {}).get("instance_id") or inst_id),
