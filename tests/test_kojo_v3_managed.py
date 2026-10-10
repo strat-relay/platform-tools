@@ -1037,5 +1037,52 @@ class ExecutionModeApiTests(unittest.TestCase):
         self.assertEqual(resp["error"], "REVISION_CONFLICT")
 
 
+class MultiInstrumentEvaluatorTests(unittest.TestCase):
+    """Evaluator accepts a configurable instrument at initialize() time."""
+
+    def _ev(self, instrument: str) -> KojoStructureReclaimV3Evaluator:
+        sv = _make_sv()
+        ps = kojo_structure_reclaim_v3_default_parameter_set()
+        ev = KojoStructureReclaimV3Evaluator()
+        ev.initialize(sv, ps, instance_id="test", configuration_revision="1", instrument=instrument)
+        return ev
+
+    def test_evaluator_accepts_non_default_instrument(self):
+        ev = self._ev("EURUSDm")
+        self.assertEqual(ev._instrument, "EURUSDm")
+
+    def test_evaluator_filters_out_events_for_wrong_instrument(self):
+        ev = self._ev("EURUSDm")
+        xau_event = _h1(1_800_000_000, 2700.0, 2720.0, 2690.0, 2715.0, instrument="XAUUSD")
+        outputs = ev.consume_market_event(xau_event)
+        self.assertEqual(outputs, ())
+
+    def test_evaluator_processes_events_for_configured_instrument(self):
+        ev = self._ev("EURUSDm")
+        eur_event = _h1(1_800_000_000, 1.10, 1.12, 1.09, 1.11, instrument="EURUSDm")
+        # No signal expected from a single H1 bar — but the event is not filtered.
+        outputs = ev.consume_market_event(eur_event)
+        # outputs may be empty (no setup triggered) but should not raise
+        self.assertIsInstance(outputs, tuple)
+
+    def test_two_evaluators_different_instruments_are_independent(self):
+        ev_xau = self._ev("XAUUSD")
+        ev_eur = self._ev("EURUSDm")
+        xau_event = _h1(1_800_000_000, 2700.0, 2720.0, 2690.0, 2715.0, instrument="XAUUSD")
+        eur_event = _h1(1_800_000_000, 1.10, 1.12, 1.09, 1.11, instrument="EURUSDm")
+        ev_xau.consume_market_event(xau_event)
+        ev_eur.consume_market_event(eur_event)
+        self.assertEqual(len(ev_xau._h1_bars), 1)
+        self.assertEqual(len(ev_eur._h1_bars), 1)
+        # Cross-feed: XAU evaluator ignores EURUSDm event
+        ev_xau.consume_market_event(eur_event)
+        self.assertEqual(len(ev_xau._h1_bars), 1)
+
+    def test_default_instrument_unchanged_when_not_specified(self):
+        from strategy_backtest.kojo_structure_reclaim_v3 import INSTRUMENT
+        ev = _make_evaluator()
+        self.assertEqual(ev._instrument, INSTRUMENT)
+
+
 if __name__ == "__main__":
     unittest.main()

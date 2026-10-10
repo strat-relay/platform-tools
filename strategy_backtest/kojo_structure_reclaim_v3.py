@@ -814,6 +814,7 @@ class KojoStructureReclaimV3Evaluator:
         *,
         instance_id: str | None = None,
         configuration_revision: str | None = None,
+        instrument: str = INSTRUMENT,
     ) -> None:
         if strategy_version.strategy_version_id != f"{STRATEGY_ID}@{VERSION}":
             raise ValueError(
@@ -826,6 +827,7 @@ class KojoStructureReclaimV3Evaluator:
         self.parameters = parameter_set
         self._instance_id = instance_id
         self._configuration_revision = configuration_revision
+        self._instrument = instrument
 
     @property
     def _values(self) -> dict[str, Any]:
@@ -838,7 +840,7 @@ class KojoStructureReclaimV3Evaluator:
     def consume_market_event(
         self, event: MarketEvent
     ) -> tuple[SetupLifecycleEvent | EntrySignal, ...]:
-        if event.canonical_instrument != INSTRUMENT or not event.completed:
+        if event.canonical_instrument != self._instrument or not event.completed:
             return ()
         values = self._values
         ctx_tf = str(values.get("context_timeframe", TIMEFRAME_H1))
@@ -1301,7 +1303,7 @@ class KojoStructureReclaimV3Evaluator:
         outputs.append(EntrySignal(
             signal_id=signal_id,
             strategy_version_id=self.strategy_version.strategy_version_id,
-            canonical_instrument=INSTRUMENT,
+            canonical_instrument=self._instrument,
             direction=direction,
             entry_price=entry_price,
             stop_price=stop_price,
@@ -1498,7 +1500,7 @@ class KojoStructureReclaimV3Evaluator:
         return [SetupLifecycleEvent(
             setup_id=setup["setup_id"],
             strategy_version_id=self.strategy_version.strategy_version_id,
-            canonical_instrument=INSTRUMENT,
+            canonical_instrument=self._instrument,
             status=status,
             event_timestamp=event.close_timestamp,
             provenance=provenance,
