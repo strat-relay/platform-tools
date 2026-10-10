@@ -18,6 +18,11 @@ LEGACY_APPLIED_CHECKSUMS = {
     "035_manual_signal_invalidation.sql": {
         "d647e5c4c3683fb36c233a762cb7ccf6c2eaef6dd797f601e068cb2de0ca5c86",
     },
+    # PR #135 added updated_by to the INSERT after 047 was applied in production.
+    # The SQL effect is identical; accept the production-recorded checksum.
+    "047_kojo_v3_strategy_registration.sql": {
+        "f9457146fffe72b4083411558e5210f01b99046dc6c9b04faafe6807fdbb72ce",
+    },
 }
 
 
