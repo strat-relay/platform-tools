@@ -19,6 +19,10 @@ from outcome_resolver import (Candle, EvaluationContract, OutcomeResolution,
                               persist_outcome_row, resolve_candle_path)
 
 
+class ResolverLeaseLost(RuntimeError):
+    """Raised when a worker no longer owns the current fencing generation."""
+
+
 def _utc(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -84,8 +88,17 @@ class ResolverRedisCandleStore:
             opened = datetime.fromtimestamp(int(row["time"]), timezone.utc)
             result.append(Candle(opened, opened + timedelta(minutes=timeframe_minutes),
                                  float(row["high"]), float(row["low"]),
-                                 float(row["close"]) if row.get("close") is not None else None))
+                                 float(row["close"]) if row.get("close") is not None else None,
+                                 bid_open=_number(row.get("bid_open")), bid_high=_number(row.get("bid_high")),
+                                 bid_low=_number(row.get("bid_low")), bid_close=_number(row.get("bid_close")),
+                                 ask_open=_number(row.get("ask_open")), ask_high=_number(row.get("ask_high")),
+                                 ask_low=_number(row.get("ask_low")), ask_close=_number(row.get("ask_close")),
+                                 spread=_number(row.get("spread"))))
         return result
+
+
+def _number(value: Any) -> float | None:
+    return float(value) if value is not None else None
 
 
 class OutcomeResolverRuntime:
@@ -95,6 +108,7 @@ class OutcomeResolverRuntime:
         self.candle_store = candle_store
         self.holder_id = holder_id or f"resolver:{socket.gethostname()}:{os.getpid()}"
         self.lease_seconds = lease_seconds
+        self.lease_generation: int | None = None
 
     def acquire_lease(self) -> bool:
         with self.conn.cursor() as cur:
@@ -108,12 +122,27 @@ class OutcomeResolverRuntime:
                 WHERE platform.outcome_resolver_lease.expires_at < now()
                    OR platform.outcome_resolver_lease.holder_id = EXCLUDED.holder_id
                 RETURNING generation""", (self.holder_id, self.lease_seconds))
-            acquired = cur.fetchone() is not None
+            row = cur.fetchone()
+            acquired = row is not None
+            if row is not None:
+                self.lease_generation = int(row[0])
         if acquired:
             self.conn.commit()
         else:
             self.conn.rollback()
         return acquired
+
+    def _assert_lease(self, cur: Any) -> None:
+        if self.lease_generation is None:
+            raise ResolverLeaseLost("resolver has not acquired a lease")
+        cur.execute("""SELECT generation, holder_id
+                          FROM platform.outcome_resolver_lease
+                         WHERE lease_name = 'canonical-entry-outcome-resolver'
+                           AND holder_id = %s
+                           AND generation = %s
+                           AND expires_at > now()""", (self.holder_id, self.lease_generation))
+        if cur.fetchone() is None:
+            raise ResolverLeaseLost("resolver lease generation is stale or expired")
 
     def _signals(self, limit: int) -> list[ResolverSignal]:
         with self.conn.cursor() as cur:
@@ -162,6 +191,13 @@ class OutcomeResolverRuntime:
                         last_close, coverage_end, result.resolution_state,
                         result.resolution_method, json.dumps(result.evidence), attempt, error))
 
+    def _next_attempt(self, signal_id: str) -> int:
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT attempt_count FROM platform.outcome_resolver_signal_state
+                            WHERE signal_id = %s""", (signal_id,))
+            row = cur.fetchone()
+        return int(row[0] or 0) + 1 if row else 1
+
     def _cursor(self, signal_id: str) -> datetime | None:
         with self.conn.cursor() as cur:
             cur.execute("""SELECT last_candle_close
@@ -189,23 +225,36 @@ class OutcomeResolverRuntime:
             timeframe_minutes=contract.timeframe_minutes,
             expiration_minutes=contract.expiration_minutes,
             activation=contract.activation, time_exit_price=contract.time_exit_price,
+            price_basis=contract.price_basis,
         )
-        with self.conn.cursor() as cur:
-            if result.resolution_state == "RESOLVED" and result.status != "OPEN":
-                persist_outcome_row(cur, signal_id=signal.signal_id,
-                                    outcome_type="ENTRY_ONLY", status=result.status,
-                                    realized_r=result.realized_r,
-                                    exit_timestamp=result.exit_timestamp,
-                                    source=signal.strategy_id,
-                                    updated_at=datetime.now(timezone.utc),
-                                    resolution_state=result.resolution_state,
-                                    resolution_method=result.resolution_method,
-                                    resolution_evidence=result.evidence,
-                                    outcome_contract_version=contract.version,
-                                    source_kind="STRATEGY_REPLAY",
-                                    writer_id="unified-outcome-resolver")
-        self._persist_state(signal, contract, result, candles, attempt=1)
-        self.conn.commit()
+        try:
+            with self.conn.cursor() as cur:
+                self._assert_lease(cur)
+                if result.resolution_state == "RESOLVED" and result.status != "OPEN":
+                    persist_outcome_row(cur, signal_id=signal.signal_id,
+                                        outcome_type="ENTRY_ONLY", status=result.status,
+                                        realized_r=result.realized_r,
+                                        exit_timestamp=result.exit_timestamp,
+                                        source=signal.strategy_id,
+                                        updated_at=datetime.now(timezone.utc),
+                                        resolution_state=result.resolution_state,
+                                        resolution_method=result.resolution_method,
+                                        resolution_evidence=result.evidence,
+                                        outcome_contract_version=contract.version,
+                                        price_basis=result.price_basis,
+                                        exit_price=result.exit_price,
+                                        activation_price=result.activation_price,
+                                        outcome_kind=result.outcome_kind,
+                                        source_kind="STRATEGY_REPLAY",
+                                        writer_id="unified-outcome-resolver")
+            self._persist_state(signal, contract, result, candles,
+                                attempt=self._next_attempt(signal.signal_id))
+            with self.conn.cursor() as cur:
+                self._assert_lease(cur)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
         return result
 
     def tick(self, *, limit: int = 100) -> dict[str, Any]:

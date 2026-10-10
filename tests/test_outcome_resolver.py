@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from outcome_resolver import Candle, EvaluationContract, resolve_candle_path
+from outcome_resolver import Candle, EvaluationContract, economic_position_groups, resolve_candle_path
 
 
 UTC = timezone.utc
@@ -41,6 +41,15 @@ class OutcomeResolverTests(unittest.TestCase):
         self.assertEqual(result.status, "OPEN")
         self.assertEqual(result.resolution_state, "INSUFFICIENT_DATA")
 
+    def test_replay_rejects_cache_that_starts_after_signal_coverage(self):
+        result = resolve_candle_path(
+            direction="LONG", entry=100, stop=99, target=101,
+            entry_timestamp=START,
+            candles=[self.candle(30, high=101.2, low=100.2)],
+        )
+        self.assertEqual(result.resolution_state, "INSUFFICIENT_DATA")
+        self.assertEqual(result.evidence["reason"], "CANDLE_GAP")
+
     def test_same_candle_entry_activation_and_exit_is_not_invented(self):
         result = resolve_candle_path(
             direction="LONG", entry=100, stop=99, target=102,
@@ -69,6 +78,54 @@ class OutcomeResolverTests(unittest.TestCase):
         self.assertEqual(contract.version, "entry-outcome.v3")
         self.assertEqual(contract.activation, "ENTRY_PRICE_TOUCH")
         self.assertEqual(contract.expiration_minutes, 30)
+
+    def test_executable_long_requires_bid_ask_and_uses_bid_for_exit(self):
+        missing = resolve_candle_path(
+            direction="LONG", entry=100, stop=99, target=101,
+            entry_timestamp=START, price_basis="EXECUTABLE_BID_ASK",
+            candles=[Candle(START, START + timedelta(minutes=15), 101, 99, 100.5)],
+        )
+        self.assertEqual(missing.resolution_state, "INSUFFICIENT_DATA")
+        self.assertEqual(missing.evidence["reason"], "MISSING_EXECUTABLE_QUOTES")
+        resolved = resolve_candle_path(
+            direction="LONG", entry=100, stop=99, target=101,
+            entry_timestamp=START, price_basis="EXECUTABLE_BID_ASK",
+            candles=[Candle(START, START + timedelta(minutes=15), 101, 99, 100.5,
+                            bid_high=101.1, bid_low=100.1,
+                            ask_high=101.2, ask_low=100.2, bid_close=100.5)],
+        )
+        self.assertEqual(resolved.status, "TARGET_HIT")
+        self.assertEqual(resolved.price_basis, "EXECUTABLE_BID_ASK")
+        self.assertEqual(resolved.exit_price, 101)
+
+    def test_spread_does_not_synthesize_quotes(self):
+        result = resolve_candle_path(
+            direction="SHORT", entry=100, stop=101, target=99,
+            entry_timestamp=START, price_basis="EXECUTABLE_BID_ASK",
+            candles=[Candle(START, START + timedelta(minutes=15), 101, 99, 100,
+                            spread=0.2)],
+        )
+        self.assertEqual(result.resolution_state, "INSUFFICIENT_DATA")
+
+    def test_economic_position_reporting_preserves_signal_rows(self):
+        groups = economic_position_groups([
+            {"signal_id": "A", "economic_position_id": "P1"},
+            {"signal_id": "B", "economic_position_id": "P1"},
+            {"signal_id": "C"},
+            {"signal_id": "D", "instrument": "EURUSD", "direction": "LONG",
+             "entry_price": 1.1, "stop_price": 1.0, "target_price": 1.2,
+             "decision_time": START},
+            {"signal_id": "E", "instrument": "EURUSD", "direction": "LONG",
+             "entry_price": 1.1, "stop_price": 1.0, "target_price": 1.2,
+             "decision_time": START},
+        ])
+        position = next(group for group in groups if group["group_id"] == "P1")
+        self.assertEqual(position["signal_count"], 2)
+        self.assertEqual(position["signal_ids"], ["A", "B"])
+        self.assertEqual(next(group for group in groups if "C" in group["signal_ids"])["group_type"], "INDEPENDENT_SIGNAL")
+        inferred = next(group for group in groups if "D" in group["signal_ids"])
+        self.assertEqual(inferred["group_type"], "INFERRED_ECONOMIC_SIGNATURE")
+        self.assertFalse(inferred["identity_authoritative"])
 
 
 if __name__ == "__main__":

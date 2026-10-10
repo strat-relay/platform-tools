@@ -15,6 +15,8 @@ from typing import Any, Iterable
 
 OUTCOME_CONTRACT_VERSION = "entry-outcome.v2"
 STRATEGY_REPLAY_SOURCE_KIND = "STRATEGY_REPLAY"
+PRICE_BASES = frozenset({"THEORETICAL_TOUCH", "EXECUTABLE_BID_ASK"})
+OUTCOME_KINDS = frozenset({"STRATEGY_THEORETICAL", "BROKER_REALIZED"})
 RESOLUTION_STATES = frozenset({"RESOLVED", "INSUFFICIENT_DATA", "AMBIGUOUS_INTRABAR", "REJECTED"})
 TERMINAL_STATUSES = frozenset({
     "TARGET_HIT", "STOPPED", "TIME_EXIT", "PROFIT_EXIT", "EXPIRED", "INVALIDATED",
@@ -30,6 +32,15 @@ class Candle:
     high: float
     low: float
     close: float | None = None
+    bid_open: float | None = None
+    bid_high: float | None = None
+    bid_low: float | None = None
+    bid_close: float | None = None
+    ask_open: float | None = None
+    ask_high: float | None = None
+    ask_low: float | None = None
+    ask_close: float | None = None
+    spread: float | None = None
 
     def __post_init__(self) -> None:
         if self.open_timestamp.tzinfo is None or self.close_timestamp.tzinfo is None:
@@ -48,6 +59,10 @@ class OutcomeResolution:
     resolution_state: str
     resolution_method: str
     evidence: dict[str, Any]
+    price_basis: str = "THEORETICAL_TOUCH"
+    exit_price: float | None = None
+    activation_price: float | None = None
+    outcome_kind: str = "STRATEGY_THEORETICAL"
 
 
 @dataclass(frozen=True)
@@ -67,6 +82,7 @@ class EvaluationContract:
     expiration_minutes: int | None = None
     time_exit_price: str = "CLOSE"
     price_semantics: str = "OHLC_UNPROVABLE_INTRABAR"
+    price_basis: str = "THEORETICAL_TOUCH"
 
     @classmethod
     def from_signal(cls, signal: dict[str, Any]) -> "EvaluationContract":
@@ -93,7 +109,12 @@ class EvaluationContract:
             expiration_minutes=(int(raw["expiration_minutes"]) if raw.get("expiration_minutes") is not None else None),
             time_exit_price=str(raw.get("time_exit_price") or "CLOSE"),
             price_semantics=str(raw.get("price_semantics") or "OHLC_UNPROVABLE_INTRABAR"),
+            price_basis=str(raw.get("price_basis") or "THEORETICAL_TOUCH"),
         )
+
+    def __post_init__(self) -> None:
+        if self.price_basis not in PRICE_BASES:
+            raise ValueError(f"unsupported price basis: {self.price_basis}")
 
 
 def _utc(value: datetime) -> datetime:
@@ -108,7 +129,8 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
                         timeframe_minutes: int = 15,
                         expiration_minutes: int | None = None,
                         activation: str = "SIGNAL_TIMESTAMP",
-                        time_exit_price: str = "CLOSE") -> OutcomeResolution:
+                        time_exit_price: str = "CLOSE",
+                        price_basis: str = "THEORETICAL_TOUCH") -> OutcomeResolution:
     """Resolve the first provable terminal event from completed candles.
 
     If one candle contains both stop and target, intrabar ordering is unknown and
@@ -122,6 +144,9 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
     valid_geometry = (stop < entry < target) if direction == "LONG" else (target < entry < stop)
     if not valid_geometry:
         raise ValueError("invalid entry/stop/target geometry")
+    if price_basis not in PRICE_BASES:
+        raise ValueError(f"unsupported price basis: {price_basis}")
+    executable = price_basis == "EXECUTABLE_BID_ASK"
     ordered = sorted(candles, key=lambda candle: _utc(candle.open_timestamp))
     if timeframe_minutes <= 0:
         raise ValueError("timeframe_minutes must be positive")
@@ -135,6 +160,7 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
     if expiration_minutes is not None:
         expiration = entry_timestamp + timedelta(minutes=int(expiration_minutes))
     activated_at = entry_timestamp if activation == "SIGNAL_TIMESTAMP" else None
+    activation_price = entry if activated_at is not None else None
     activation_candle: Candle | None = None
     previous_end: datetime | None = None
     observed = 0
@@ -150,28 +176,53 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
             )
         previous_end = end
         observed += 1
+        if executable:
+            # A spread value or midpoint is not an executable quote.  The
+            # resolver refuses to synthesize BID/ASK history when a provider
+            # did not persist the relevant side of the market.
+            required = ((candle.ask_high, candle.bid_high, candle.bid_low)
+                        if direction == "LONG" else
+                        (candle.bid_low, candle.ask_high, candle.ask_low))
+            if any(value is None for value in required):
+                return OutcomeResolution(
+                    "OPEN", None, None, "INSUFFICIENT_DATA", "CANDLE_REPLAY_V2",
+                    {"reason": "MISSING_EXECUTABLE_QUOTES", "price_basis": price_basis,
+                     "candle_open": start.isoformat(), "required": "BID_ASK_EXTREMA"},
+                    price_basis=price_basis,
+                )
+        if executable:
+            activation_high = candle.ask_high if direction == "LONG" else candle.bid_high
+            activation_low = candle.ask_low if direction == "LONG" else candle.bid_low
+            exit_high = candle.bid_high if direction == "LONG" else candle.ask_high
+            exit_low = candle.bid_low if direction == "LONG" else candle.ask_low
+            close = candle.bid_close if direction == "LONG" else candle.ask_close
+        else:
+            activation_high, activation_low = candle.high, candle.low
+            exit_high, exit_low, close = candle.high, candle.low, candle.close
         if activated_at is None:
-            touched = candle.high >= entry if direction == "LONG" else candle.low <= entry
+            touched = activation_high >= entry if direction == "LONG" else activation_low <= entry
             if not touched:
                 if expiration is not None and end >= expiration:
                     return OutcomeResolution("OPEN", None, None, "RESOLVED", "CANDLE_REPLAY_V2",
                                               {"event": "EXPIRED_UNFILLED", "candle_close": end.isoformat()})
                 continue
             activated_at = end
+            activation_price = float(entry)
             activation_candle = candle
         if activated_at is not None and end <= activated_at and candle is not activation_candle:
             continue
         if expiration is not None and start >= expiration and activated_at is None:
             return OutcomeResolution("OPEN", None, None, "RESOLVED", "CANDLE_REPLAY_V2",
                                       {"event": "EXPIRED_UNFILLED", "expiration": expiration.isoformat()})
-        stop_hit = candle.low <= stop if direction == "LONG" else candle.high >= stop
-        target_hit = candle.high >= target if direction == "LONG" else candle.low <= target
+        stop_hit = exit_low <= stop if direction == "LONG" else exit_high >= stop
+        target_hit = exit_high >= target if direction == "LONG" else exit_low <= target
         if activation_candle is candle and (stop_hit or target_hit):
             return OutcomeResolution(
                 "OPEN", None, None, "AMBIGUOUS_INTRABAR", "CANDLE_REPLAY_V2",
                 {"candle_open": start.isoformat(), "candle_close": end.isoformat(),
                  "reason": "ENTRY_AND_EXIT_IN_SAME_CANDLE", "entry": entry,
-                 "stop": stop, "target": target},
+                 "stop": stop, "target": target, "price_basis": price_basis},
+                price_basis=price_basis, activation_price=activation_price,
             )
         if stop_hit and target_hit:
             return OutcomeResolution(
@@ -190,13 +241,16 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
                 status, signed / risk if risk else None, event_time, "RESOLVED",
                 "CANDLE_REPLAY_V2",
                 {"candle_open": start.isoformat(), "candle_close": end.isoformat(),
-                 "event": status},
+                 "event": status, "price_basis": price_basis,
+                 "price_source": "BID_ASK" if executable else "THEORETICAL_TOUCH"},
+                price_basis=price_basis, exit_price=float(stop if stop_hit else target),
+                activation_price=activation_price,
             )
         if deadline is not None and end >= deadline:
             if time_exit_price != "CLOSE":
                 return OutcomeResolution("OPEN", None, None, "REJECTED", "CANDLE_REPLAY_V2",
                                           {"reason": "UNSUPPORTED_TIME_EXIT_PRICE", "requested": time_exit_price})
-            exit_price = candle.close
+            exit_price = close
             if exit_price is None:
                 return OutcomeResolution("OPEN", None, None, "INSUFFICIENT_DATA", "CANDLE_REPLAY_V2",
                                           {"reason": "TIME_EXIT_CLOSE_UNAVAILABLE", "candle_close": end.isoformat()})
@@ -204,7 +258,11 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
                 "TIME_EXIT", ((float(exit_price) - entry) / abs(entry - stop)) * (1 if direction == "LONG" else -1),
                 end, "RESOLVED", "CANDLE_REPLAY_V2",
                 {"candle_open": start.isoformat(), "candle_close": end.isoformat(),
-                 "event": "TIME_EXIT", "price": float(exit_price), "price_source": "CANDLE_CLOSE"},
+                 "event": "TIME_EXIT", "price": float(exit_price),
+                 "price_source": "BID_ASK_CLOSE" if executable else "CANDLE_CLOSE",
+                 "price_basis": price_basis},
+                price_basis=price_basis, exit_price=float(exit_price),
+                activation_price=activation_price,
             )
     return OutcomeResolution(
         "OPEN", None, None, "INSUFFICIENT_DATA", "CANDLE_REPLAY_V2",
@@ -219,6 +277,10 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
                         resolution_method: str | None = None,
                         resolution_evidence: dict[str, Any] | None = None,
                         outcome_contract_version: str | None = None,
+                        price_basis: str = "THEORETICAL_TOUCH",
+                        exit_price: float | None = None,
+                        activation_price: float | None = None,
+                        outcome_kind: str = "STRATEGY_THEORETICAL",
                         source_kind: str = STRATEGY_REPLAY_SOURCE_KIND,
                         writer_id: str = "legacy-compat") -> bool:
     """The only canonical outcome INSERT/UPDATE SQL mutation in the platform."""
@@ -256,8 +318,9 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
     cur.execute(
         """INSERT INTO strategy.entry_signal_outcomes
                (signal_id, outcome_type, status, realized_r, exit_timestamp, source,
-                outcome_contract_version, source_kind, resolution_state, resolution_method, resolution_evidence)
-           SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb
+                outcome_contract_version, source_kind, resolution_state, resolution_method, resolution_evidence,
+                price_basis, exit_price, activation_price, outcome_kind)
+           SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s
              WHERE EXISTS (
                  SELECT 1 FROM platform.outcome_resolver_control
                   WHERE control_name = 'canonical-entry-outcome-writer'
@@ -271,6 +334,10 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
                resolution_state = EXCLUDED.resolution_state,
                resolution_method = EXCLUDED.resolution_method,
                resolution_evidence = EXCLUDED.resolution_evidence,
+               price_basis = EXCLUDED.price_basis,
+               exit_price = EXCLUDED.exit_price,
+               activation_price = EXCLUDED.activation_price,
+               outcome_kind = EXCLUDED.outcome_kind,
                updated_at = %s
            WHERE strategy.entry_signal_outcomes.status = 'OPEN'
              AND (strategy.entry_signal_outcomes.status,
@@ -288,7 +355,7 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
            RETURNING signal_id""",
         (signal_id, outcome_type, status, realized_r, exit_timestamp, source,
          outcome_contract_version, source_kind, resolution_state, resolution_method,
-         json.dumps(resolution_evidence or {}),
+         json.dumps(resolution_evidence or {}), price_basis, exit_price, activation_price, outcome_kind,
          "RESOLVER_PRIMARY" if writer_id == "unified-outcome-resolver" else "LEGACY_COMPAT",
          updated_at,
          "RESOLVER_PRIMARY" if writer_id == "unified-outcome-resolver" else "LEGACY_COMPAT"),
@@ -339,3 +406,28 @@ def persist_broker_attribution(cur: Any, *, signal_id: str, strategy_outcome: st
          execution_outcome, broker_realized_r, broker_fill_timestamp,
          broker_exit_timestamp, broker_exit_reason, updated_at, signal_id),
     )
+
+
+def economic_position_groups(signals: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group reporting views without collapsing individual signal identity."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    for signal in signals:
+        if signal.get("economic_position_id"):
+            key_value, key_kind = signal["economic_position_id"], "ECONOMIC_POSITION"
+        elif signal.get("entry_opportunity_id"):
+            key_value, key_kind = signal["entry_opportunity_id"], "ENTRY_OPPORTUNITY"
+        else:
+            # This is a reporting hint only.  It must never be used to merge
+            # rows or infer a terminal outcome when the producer omitted the
+            # authoritative economic-position identity.
+            signature = tuple(signal.get(field) for field in
+                              ("instrument", "direction", "entry_price", "stop_price",
+                               "target_price", "decision_time"))
+            key_value = json.dumps(signature, default=str)
+            key_kind = "INFERRED_ECONOMIC_SIGNATURE" if all(value is not None for value in signature) else "INDEPENDENT_SIGNAL"
+        groups.setdefault((key_kind, str(key_value)), []).append(str(signal["signal_id"]))
+    return [{"group_type": kind, "group_id": group_id,
+             "signal_ids": signal_ids, "signal_count": len(signal_ids),
+             "independent_opportunities": (len(signal_ids) if kind == "INDEPENDENT_SIGNAL" else None),
+             "identity_authoritative": kind in {"ECONOMIC_POSITION", "ENTRY_OPPORTUNITY"}}
+            for (kind, group_id), signal_ids in groups.items()]
