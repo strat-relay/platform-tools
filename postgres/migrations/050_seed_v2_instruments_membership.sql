@@ -21,8 +21,8 @@ SELECT
     END                                                   AS strategy_id,
     upper(entry->>'canonical_instrument')                 AS canonical_instrument,
     'ACTIVE'                                              AS state,
-    0                                                     AS revision,
-    'migration_049'                                       AS updated_by
+    1                                                     AS revision,
+    'migration_050'                                       AS updated_by
 FROM strategy_mgmt.strategy_instance_v2 v
 JOIN strategy_mgmt.strategy_version sv ON sv.id = v.strategy_version_id
 CROSS JOIN LATERAL jsonb_array_elements(v.instruments) AS entry
