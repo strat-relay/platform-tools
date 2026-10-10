@@ -170,7 +170,7 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO platform.strategy_definition
     (strategy_id, strategy_version, display_name, description, adapter,
-     enabled, routes, trade_management, attributes)
+     enabled, routes, trade_management, attributes, updated_by)
 VALUES (
     'KOJO_STRUCTURE_RECLAIM_V3',
     'V3',
@@ -181,7 +181,8 @@ VALUES (
     true,    -- enabled=true; instance is ONLINE from initial state
     '{"audit": true, "shadow_execution": false, "distribution_queue": true}'::jsonb,
     '{"mode": "OBSERVE", "broker_writes": 0}'::jsonb,
-    '{"shadow_only": true, "source_fidelity_blocked": false, "execution_mode": "SHADOW"}'::jsonb
+    '{"shadow_only": true, "source_fidelity_blocked": false, "execution_mode": "SHADOW"}'::jsonb,
+    'migration:047'
 )
 ON CONFLICT (strategy_id) DO NOTHING;
 
