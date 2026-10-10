@@ -101,7 +101,14 @@ def load_from_database() -> tuple[dict[str, Any], dict[str, Any]]:
                    FROM strategy_mgmt.strategy_instance_v2 i
                    JOIN strategy_mgmt.strategy_version v ON v.id = i.strategy_version_id
                    JOIN strategy_mgmt.parameter_set p ON p.id = i.parameter_set_id
-                   WHERE coalesce(i.attributes->>'instance_id', i.id::text) = %s AND i.online = true""",
+                   WHERE i.online = true
+                     AND (
+                       coalesce(i.attributes->>'instance_id', i.id::text) = %s
+                       OR (
+                         v.evaluator_key = 'context_structure_retrace_v2_research'
+                         AND i.attributes->>'strategy_id' = 'CONTEXT_STRUCTURE_RETRACE_V2'
+                       )
+                     )""",
                 (INSTANCE_ID,),
             )
             row = cur.fetchone()

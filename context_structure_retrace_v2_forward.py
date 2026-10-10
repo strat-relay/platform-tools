@@ -299,7 +299,11 @@ def run(args: argparse.Namespace) -> None:
     manifest = runtime_identity()
     _v1.acquire_lock()
     _v1.STOP_FILE.unlink(missing_ok=True)
-    state = _v1.load_state()
+    # V2 owns a separate state directory and may be starting for the first
+    # time. V1's loader intentionally refuses to bootstrap missing compact
+    # state because falling back to its legacy state would be unsafe; V2 must
+    # initialize its own empty state instead.
+    state = _v1.load_state() if _v1.STATE.exists() else _v1.empty_state()
     state["runner_status"] = "ACTIVE"
     state["poll_interval_seconds"] = args.interval
     state["prospective_boundary"] = manifest["activation_timestamp"]
