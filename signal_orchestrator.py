@@ -509,7 +509,12 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     if orchestration_mode != "PRIMARY" and provider is None:
         provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
-    publisher_conn = canonical_publisher.conn if canonical_publisher is not None else None
+    # The production CanonicalSignalPublisher exposes its connection, but
+    # authority/failure-path implementations may intentionally provide only
+    # the publish/existing-id interface. Do not make adapter loading depend on
+    # a private publisher attribute; DB_PRIMARY still fails closed when the
+    # actual publish call is attempted.
+    publisher_conn = getattr(canonical_publisher, "conn", None) if canonical_publisher is not None else None
     adapters = load_adapters(config, orchestrator_boundary, conn=publisher_conn)
     _validate_adapter_interfaces(adapters)
     # Build a mapping from strategy_id → adapter to support after_publish hooks.
