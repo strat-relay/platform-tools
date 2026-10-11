@@ -48,6 +48,9 @@ class RecordingCursor:
     def fetchall(self):
         return []
 
+    def fetchone(self):
+        return None  # no orchestrator lock active in unit tests
+
 
 class RecordingConnection:
     def __init__(self):

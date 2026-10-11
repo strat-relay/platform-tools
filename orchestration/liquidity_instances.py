@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from orchestration.models import StrategySignal, stable_id
-from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
 
 
 @dataclass(frozen=True)
@@ -230,10 +229,6 @@ class LiquidityInstanceAdapter:
             # which a restarted publisher rediscovered the row.
             adapted["decision_time"] = event_time
             signal = publisher.publish(adapted, emitted_at=emitted_at)
-            epoch = load_epoch(EPOCH_PATH)
-            watermark = records_by_strategy(epoch or {}).get(self.definition.strategy_id)
-            if signal is not None and watermark and not eligibility(signal.to_dict(), watermark)[0]:
-                signal = None
             if signal is not None and signal.signal_id not in seen_signal_ids:
                 result.append(signal)
         return result

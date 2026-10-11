@@ -117,6 +117,74 @@ def ensure_open_liquidity_outcome(conn: Any, signal_id: str) -> bool:
         ) == 1
 
 
+# Instance ID the orchestrator writes to claim canonical publication ownership.
+_ORCHESTRATOR_LOCK_INSTANCE_ID = "liquidity-live-orchestrator"
+# Heartbeat grace period: if the orchestrator record is older than this, the
+# standalone service may resume publication (orchestrator has stopped).
+_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS = 300
+
+
+def register_orchestrator_publication_mode(conn: Any) -> None:
+    """Claim DB-level canonical publication ownership on behalf of the orchestrator.
+
+    The standalone service's tick() checks for this record and refuses to
+    publish when it is active.  This provides DB-level exclusivity that
+    survives env-var misconfiguration (e.g., a pod that was not restarted
+    after LIQUIDITY_LIVE_ORCHESTRATOR_MODE was set).
+
+    The orchestrator must call this at adapter registration and periodically
+    refresh it (or let it expire after _ORCHESTRATOR_LOCK_MAX_AGE_SECONDS).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO platform.runtime_instances
+                   (instance_id, component, process_id, status, metadata)
+               VALUES (%s, 'liquidity-live-orchestrator', NULL, 'RUNNING', %s::jsonb)
+               ON CONFLICT (instance_id) DO UPDATE SET
+                   component = EXCLUDED.component,
+                   status = EXCLUDED.status,
+                   last_heartbeat_at = now(),
+                   metadata = EXCLUDED.metadata,
+                   stopped_at = NULL""",
+            (_ORCHESTRATOR_LOCK_INSTANCE_ID,
+             json.dumps({"mode": "ORCHESTRATOR", "source": "signal_orchestrator"})),
+        )
+
+
+def check_publication_exclusivity(conn: Any) -> None:
+    """Raise if the orchestrator holds the canonical publication lock.
+
+    Called by tick() before each publish to enforce DB-level exclusivity.
+    Raises RuntimeError if the orchestrator lock is active (within grace period).
+    Raises RuntimeError on DB error — fail closed, do not publish if the lock
+    cannot be verified.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT 1 FROM platform.runtime_instances
+                    WHERE instance_id = %s
+                      AND status = 'RUNNING'
+                      AND last_heartbeat_at > now() - interval '%s seconds'""",
+                (_ORCHESTRATOR_LOCK_INSTANCE_ID, int(_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS)),
+            )
+            row = cur.fetchone()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Publication exclusivity check failed (DB error: {exc!r}). "
+            "Standalone publication blocked until lock check succeeds."
+        ) from exc
+    if row is not None:
+        raise RuntimeError(
+            "Standalone Liquidity Live publication blocked: the orchestrator "
+            "holds the canonical publication lock (platform.runtime_instances "
+            f"instance_id='{_ORCHESTRATOR_LOCK_INSTANCE_ID}' is RUNNING). "
+            "Scale this deployment to 0 before enabling orchestrator mode, "
+            "or wait for the lock to expire (grace period: "
+            f"{_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS}s)."
+        )
+
+
 def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]:
     """Monitor already-entered trades without consulting membership state."""
     terminal: list[str] = []
@@ -150,7 +218,8 @@ def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]
 
 class LiquidityLiveRuntime:
     def __init__(self, *, conn: Any, snapshot_reader: Callable[..., dict[str, Any]],
-                 publisher: CanonicalSignalPublisher, runtime_instance_id: str = "liquidity-live-runtime"):
+                 publisher: CanonicalSignalPublisher | None = None,
+                 runtime_instance_id: str = "liquidity-live-runtime"):
         self.conn = conn
         self.snapshot_reader = snapshot_reader
         self.publisher = publisher
@@ -177,7 +246,62 @@ class LiquidityLiveRuntime:
                                              json.dumps({"broker_writes": 0, "source": "LIVE_MARKET",
                                                          "health_status": status})))
 
+    def collect_signals(self, seen_signal_ids: set[str]) -> list[Any]:
+        """Evaluate active memberships and return new StrategySignal objects.
+
+        This is the canonical adapter path.  It does NOT publish, commit, or
+        call ensure_open_liquidity_outcome.  The orchestrator owns those steps.
+
+        Setup state is persisted to Postgres before this method returns.  If
+        publishing later fails the signal will not be re-emitted (seen_signal_ids
+        deduplication) but setup state will be consistent on the next cycle.
+        """
+        from orchestration.models import StrategySignal as _StrategySignal
+        evaluation_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        pending: list[Any] = []
+        memberships = active_instance_memberships(self.conn)
+        for row in memberships:
+            instance_id = row["instance_id"]
+            membership_key = f"{instance_id}:{row['canonical_instrument']}"
+            parameter_set = PARAMETER_SETS.get(instance_id)
+            if parameter_set is None or row["canonical_instrument"] != parameter_set.canonical_instrument:
+                continue
+            try:
+                evaluator = self.evaluators.setdefault(instance_id, LiquidityLiveEvaluator(parameter_set))
+                if instance_id not in self._restored:
+                    evaluator.restore(self.setup_store.load(instance_id, row["canonical_instrument"]))
+                    self._restored.add(instance_id)
+                snapshot = self.snapshot_reader(row["canonical_instrument"], row["provider_symbol"])
+                if not isinstance(snapshot, LiveMarketSnapshot):
+                    raise MarketDataUnavailable("invalid live market snapshot")
+                signal = evaluator.evaluate(snapshot, evaluation_time=evaluation_time)
+                for state in evaluator.export_state():
+                    self.setup_store.save(state)
+                self.membership_consecutive_failures[membership_key] = 0
+                if signal is None or signal.signal_id in seen_signal_ids:
+                    continue
+                pending.append(signal)
+            except MarketDataUnavailable as exc:
+                failures = self.membership_consecutive_failures.get(membership_key, 0) + 1
+                self.membership_consecutive_failures[membership_key] = failures
+                reason = "MARKET_DATA_STALE" if "stale" in str(exc).lower() else "MARKET_DATA_UNAVAILABLE"
+                audit("membership_data_unavailable", runner="liquidity-live",
+                      strategy_id=STRATEGY_ID, instance_id=instance_id,
+                      canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"], reason=reason,
+                      error=str(exc)[:300], consecutive_failures=failures)
+        return pending
+
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
+        if self.publisher is None:
+            raise RuntimeError(
+                "LiquidityLiveRuntime.tick() requires a publisher; in orchestrator-adapter "
+                "mode the runtime is constructed without one — use collect_signals() instead."
+            )
+        # DB-level exclusivity: refuse to publish if the orchestrator holds the lock.
+        # This is defense-in-depth beyond env-var separation — it catches cases where
+        # a standalone pod was not restarted after LIQUIDITY_LIVE_ORCHESTRATOR_MODE was set.
+        check_publication_exclusivity(self.conn)
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         cycle_started = time.perf_counter()
         published: list[str] = []

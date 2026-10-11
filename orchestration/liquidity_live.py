@@ -17,6 +17,63 @@ from liquidity_displacement import LiquidityDisplacementConfig, LiquidityDisplac
 from orchestration.models import StrategySignal, stable_id
 from liquidity_market_data import LiveMarketSnapshot
 
+# Staleness policy for cached snapshots: data older than this at evaluation time is unhealthy.
+_MAX_DATA_AGE_SECONDS = 600.0
+
+# Continuity states the evaluator accepts as healthy.
+_HEALTHY_CONTINUITY = frozenset({"HEALTHY", "SUFFICIENT"})
+
+# Gap/recovery states that indicate data in flux — unsafe for live signal emission.
+_UNHEALTHY_GAP_STATES = frozenset({"GAP_DETECTED", "UNRECOVERABLE"})
+_ACTIVE_RECOVERY_STATES = frozenset({"RECOVERING"})
+
+
+def _snapshot_health(snapshot: LiveMarketSnapshot) -> dict[str, Any]:
+    """Derive provenance health fields from a validated LiveMarketSnapshot.
+
+    Bridge path (data_health is None): the bridge client validated liveness; healthy.
+    Cache path (data_health present): healthy only when continuity is acceptable,
+    no gap is detected, and no active gap-recovery is underway.
+
+    The returned dict is merged into signal provenance so the orchestrator gate
+    can verify health without re-fetching the snapshot.
+    """
+    ts = snapshot.source_market_data_timestamp
+    dh = snapshot.data_health
+
+    if dh is None:
+        # Bridge path: health established by the validated LiveMarketSnapshot contract.
+        return {
+            "source_read_health": True,
+            "source_market_data_timestamp": ts,
+            "gap_recovery": False,
+        }
+
+    continuity = dh.get("continuity_status", "UNKNOWN")
+    gap_status = dh.get("gap_status", "UNKNOWN")
+    recovery_status = dh.get("recovery_status", "NONE")
+    cache_age = dh.get("cache_age_seconds")
+
+    healthy = (
+        continuity in _HEALTHY_CONTINUITY
+        and gap_status not in _UNHEALTHY_GAP_STATES
+        and recovery_status not in _ACTIVE_RECOVERY_STATES
+        and (cache_age is None or float(cache_age) <= _MAX_DATA_AGE_SECONDS)
+    )
+    gap_recovery = recovery_status in _ACTIVE_RECOVERY_STATES
+
+    result: dict[str, Any] = {
+        "source_read_health": healthy,
+        "source_market_data_timestamp": ts,
+        "gap_recovery": gap_recovery,
+        "source_continuity_status": continuity,
+        "source_gap_status": gap_status,
+        "source_recovery_status": recovery_status,
+    }
+    if cache_age is not None:
+        result["source_data_age_seconds"] = float(cache_age)
+    return result
+
 STRATEGY_ID = "LIQUIDITY_DISPLACEMENT_SCALP_V1"
 STRATEGY_VERSION = "V1"
 _FROZEN_RULE_SOURCE = Path(__file__).resolve().parents[1] / "liquidity_displacement.py"
@@ -165,7 +222,8 @@ class LiquidityLiveEvaluator:
                 "lifecycle": ["SWEEP", "RECLAIM", "DISPLACEMENT", "MSS"]}
 
     def _signal_for_fill(self, setup: dict[str, Any], *, bar: dict[str, Any], evaluation_time: str,
-                         broker_symbol: str, validated_by: str) -> StrategySignal:
+                         broker_symbol: str, validated_by: str,
+                         snapshot_health: dict[str, Any]) -> StrategySignal:
         event_time = datetime.fromtimestamp(int(bar["time"]) + 300, timezone.utc).isoformat().replace("+00:00", "Z")
         source_event_id = stable_id("LIQUIDITY_EVT", {"setup_id": setup["setup_id"], "entry_time": event_time})
         signal_id = stable_id("SIG", {"strategy_id": STRATEGY_ID, "strategy_version": STRATEGY_VERSION,
@@ -186,13 +244,39 @@ class LiquidityLiveEvaluator:
             target_distance=abs(setup["target"] - setup["entry"]), target_r=self.parameter_set.target_r,
             timeframe="M5", lower_timeframe=None, higher_timeframes=("M15",),
             entry_mechanism=("LIQUIDITY_SWEEP", "RECLAIM", "DISPLACEMENT", "MICRO_STRUCTURE_SHIFT", "RETRACE_FILL"),
-            strategy_metadata={"parameter_set_id": self.parameter_set.parameter_set_id,
-                               "entry_fraction": self.parameter_set.entry_fraction,
-                               "max_retrace_candles": self.parameter_set.max_retrace_candles},
-            provenance={"source": "liquidity_live_market_evaluator", "source_kind": "LIVE_MARKET",
-                        "validated_by": validated_by, "code_fingerprint": CODE_FINGERPRINT,
-                        "config_fingerprint": self.parameter_set.config_fingerprint,
-                        "paper_only": False, "setup_lifecycle": "STRATEGY_OBSERVED_FILL"},
+            strategy_metadata={
+                "parameter_set_id": self.parameter_set.parameter_set_id,
+                "entry_fraction": self.parameter_set.entry_fraction,
+                "max_retrace_candles": self.parameter_set.max_retrace_candles,
+                # Versioned contract for the Unified Outcome Resolver.
+                # Encodes Liquidity V1 frozen rule semantics explicitly so the
+                # resolver does not infer ordering from strategy name.
+                # See docs/UNIFIED_OUTCOME_RESOLVER_SIGNAL_CONTRACT.md.
+                "outcome_contract": {
+                    "version": "entry-outcome.v2",
+                    "timeframe_minutes": 5,           # M5 bars
+                    "activation": "SIGNAL_TIMESTAMP",
+                    "max_hold_minutes": self.parameter_set.max_hold_minutes,
+                    "expiration_minutes": None,        # no separate expiry; max_hold governs
+                    "time_exit_price": "CLOSE",        # time-exit uses candle close
+                    "price_basis": "THEORETICAL_TOUCH",
+                    "same_candle_priority": "STOP_FIRST",   # Liquidity V1 frozen legacy
+                    "time_exit_priority": "BEFORE_PRICE",   # Liquidity V1 frozen legacy
+                },
+            },
+            provenance={
+                "source": "liquidity_live_market_evaluator",
+                "source_kind": "LIVE_MARKET",
+                "validated_by": validated_by,
+                "code_fingerprint": CODE_FINGERPRINT,
+                "config_fingerprint": self.parameter_set.config_fingerprint,
+                "paper_only": False,
+                "setup_lifecycle": "STRATEGY_OBSERVED_FILL",
+                # provider_symbol carried so the resolver can reload the correct
+                # broker-symbol candle archive after a restart (required by contract).
+                "provider_symbol": broker_symbol,
+                **snapshot_health,
+            },
             decision_time=event_time, signal_emitted_at=evaluation_time)
 
     def evaluate(self, snapshot: LiveMarketSnapshot, *, evaluation_time: str) -> StrategySignal | None:
@@ -207,6 +291,7 @@ class LiquidityLiveEvaluator:
         if not m5 or not m15 or not quote or not contract:
             return None
         broker_symbol = snapshot.provider_symbol
+        health = _snapshot_health(snapshot)
         signals: list[StrategySignal] = []
         # Scan by the stable candle window on every snapshot.  The candidate/setup id is based on
         # sweep time, so this is idempotent while allowing a rolling cache to advance past old
@@ -241,7 +326,8 @@ class LiquidityLiveEvaluator:
                 held = float(bar["close"]) >= setup["entry"] if setup["direction"] == "LONG" else float(bar["close"]) <= setup["entry"]
                 if touched and held:
                     signal = self._signal_for_fill(setup, bar=bar, evaluation_time=evaluation_time,
-                                                   broker_symbol=broker_symbol, validated_by=snapshot.validated_by)
+                                                   broker_symbol=broker_symbol, validated_by=snapshot.validated_by,
+                                                   snapshot_health=health)
                     signals.append(signal)
                     self._published.add(signal.signal_id)
                     break

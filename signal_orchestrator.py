@@ -146,7 +146,8 @@ def event(store: OrchestrationStore, event_type: str, signal: StrategySignal | N
     store.append("events", row, row["event_id"])
 
 
-def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
+def load_adapters(config: dict[str, Any], freeze_timestamp: str,
+                  conn: Any = None) -> list[Any]:
     registry = StrategyRegistry(config)
     adapters = []
     for record in registry.enabled():
@@ -183,6 +184,30 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
                 # deployment is being migrated to explicit instance rows.
                 adapters.append(LiquidityDisplacementAdapter(ROOT, freeze_timestamp))
             # Instance rows exist but every one is OFFLINE: no Liquidity adapter at all.
+            # Liquidity Live: if the live runtime is enabled and a DB connection is
+            # available (DB_PRIMARY mode), register it as an orchestrator adapter so
+            # all signals pass through the canonical admission pipeline.
+            if conn is not None and os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "").lower() == "true":
+                try:
+                    from orchestration.adapters.liquidity_live import LiquidityLiveAdapter
+                    from liquidity_live_runtime import (
+                        LiquidityLiveRuntime, register_orchestrator_publication_mode,
+                    )
+                    from liquidity_market_data import build_liquidity_market_data
+                    mcp_url = os.environ.get("LIQUIDITY_LIVE_MCP_URL", "").strip()
+                    market_data = build_liquidity_market_data(mcp_url)
+                    live_runtime = LiquidityLiveRuntime(
+                        conn=conn,
+                        snapshot_reader=market_data.snapshot,
+                    )
+                    # Claim DB-level canonical publication lock so any still-running
+                    # standalone service detects the orchestrator and refuses to publish.
+                    register_orchestrator_publication_mode(conn)
+                    adapters.append(LiquidityLiveAdapter(live_runtime))
+                    audit("liquidity_live_adapter_registered", runner="signal-orchestrator")
+                except Exception as exc:
+                    audit("liquidity_live_adapter_failed", runner="signal-orchestrator",
+                          error=str(exc), error_type=type(exc).__name__)
         elif record["strategy_id"] == "KOJO_STRUCTURE_RECLAIM_V1":
             # Pipeline-created instances from strategy_instance_v2.
             # Only ONLINE instances are present in config["instances"] (loaded by
@@ -219,6 +244,98 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str) -> list[Any]:
         elif record.get("enabled"):
             raise RuntimeError(f"enabled strategy adapter is not audited: {record['strategy_id']}")
     return adapters
+
+
+def _validate_adapter_interfaces(adapters: list[Any]) -> None:
+    """Verify every loaded adapter satisfies the StrategyAdapter protocol.
+
+    Called once per cycle after load_adapters() so that a misconfigured adapter
+    fails loudly at startup rather than silently skipping signals or crashing mid-cycle.
+    """
+    for adapter in adapters:
+        strategy_id = getattr(adapter, "strategy_id", None)
+        if strategy_id is None:
+            raise RuntimeError(
+                f"Adapter {adapter.__class__.__name__} is missing required lowercase "
+                "'strategy_id' instance attribute.  Add self.strategy_id = STRATEGY_ID "
+                "to its __init__."
+            )
+        if not callable(getattr(adapter, "discover_new_signals", None)):
+            raise RuntimeError(
+                f"Adapter for {strategy_id} ({adapter.__class__.__name__}) does not "
+                "implement discover_new_signals(seen_signal_ids).  This is required by "
+                "the StrategyAdapter protocol."
+            )
+
+
+# Maximum age of source market data at signal emission time to be considered live-safe.
+_MAX_DATA_AGE_SECONDS = 600.0
+
+
+def _validate_signal_provenance(signal: StrategySignal, orchestration_mode: str) -> bool:
+    """Return True if the signal may proceed; False means block before publication.
+
+    Accepted contract for REAL_EXECUTION:
+      - source_read_health must be exactly True (not False, None, missing, or any other value).
+        False means the adapter knows its data is unhealthy; block it.
+      - gap_recovery must not be True — data in active gap-recovery is unsafe for live execution.
+      - decision_time and signal_emitted_at must be present.
+      - If source_market_data_timestamp is present, the data age at emission must not exceed
+        _MAX_DATA_AGE_SECONDS (stale snapshot detected at gate level for defense-in-depth).
+
+    In non-REAL modes all violations emit audit warnings only so paper/shadow operation
+    is not disrupted while adapters are migrated.
+    """
+    prov = signal.provenance or {}
+    source_read_health = prov.get("source_read_health")
+
+    # Only exactly True is healthy; None/missing/False/unknown all indicate a problem.
+    unhealthy_source = source_read_health is not True
+
+    # Gap-recovery data is structurally complete but temporally unsafe for live execution.
+    unsafe_gap_recovery = prov.get("gap_recovery") is True
+
+    missing_timestamps = [
+        f for f, v in (
+            ("decision_time", signal.decision_time),
+            ("signal_emitted_at", signal.signal_emitted_at),
+        )
+        if v is None
+    ]
+
+    # Staleness: compare source_market_data_timestamp against signal_emitted_at.
+    stale_market_data = False
+    raw_data_ts = prov.get("source_market_data_timestamp")
+    if raw_data_ts and signal.signal_emitted_at:
+        try:
+            emitted = datetime.fromisoformat(signal.signal_emitted_at.replace("Z", "+00:00"))
+            data_ts = datetime.fromisoformat(str(raw_data_ts).replace("Z", "+00:00"))
+            if (emitted - data_ts).total_seconds() > _MAX_DATA_AGE_SECONDS:
+                stale_market_data = True
+        except (ValueError, TypeError, AttributeError):
+            stale_market_data = True  # unparseable timestamp → fail closed in REAL_EXECUTION
+
+    if orchestration_mode == "REAL_EXECUTION":
+        if unhealthy_source or unsafe_gap_recovery or missing_timestamps or stale_market_data:
+            return False
+        return True
+
+    # Non-REAL modes: warn but allow.
+    problem_fields: list[str] = []
+    if source_read_health is None:
+        problem_fields.append("source_read_health:missing")
+    elif unhealthy_source:
+        problem_fields.append(f"source_read_health:{source_read_health!r}")
+    if unsafe_gap_recovery:
+        problem_fields.append("gap_recovery:active")
+    if stale_market_data:
+        problem_fields.append("source_market_data_timestamp:stale")
+    problem_fields.extend(missing_timestamps)
+    if problem_fields:
+        audit("signal_provenance_incomplete", runner="signal-orchestrator",
+              signal_id=signal.signal_id, strategy_id=signal.strategy_id,
+              missing_fields=problem_fields, orchestration_mode=orchestration_mode)
+    return True
 
 
 def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict[str, Any], provider: MT5ShadowProvider | None,
@@ -392,9 +509,18 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     if orchestration_mode != "PRIMARY" and provider is None:
         provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
-    adapters = load_adapters(config, orchestrator_boundary)
+    publisher_conn = canonical_publisher.conn if canonical_publisher is not None else None
+    adapters = load_adapters(config, orchestrator_boundary, conn=publisher_conn)
+    _validate_adapter_interfaces(adapters)
+    # Build a mapping from strategy_id → adapter to support after_publish hooks.
+    # If multiple adapters share a strategy_id, the LAST one's hook is used (live
+    # adapter is added last and takes precedence over the legacy paper adapter).
+    _adapter_by_strategy: dict[str, Any] = {
+        getattr(a, "strategy_id", ""): a for a in adapters
+    }
     audit("strategies_loaded", runner="signal-orchestrator",
           strategies=[getattr(adapter, "strategy_id", adapter.__class__.__name__) for adapter in adapters])
+    adapter_failures: list[str] = []
     for adapter in adapters:
         strategy_id = getattr(adapter, "strategy_id", adapter.__class__.__name__)
         before = len(discovered)
@@ -406,7 +532,18 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
         except Exception as exc:
             audit("strategy_scan_failed", runner="signal-orchestrator", strategy_id=strategy_id,
                   decision="ERROR", error=str(exc))
-            raise
+            adapter_failures.append(strategy_id)
+            # Per-adapter fault isolation: one broken adapter must not crash signal
+            # generation for all other strategies.  The failure is recorded above and
+            # the cycle continues.  A hard re-raise is preserved only when the
+            # orchestrator is in REAL_EXECUTION mode so that a degraded adapter
+            # cannot silently skip execution-eligible signals.
+            if orchestration_mode == "REAL_EXECUTION":
+                raise
+    if adapter_failures and orchestration_mode != "REAL_EXECUTION":
+        audit("adapter_failures_isolated", runner="signal-orchestrator",
+              failed_strategies=adapter_failures, isolated_count=len(adapter_failures),
+              message="one or more strategy adapters failed; their signals were skipped this cycle")
     known = (set(seen) if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY else
              {row.get("signal_id") for row in store.rows("signals")})
     if signal_authority_mode is not SignalAuthorityMode.DB_PRIMARY:
@@ -432,6 +569,13 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
               direction=signal.direction, signal_timestamp=signal.signal_timestamp,
               decision_time=signal.decision_time, entry=signal.entry_price,
               stop=signal.stop_price, target=signal.target_price)
+        if not _validate_signal_provenance(signal, orchestration_mode):
+            audit("signal_blocked_missing_provenance", runner="signal-orchestrator",
+                  signal_id=signal.signal_id, strategy_id=signal.strategy_id,
+                  orchestration_mode=orchestration_mode, missing_fields=["source_read_health"],
+                  decision="BLOCKED_FAIL_CLOSED")
+            seen.add(signal.signal_id)
+            continue
         if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY:
             assert canonical_publisher is not None
             _, inserted = canonical_publisher.publish(signal)
@@ -443,6 +587,11 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
             audit("canonical_signal_decision", runner="signal-orchestrator", signal_id=signal.signal_id,
                   strategy_id=signal.strategy_id,
                   decision="ACCEPTED" if inserted else "DUPLICATE", inserted=inserted)
+            if inserted:
+                # Call adapter-specific post-publish hooks (e.g. initial outcome creation).
+                _adapter = _adapter_by_strategy.get(signal.strategy_id)
+                if _adapter is not None and callable(getattr(_adapter, "after_publish_hook", None)):
+                    _adapter.after_publish_hook(signal.signal_id, canonical_publisher.conn)
             if not inserted:
                 seen.add(signal.signal_id)
                 continue
@@ -816,11 +965,11 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
             db_conn.close()
             raise
     try:
-        audit = startup_audit(config, orchestration_mode, store,
-                              signal_authority_mode=signal_authority_mode,
-                              execution_authority_mode=execution_authority_mode)
-        if not audit["pass"]:
-            raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {audit}")
+        startup_result = startup_audit(config, orchestration_mode, store,
+                                       signal_authority_mode=signal_authority_mode,
+                                       execution_authority_mode=execution_authority_mode)
+        if not startup_result["pass"]:
+            raise RuntimeError(f"{orchestration_mode.lower()} startup safety audit failed: {startup_result}")
         mf = manifest_for_orchestration_mode(manifest(config), orchestration_mode, canonical_publisher)
         stop_path = {"SHADOW": STOP, "PRIMARY": PRIMARY_STOP,
                      "REAL_EXECUTION": REAL_STOP}[orchestration_mode]
