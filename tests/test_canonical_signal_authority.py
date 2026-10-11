@@ -183,6 +183,7 @@ class CanonicalSignalAuthorityTests(unittest.TestCase):
                 return super().rows(stream)
 
         class Adapter:
+            strategy_id = "TEST_STRATEGY"
             def discover_new_signals(self, seen):
                 self.seen = set(seen)
                 return [accepted_signal()]
@@ -228,6 +229,7 @@ class CanonicalSignalAuthorityTests(unittest.TestCase):
 
     def test_db_primary_database_failure_neither_routes_nor_falls_back_to_jsonl(self):
         class Adapter:
+            strategy_id = "TEST_STRATEGY"
             def discover_new_signals(self, seen): return [accepted_signal()]
         class FailedPublisher:
             def existing_signal_ids(self): return set()
@@ -246,6 +248,7 @@ class CanonicalSignalAuthorityTests(unittest.TestCase):
 
     def test_legacy_and_shadow_modes_keep_file_authority(self):
         class Adapter:
+            strategy_id = "TEST_STRATEGY"
             def discover_new_signals(self, seen): return [accepted_signal()]
         for mode in (SignalAuthorityMode.LEGACY_FILE, SignalAuthorityMode.DB_SHADOW):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:

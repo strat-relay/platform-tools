@@ -17,6 +17,10 @@ try:
     import fakeredis
 except ImportError:  # pragma: no cover - CI installs requirements-test.txt
     fakeredis = None
+try:
+    import redis
+except ImportError:  # pragma: no cover - CI installs requirements-risk-state.txt
+    redis = None
 
 from execution_v2.bridge_fence_sim import BridgeFenceSimulator
 from execution_v2.fakes import FakeBroker, FakeConnection
@@ -80,7 +84,14 @@ class RiskStateTestCase(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"V2_BROKER_SYMBOL_MAP_JSON": json.dumps(SYMBOL_MAP)})
         self.env.start()
         self.clock = {"t": T}
-        self.redis = fakeredis.FakeRedis()
+        redis_url = os.environ.get("RISK_STATE_TEST_REDIS_URL")
+        if redis_url:
+            if redis is None:
+                self.skipTest("redis-py is not installed")
+            self.redis = redis.Redis.from_url(redis_url)
+            self.redis.flushdb()
+        else:
+            self.redis = fakeredis.FakeRedis()
         self.store = RedisRiskStateStore(self.redis, account_ref(ACCOUNT), clock=lambda: self.clock["t"])
         self.broker = Broker()
         canonical = {v: k for k, v in SYMBOL_MAP["default"].items()}
