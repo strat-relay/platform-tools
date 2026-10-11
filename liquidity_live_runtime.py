@@ -8,6 +8,7 @@ It never imports an execution client and never reads paper/forward state files.
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from enum import Enum
@@ -39,7 +40,7 @@ def runtime_mode_from_env(environ: dict[str, str] | None = None) -> LiquidityRun
     orchestrator adapter.  An explicit mode always wins so MONITOR_ONLY cannot
     accidentally become a publisher because of an old environment variable.
     """
-    values = environ if environ is not None else __import__("os").environ
+    values = environ if environ is not None else os.environ
     raw = str(values.get("LIQUIDITY_LIVE_RUNTIME_MODE") or "").strip().upper()
     if not raw:
         raw = (LiquidityRuntimeMode.ORCHESTRATOR.value
