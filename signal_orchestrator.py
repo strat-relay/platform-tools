@@ -593,10 +593,11 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                   strategy_id=signal.strategy_id,
                   decision="ACCEPTED" if inserted else "DUPLICATE", inserted=inserted)
             if inserted:
-                # Call adapter-specific post-publish hooks (e.g. initial outcome creation).
+                # Hooks are observability-only extension points. Canonical
+                # outcome creation belongs exclusively to the resolver.
                 _adapter = _adapter_by_strategy.get(signal.strategy_id)
                 if _adapter is not None and callable(getattr(_adapter, "after_publish_hook", None)):
-                    _adapter.after_publish_hook(signal.signal_id, canonical_publisher.conn)
+                    _adapter.after_publish_hook(signal.signal_id, getattr(canonical_publisher, "conn", None))
             if not inserted:
                 seen.add(signal.signal_id)
                 continue
