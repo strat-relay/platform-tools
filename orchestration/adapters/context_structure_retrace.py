@@ -144,7 +144,22 @@ class ContextStructureRetraceAdapter:
                                        # Optional explicit broker pip size.  When absent, the
                                        # execution boundary must obtain symbol metadata; no
                                        # decimal-place heuristic is inferred here.
-                                       "pip_size": self.policy.get("pip_size")},
+                                       "pip_size": self.policy.get("pip_size"),
+                                       # Explicit post-emission semantics for both
+                                       # Context V1 and V2. Legacy rows without
+                                       # this block remain replayable only via
+                                       # compatibility defaults.
+                                       "outcome_contract": {
+                                           "version": "entry-outcome.v2",
+                                           "timeframe_minutes": 15,
+                                           "activation": "SIGNAL_TIMESTAMP",
+                                           "max_hold_minutes": (self.instance.get("parameter_values") or {}).get("max_hold_minutes"),
+                                           "expiration_minutes": None,
+                                           "time_exit_price": "CLOSE",
+                                           "price_basis": "THEORETICAL_TOUCH",
+                                           "same_candle_priority": "AMBIGUOUS_INTRABAR",
+                                           "time_exit_priority": "AFTER_PRICE",
+                                       }},
                     decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     signal_emitted_at=created,
                     provenance={"source_process": ("context_structure_retrace_v2_forward.py"
@@ -162,6 +177,7 @@ class ContextStructureRetraceAdapter:
                                 # producer/outbox event; absence is unsafe for
                                 # REAL eligibility and is never inferred from
                                 # runner liveness.
+                                "provider_symbol": symbol,
                                 "source_market_data_timestamp": position_provenance.get("source_market_data_timestamp", source_provenance.get("source_market_data_timestamp")),
                                 "source_data_age": position_provenance.get("source_data_age", source_provenance.get("source_data_age")),
                                 "source_read_health": position_provenance.get("source_read_health", source_provenance.get("source_read_health")),
