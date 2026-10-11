@@ -19,6 +19,9 @@ class FakeRedis:
 
 
 class RecordingCursor:
+    def execute(self, *_args, **_kwargs):
+        return None
+
     def __enter__(self):
         return self
 

@@ -46,6 +46,29 @@ migration runner.
 
 ## Ordered cutover
 
+All control-mode transitions and resolver lease acquisition serialize on the
+same PostgreSQL transaction-scoped advisory lock. Operators must use the
+following shape for every transition; a Python-side mode check is not a
+substitute for this lock:
+
+```sql
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtextextended('canonical-entry-outcome-writer', 0));
+SELECT mode, generation
+  FROM platform.outcome_resolver_control
+ WHERE control_name = 'canonical-entry-outcome-writer'
+ FOR UPDATE;
+UPDATE platform.outcome_resolver_control
+   SET mode = '<NEXT_MODE>', generation = generation + 1,
+       decided_by = '<OPERATOR_ID>', updated_at = now()
+ WHERE control_name = 'canonical-entry-outcome-writer';
+COMMIT;
+```
+
+The resolver lease row is bound to the control generation. Acquisition and
+renewal are rejected unless the committed control mode is
+`RESOLVER_PRIMARY`; a generation change immediately fences the old holder.
+
 1. Announce a short evaluation freeze and record the current control generation.
 2. Stop the Context V1 outcome projector and Liquidity outcome monitor while
    leaving strategy setup/signal production intact. Confirm their processes

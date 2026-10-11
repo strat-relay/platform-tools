@@ -110,18 +110,59 @@ class OutcomeResolverRuntime:
         self.lease_seconds = lease_seconds
         self.lease_generation: int | None = None
 
+    @staticmethod
+    def _authority_lock(cur: Any) -> None:
+        """Serialize lease changes with operator control-mode transitions."""
+        cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    ("canonical-entry-outcome-writer",))
+
     def acquire_lease(self) -> bool:
         with self.conn.cursor() as cur:
-            cur.execute("""INSERT INTO platform.outcome_resolver_lease
-                (lease_name, holder_id, generation, expires_at)
-                VALUES ('canonical-entry-outcome-resolver', %s, 1, now() + (%s * interval '1 second'))
+            self._authority_lock(cur)
+            expected_generation = self.lease_generation
+            cur.execute("""WITH authority AS (
+                    SELECT generation
+                      FROM platform.outcome_resolver_control
+                     WHERE control_name = 'canonical-entry-outcome-writer'
+                       AND mode = 'RESOLVER_PRIMARY'
+                     FOR UPDATE
+                ), eligible AS (
+                    SELECT authority.generation
+                      FROM authority
+                 LEFT JOIN platform.outcome_resolver_lease current_lease
+                        ON current_lease.lease_name = 'canonical-entry-outcome-resolver'
+                     WHERE (
+                         (%s::bigint IS NULL)
+                         OR (current_lease.holder_id = %s
+                             AND current_lease.generation = %s
+                             AND current_lease.generation = authority.generation)
+                     )
+                       AND (
+                         %s::bigint IS NOT NULL
+                         OR current_lease.lease_name IS NULL
+                         OR current_lease.expires_at < now()
+                         OR current_lease.generation <> authority.generation
+                         OR current_lease.holder_id = %s
+                     )
+                )
+                INSERT INTO platform.outcome_resolver_lease
+                    (lease_name, holder_id, generation, expires_at)
+                SELECT 'canonical-entry-outcome-resolver', %s, generation,
+                       now() + (%s * interval '1 second')
+                  FROM eligible
                 ON CONFLICT (lease_name) DO UPDATE SET
                     holder_id = EXCLUDED.holder_id,
-                    generation = platform.outcome_resolver_lease.generation + 1,
+                    generation = EXCLUDED.generation,
                     acquired_at = now(), heartbeat_at = now(), expires_at = EXCLUDED.expires_at
-                WHERE platform.outcome_resolver_lease.expires_at < now()
-                   OR platform.outcome_resolver_lease.holder_id = EXCLUDED.holder_id
-                RETURNING generation""", (self.holder_id, self.lease_seconds))
+                WHERE platform.outcome_resolver_lease.generation <> EXCLUDED.generation
+                   OR (platform.outcome_resolver_lease.holder_id = EXCLUDED.holder_id
+                       AND platform.outcome_resolver_lease.generation = EXCLUDED.generation)
+                   OR (platform.outcome_resolver_lease.expires_at < now()
+                       AND platform.outcome_resolver_lease.generation = EXCLUDED.generation)
+                RETURNING generation""", (expected_generation, self.holder_id,
+                                             expected_generation, expected_generation,
+                                             self.holder_id, self.holder_id,
+                                             self.lease_seconds))
             row = cur.fetchone()
             acquired = row is not None
             if row is not None:
@@ -135,12 +176,17 @@ class OutcomeResolverRuntime:
     def _assert_lease(self, cur: Any) -> None:
         if self.lease_generation is None:
             raise ResolverLeaseLost("resolver has not acquired a lease")
-        cur.execute("""SELECT generation, holder_id
-                          FROM platform.outcome_resolver_lease
-                         WHERE lease_name = 'canonical-entry-outcome-resolver'
-                           AND holder_id = %s
-                           AND generation = %s
-                           AND expires_at > now()""", (self.holder_id, self.lease_generation))
+        cur.execute("""SELECT lease.generation, lease.holder_id
+                          FROM platform.outcome_resolver_lease lease
+                          JOIN platform.outcome_resolver_control control
+                            ON control.control_name = 'canonical-entry-outcome-writer'
+                           AND control.generation = lease.generation
+                         WHERE lease.lease_name = 'canonical-entry-outcome-resolver'
+                           AND lease.holder_id = %s
+                           AND lease.generation = %s
+                           AND lease.expires_at > now()
+                           AND control.mode = 'RESOLVER_PRIMARY'""",
+                    (self.holder_id, self.lease_generation))
         if cur.fetchone() is None:
             raise ResolverLeaseLost("resolver lease generation is stale or expired")
 
@@ -237,6 +283,7 @@ class OutcomeResolverRuntime:
             )
         try:
             with self.conn.cursor() as cur:
+                self._authority_lock(cur)
                 self._assert_lease(cur)
                 # The resolver owns the complete canonical lifecycle, including
                 # the initial OPEN row.  This makes missing rows and legacy OPEN
@@ -285,20 +332,15 @@ class OutcomeResolverRuntime:
         return result
 
     def tick(self, *, limit: int = 100) -> dict[str, Any]:
-        # Deployment flags are necessary but not sufficient for authority.  A
-        # cutover fence can move to STOPPED while a process is still alive;
-        # refuse the entire evaluation cycle so neither outcome rows nor the
-        # durable replay cursor can advance outside RESOLVER_PRIMARY.
-        with self.conn.cursor() as cur:
-            cur.execute("""SELECT mode FROM platform.outcome_resolver_control
-                            WHERE control_name = 'canonical-entry-outcome-writer'""")
-            control = cur.fetchone()
-        self.conn.rollback()
-        if not control or control[0] != "RESOLVER_PRIMARY":
-            return {"status": "WRITER_NOT_PRIMARY", "holder_id": self.holder_id,
-                    "mode": control[0] if control else None, "resolved": 0}
         if not self.acquire_lease():
-            return {"status": "LEASE_HELD", "holder_id": self.holder_id, "resolved": 0}
+            with self.conn.cursor() as cur:
+                cur.execute("""SELECT mode FROM platform.outcome_resolver_control
+                                WHERE control_name = 'canonical-entry-outcome-writer'""")
+                control = cur.fetchone()
+            self.conn.rollback()
+            status = "WRITER_NOT_PRIMARY" if not control or control[0] != "RESOLVER_PRIMARY" else "LEASE_HELD"
+            return {"status": status, "holder_id": self.holder_id,
+                    "mode": control[0] if control else None, "resolved": 0}
         counts = {"resolved": 0, "insufficient": 0, "ambiguous": 0, "rejected": 0}
         for signal in self._signals(limit):
             result = self.resolve_one(signal)
