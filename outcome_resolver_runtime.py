@@ -285,6 +285,18 @@ class OutcomeResolverRuntime:
         return result
 
     def tick(self, *, limit: int = 100) -> dict[str, Any]:
+        # Deployment flags are necessary but not sufficient for authority.  A
+        # cutover fence can move to STOPPED while a process is still alive;
+        # refuse the entire evaluation cycle so neither outcome rows nor the
+        # durable replay cursor can advance outside RESOLVER_PRIMARY.
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT mode FROM platform.outcome_resolver_control
+                            WHERE control_name = 'canonical-entry-outcome-writer'""")
+            control = cur.fetchone()
+        self.conn.rollback()
+        if not control or control[0] != "RESOLVER_PRIMARY":
+            return {"status": "WRITER_NOT_PRIMARY", "holder_id": self.holder_id,
+                    "mode": control[0] if control else None, "resolved": 0}
         if not self.acquire_lease():
             return {"status": "LEASE_HELD", "holder_id": self.holder_id, "resolved": 0}
         counts = {"resolved": 0, "insufficient": 0, "ambiguous": 0, "rejected": 0}
