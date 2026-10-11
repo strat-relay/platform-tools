@@ -191,7 +191,7 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                 try:
                     from orchestration.adapters.liquidity_live import LiquidityLiveAdapter
                     from liquidity_live_runtime import (
-                        LiquidityLiveRuntime, register_orchestrator_publication_mode,
+                        LiquidityLiveRuntime, LiquidityRuntimeMode, register_orchestrator_publication_mode,
                     )
                     from liquidity_market_data import build_liquidity_market_data
                     mcp_url = os.environ.get("LIQUIDITY_LIVE_MCP_URL", "").strip()
@@ -199,6 +199,7 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                     live_runtime = LiquidityLiveRuntime(
                         conn=conn,
                         snapshot_reader=market_data.snapshot,
+                        mode=LiquidityRuntimeMode.ORCHESTRATOR,
                     )
                     # Claim DB-level canonical publication lock so any still-running
                     # standalone service detects the orchestrator and refuses to publish.
