@@ -27,7 +27,9 @@ class Cursor:
     def execute(self, sql, params=()):
         normalized = " ".join(sql.split())
         self.rows = []
-        if "FROM platform.schema_migrations" in normalized:
+        if normalized.startswith("SELECT set_config('platform.outcome_writer_domain'"):
+            return
+        elif "FROM platform.schema_migrations" in normalized:
             if params == ("015",):
                 self.rows = [("015",)]
         elif normalized.startswith("SELECT value FROM platform.system_metadata"):
