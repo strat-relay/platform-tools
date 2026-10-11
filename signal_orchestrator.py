@@ -1025,6 +1025,17 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
     finally:
         state = store.load_state(); state["status"] = "STOPPED"; store.save_state(state); PID.unlink(missing_ok=True)
         if db_conn is not None:
+            if os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "").lower() == "true":
+                try:
+                    from liquidity_live_runtime import release_orchestrator_publication_mode
+                    release_orchestrator_publication_mode(db_conn)
+                    db_conn.commit()
+                except Exception as exc:
+                    # A failed release must not turn an uncertain ownership
+                    # state into permission for standalone publication. The
+                    # RUNNING fence remains fail-closed for operator review.
+                    audit("liquidity_publication_fence_release_failed",
+                          runner="signal-orchestrator", error=str(exc))
             db_conn.close()
 
 

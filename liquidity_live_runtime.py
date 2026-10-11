@@ -119,11 +119,6 @@ def ensure_open_liquidity_outcome(conn: Any, signal_id: str) -> bool:
 
 # Instance ID the orchestrator writes to claim canonical publication ownership.
 _ORCHESTRATOR_LOCK_INSTANCE_ID = "liquidity-live-orchestrator"
-# Heartbeat grace period: if the orchestrator record is older than this, the
-# standalone service may resume publication (orchestrator has stopped).
-_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS = 300
-
-
 def register_orchestrator_publication_mode(conn: Any) -> None:
     """Claim DB-level canonical publication ownership on behalf of the orchestrator.
 
@@ -133,7 +128,8 @@ def register_orchestrator_publication_mode(conn: Any) -> None:
     after LIQUIDITY_LIVE_ORCHESTRATOR_MODE was set).
 
     The orchestrator must call this at adapter registration and periodically
-    refresh it (or let it expire after _ORCHESTRATOR_LOCK_MAX_AGE_SECONDS).
+    refresh it. A stale heartbeat never authorizes standalone publication;
+    only an explicit clean-stop transition can release this fence.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -155,18 +151,19 @@ def check_publication_exclusivity(conn: Any) -> None:
     """Raise if the orchestrator holds the canonical publication lock.
 
     Called by tick() before each publish to enforce DB-level exclusivity.
-    Raises RuntimeError if the orchestrator lock is active (within grace period).
+    Raises RuntimeError whenever an orchestrator owner record is RUNNING,
+    regardless of heartbeat age. This deliberately fails closed across
+    orchestrator restarts, network partitions, and stale heartbeats.
     Raises RuntimeError on DB error — fail closed, do not publish if the lock
     cannot be verified.
     """
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT 1 FROM platform.runtime_instances
+                """SELECT status FROM platform.runtime_instances
                     WHERE instance_id = %s
-                      AND status = 'RUNNING'
-                      AND last_heartbeat_at > now() - interval '%s seconds'""",
-                (_ORCHESTRATOR_LOCK_INSTANCE_ID, int(_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS)),
+                      AND status <> 'STOPPED'""",
+                (_ORCHESTRATOR_LOCK_INSTANCE_ID,),
             )
             row = cur.fetchone()
     except Exception as exc:
@@ -178,10 +175,20 @@ def check_publication_exclusivity(conn: Any) -> None:
         raise RuntimeError(
             "Standalone Liquidity Live publication blocked: the orchestrator "
             "holds the canonical publication lock (platform.runtime_instances "
-            f"instance_id='{_ORCHESTRATOR_LOCK_INSTANCE_ID}' is RUNNING). "
-            "Scale this deployment to 0 before enabling orchestrator mode, "
-            "or wait for the lock to expire (grace period: "
-            f"{_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS}s)."
+            f"instance_id='{_ORCHESTRATOR_LOCK_INSTANCE_ID}' is {row[0]}). "
+            "Require an explicit clean-stop or operator-controlled handoff; "
+            "a stale heartbeat is not sufficient."
+        )
+
+
+def release_orchestrator_publication_mode(conn: Any) -> None:
+    """Release publication ownership only on an explicit clean shutdown."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE platform.runtime_instances
+                  SET status = 'STOPPED', stopped_at = now(), last_heartbeat_at = now()
+                WHERE instance_id = %s""",
+            (_ORCHESTRATOR_LOCK_INSTANCE_ID,),
         )
 
 
