@@ -133,8 +133,8 @@ def test_adapter_registered_when_orchestrator_mode_true():
              patch("signal_orchestrator.StrategyRegistry") as mock_reg, \
              patch("orchestration.adapters.liquidity_live.LiquidityLiveAdapter") as mock_adapter_cls, \
              patch("liquidity_live_runtime.LiquidityLiveRuntime"), \
+             patch("liquidity_live_runtime.register_orchestrator_publication_mode"), \
              patch("liquidity_market_data.build_liquidity_market_data"):
-            # Simulate one enabled strategy row that triggers the Liquidity block
             mock_reg.return_value.enabled.return_value = [
                 {"strategy_id": "LIQUIDITY_DISPLACEMENT_SCALP_V1", "enabled": True}
             ]

@@ -17,6 +17,8 @@ class Cursor:
         self.sqls.append(sql)
     def fetchall(self):
         return [] if "entry_signal_outcomes" in self.sql else self.rows
+    def fetchone(self):
+        return None  # no orchestrator lock active in unit tests
 
 
 class Conn:

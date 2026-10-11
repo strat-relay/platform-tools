@@ -84,57 +84,46 @@ def test_discover_new_signals_does_not_call_publish():
 # after_publish_hook — success path
 # ---------------------------------------------------------------------------
 
-def test_after_publish_hook_calls_ensure_open_liquidity_outcome():
+def test_after_publish_hook_does_not_call_ensure_open_liquidity_outcome():
+    """Hook must NOT write to strategy.entry_signal_outcomes — resolver owns that."""
     runtime = MagicMock()
     adapter = LiquidityLiveAdapter(runtime)
     fake_conn = MagicMock()
 
-    with patch("liquidity_live_runtime.ensure_open_liquidity_outcome") as mock_ensure:
+    with patch("liquidity_live_runtime.ensure_open_liquidity_outcome") as mock_ensure, \
+         patch("observability.strategy_audit.audit"):
         adapter.after_publish_hook("SIG_xyz", fake_conn)
 
-    mock_ensure.assert_called_once_with(fake_conn, "SIG_xyz")
+    mock_ensure.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# after_publish_hook — failure path
-# ---------------------------------------------------------------------------
-
-def test_after_publish_hook_swallows_exception_and_audits():
+def test_after_publish_hook_emits_publication_audit_event():
+    """Hook must emit exactly one audit event confirming publication."""
     runtime = MagicMock()
     adapter = LiquidityLiveAdapter(runtime)
     fake_conn = MagicMock()
-
     audit_events: list[tuple] = []
-
-    def fake_ensure(conn, signal_id):
-        raise RuntimeError("db write failed")
 
     def fake_audit(event_name, **kwargs):
         audit_events.append((event_name, kwargs))
 
-    with patch("liquidity_live_runtime.ensure_open_liquidity_outcome", side_effect=fake_ensure):
-        with patch("observability.strategy_audit.audit", side_effect=fake_audit):
-            # Must NOT raise.
-            adapter.after_publish_hook("SIG_fail", fake_conn)
+    with patch("observability.strategy_audit.audit", side_effect=fake_audit):
+        adapter.after_publish_hook("SIG_audit", fake_conn)
 
     assert len(audit_events) == 1
     name, kwargs = audit_events[0]
-    assert name == "after_publish_hook_failed"
-    assert kwargs["strategy_id"] == STRATEGY_ID
-    assert kwargs["signal_id"] == "SIG_fail"
-    assert kwargs["hook"] == "ensure_open_liquidity_outcome"
-    assert "db write failed" in kwargs["error"]
+    assert name == "signal_published_to_orchestrator"
+    assert kwargs["signal_id"] == "SIG_audit"
+    assert kwargs["outcome_writer"] == "UNIFIED_OUTCOME_RESOLVER"
 
 
 def test_after_publish_hook_does_not_raise_on_audit_failure():
-    """Double-fault: ensure_open throws AND audit import fails — adapter stays silent."""
+    """Hook stays silent when the audit import fails — never propagates."""
     runtime = MagicMock()
     adapter = LiquidityLiveAdapter(runtime)
 
-    with patch("liquidity_live_runtime.ensure_open_liquidity_outcome", side_effect=RuntimeError("x")):
-        with patch.dict("sys.modules", {"observability.strategy_audit": None}):
-            # Should not propagate either error.
-            try:
-                adapter.after_publish_hook("SIG_double_fault", MagicMock())
-            except Exception as exc:
-                assert False, f"after_publish_hook raised unexpectedly: {exc}"
+    with patch.dict("sys.modules", {"observability.strategy_audit": None}):
+        try:
+            adapter.after_publish_hook("SIG_double_fault", MagicMock())
+        except Exception as exc:
+            assert False, f"after_publish_hook raised unexpectedly: {exc}"

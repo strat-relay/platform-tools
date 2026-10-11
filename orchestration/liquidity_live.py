@@ -244,9 +244,26 @@ class LiquidityLiveEvaluator:
             target_distance=abs(setup["target"] - setup["entry"]), target_r=self.parameter_set.target_r,
             timeframe="M5", lower_timeframe=None, higher_timeframes=("M15",),
             entry_mechanism=("LIQUIDITY_SWEEP", "RECLAIM", "DISPLACEMENT", "MICRO_STRUCTURE_SHIFT", "RETRACE_FILL"),
-            strategy_metadata={"parameter_set_id": self.parameter_set.parameter_set_id,
-                               "entry_fraction": self.parameter_set.entry_fraction,
-                               "max_retrace_candles": self.parameter_set.max_retrace_candles},
+            strategy_metadata={
+                "parameter_set_id": self.parameter_set.parameter_set_id,
+                "entry_fraction": self.parameter_set.entry_fraction,
+                "max_retrace_candles": self.parameter_set.max_retrace_candles,
+                # Versioned contract for the Unified Outcome Resolver.
+                # Encodes Liquidity V1 frozen rule semantics explicitly so the
+                # resolver does not infer ordering from strategy name.
+                # See docs/UNIFIED_OUTCOME_RESOLVER_SIGNAL_CONTRACT.md.
+                "outcome_contract": {
+                    "version": "entry-outcome.v2",
+                    "timeframe_minutes": 5,           # M5 bars
+                    "activation": "SIGNAL_TIMESTAMP",
+                    "max_hold_minutes": self.parameter_set.max_hold_minutes,
+                    "expiration_minutes": None,        # no separate expiry; max_hold governs
+                    "time_exit_price": "CLOSE",        # time-exit uses candle close
+                    "price_basis": "THEORETICAL_TOUCH",
+                    "same_candle_priority": "STOP_FIRST",   # Liquidity V1 frozen legacy
+                    "time_exit_priority": "BEFORE_PRICE",   # Liquidity V1 frozen legacy
+                },
+            },
             provenance={
                 "source": "liquidity_live_market_evaluator",
                 "source_kind": "LIVE_MARKET",
@@ -255,6 +272,9 @@ class LiquidityLiveEvaluator:
                 "config_fingerprint": self.parameter_set.config_fingerprint,
                 "paper_only": False,
                 "setup_lifecycle": "STRATEGY_OBSERVED_FILL",
+                # provider_symbol carried so the resolver can reload the correct
+                # broker-symbol candle archive after a restart (required by contract).
+                "provider_symbol": broker_symbol,
                 **snapshot_health,
             },
             decision_time=event_time, signal_emitted_at=evaluation_time)

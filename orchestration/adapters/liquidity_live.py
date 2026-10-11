@@ -6,23 +6,30 @@ and delivery pipeline — the same boundary every other strategy uses.
 
 Responsibility boundary
 -----------------------
-This adapter owns exactly three things:
+This adapter owns exactly two things:
   1. Calling LiquidityLiveRuntime.collect_signals() to evaluate market data.
   2. Returning StrategySignal objects to the orchestrator for canonical publication.
-  3. Persisting the initial OPEN outcome after the orchestrator confirms publication
-     (via after_publish_hook).
 
 It does NOT:
   - Publish signals itself.
   - Manage broker execution.
+  - Write strategy.entry_signal_outcomes. The Unified Outcome Resolver owns
+    initial OPEN creation and all subsequent outcome progression.
+  - Call monitor_open_liquidity_entries(), ensure_open_liquidity_outcomes(),
+    or ensure_open_liquidity_outcome(). Those are standalone-service paths
+    that must not execute in orchestrator mode.
   - Own transaction boundaries (the orchestrator's conn.commit() covers that).
 
-Codex dependency
+Outcome contract
 ----------------
-The initial OPEN outcome creation (after_publish_hook calling
-ensure_open_liquidity_outcome) is a temporary boundary until the Unified Outcome
-Resolver's canonical persistence layer (migration 051 + outcome_resolver.py)
-absorbs it.  When that lands, this hook can be removed.
+Each signal carries strategy_metadata.outcome_contract with version
+"entry-outcome.v2", encoding STOP_FIRST collision ordering and BEFORE_PRICE
+time-exit ordering per the Liquidity V1 frozen rule semantics.
+See docs/UNIFIED_OUTCOME_RESOLVER_SIGNAL_CONTRACT.md for the full contract.
+
+The Unified Outcome Resolver (outcome_resolver.py + migration 051) discovers
+published signals, creates/adopts the initial OPEN row, and owns all terminal
+outcome projection. This adapter must be silent on outcome writes.
 """
 from __future__ import annotations
 
@@ -58,23 +65,19 @@ class LiquidityLiveAdapter:
     def after_publish_hook(self, signal_id: str, conn: Any) -> None:
         """Called by the orchestrator after canonical publication succeeds.
 
-        Creates the initial OPEN outcome row that outcome monitoring depends on.
-        This is a temporary boundary until the Unified Outcome Resolver absorbs it.
+        Emits an observability audit event only. Does NOT write to
+        strategy.entry_signal_outcomes — the Unified Outcome Resolver owns
+        OPEN row creation. This hook exists solely to provide a publication
+        confirmation trace; it must remain a no-op on the canonical DB.
         """
-        from liquidity_live_runtime import ensure_open_liquidity_outcome
         try:
-            ensure_open_liquidity_outcome(conn, signal_id)
-        except Exception as exc:
-            try:
-                from observability.strategy_audit import audit as _audit
-                _audit(
-                    "after_publish_hook_failed",
-                    runner="signal-orchestrator",
-                    strategy_id=STRATEGY_ID,
-                    signal_id=signal_id,
-                    hook="ensure_open_liquidity_outcome",
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
-            except Exception:
-                pass
+            from observability.strategy_audit import audit as _audit
+            _audit(
+                "signal_published_to_orchestrator",
+                runner="signal-orchestrator",
+                strategy_id=STRATEGY_ID,
+                signal_id=signal_id,
+                outcome_writer="UNIFIED_OUTCOME_RESOLVER",
+            )
+        except Exception:
+            pass

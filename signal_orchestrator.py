@@ -190,7 +190,9 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
             if conn is not None and os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "").lower() == "true":
                 try:
                     from orchestration.adapters.liquidity_live import LiquidityLiveAdapter
-                    from liquidity_live_runtime import LiquidityLiveRuntime
+                    from liquidity_live_runtime import (
+                        LiquidityLiveRuntime, register_orchestrator_publication_mode,
+                    )
                     from liquidity_market_data import build_liquidity_market_data
                     mcp_url = os.environ.get("LIQUIDITY_LIVE_MCP_URL", "").strip()
                     market_data = build_liquidity_market_data(mcp_url)
@@ -198,6 +200,9 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                         conn=conn,
                         snapshot_reader=market_data.snapshot,
                     )
+                    # Claim DB-level canonical publication lock so any still-running
+                    # standalone service detects the orchestrator and refuses to publish.
+                    register_orchestrator_publication_mode(conn)
                     adapters.append(LiquidityLiveAdapter(live_runtime))
                     audit("liquidity_live_adapter_registered", runner="signal-orchestrator")
                 except Exception as exc:
