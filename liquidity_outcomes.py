@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from postgres.db import connect
+from outcome_resolver import persist_outcome_row
 
 STRATEGY_ID = "LIQUIDITY_DISPLACEMENT_SCALP_V1"
 OUTCOME_TYPE = "LIQUIDITY_ENTRY"
@@ -36,14 +37,10 @@ def project_liquidity_outcome(signal_id: str, *, status: str, realized_r: float 
             row = cur.fetchone()
             if row is None or row[0] != STRATEGY_ID:
                 raise ValueError("signal is not a Liquidity signal")
-            cur.execute("""INSERT INTO strategy.entry_signal_outcomes
-                (signal_id, outcome_type, status, realized_r, exit_timestamp, source)
-                VALUES (%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (signal_id) DO UPDATE SET
-                    status = EXCLUDED.status, realized_r = EXCLUDED.realized_r,
-                    exit_timestamp = EXCLUDED.exit_timestamp, updated_at = now()
-                WHERE strategy.entry_signal_outcomes.status = 'OPEN'
-                RETURNING signal_id""", (signal_id, OUTCOME_TYPE, status, realized_r, exit_at, STRATEGY_ID))
-            changed = cur.fetchone() is not None
+            changed = persist_outcome_row(
+                cur, signal_id=signal_id, outcome_type=OUTCOME_TYPE, status=status,
+                realized_r=realized_r, exit_timestamp=exit_at, source=STRATEGY_ID,
+                updated_at=datetime.now(timezone.utc),
+            )
         conn.commit()
     return changed

@@ -9,7 +9,6 @@ from typing import Any
 
 from orchestration.models import StrategySignal, stable_id
 from outcome_attribution import target_distance
-from orchestration.replay_guard import EPOCH_PATH, eligibility, load_epoch, records_by_strategy
 from execution_v2.trace import emit as trace_emit
 from observability.strategy_audit import audit
 
@@ -66,10 +65,6 @@ class ContextStructureRetraceAdapter:
         state = json.loads(self.state_path.read_text(encoding="utf-8"))
         result = []
         boundary = self._epoch(self.freeze_timestamp)
-        # This is invariant for the whole scan. Loading the replay watermark
-        # once per candidate made a large state file a serial disk-read loop.
-        epoch = load_epoch(EPOCH_PATH)
-        watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
         candidates_seen = 0
         for setup in state.get("setups", {}).values():
             for position in setup.get("opportunities", []):
@@ -149,7 +144,22 @@ class ContextStructureRetraceAdapter:
                                        # Optional explicit broker pip size.  When absent, the
                                        # execution boundary must obtain symbol metadata; no
                                        # decimal-place heuristic is inferred here.
-                                       "pip_size": self.policy.get("pip_size")},
+                                       "pip_size": self.policy.get("pip_size"),
+                                       # Explicit post-emission semantics for both
+                                       # Context V1 and V2. Legacy rows without
+                                       # this block remain replayable only via
+                                       # compatibility defaults.
+                                       "outcome_contract": {
+                                           "version": "entry-outcome.v2",
+                                           "timeframe_minutes": 15,
+                                           "activation": "SIGNAL_TIMESTAMP",
+                                           "max_hold_minutes": (self.instance.get("parameter_values") or {}).get("max_hold_minutes"),
+                                           "expiration_minutes": None,
+                                           "time_exit_price": "CLOSE",
+                                           "price_basis": "THEORETICAL_TOUCH",
+                                           "same_candle_priority": "AMBIGUOUS_INTRABAR",
+                                           "time_exit_priority": "AFTER_PRICE",
+                                       }},
                     decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     signal_emitted_at=created,
                     provenance={"source_process": ("context_structure_retrace_v2_forward.py"
@@ -167,6 +177,7 @@ class ContextStructureRetraceAdapter:
                                 # producer/outbox event; absence is unsafe for
                                 # REAL eligibility and is never inferred from
                                 # runner liveness.
+                                "provider_symbol": symbol,
                                 "source_market_data_timestamp": position_provenance.get("source_market_data_timestamp", source_provenance.get("source_market_data_timestamp")),
                                 "source_data_age": position_provenance.get("source_data_age", source_provenance.get("source_data_age")),
                                 "source_read_health": position_provenance.get("source_read_health", source_provenance.get("source_read_health")),
@@ -182,10 +193,6 @@ class ContextStructureRetraceAdapter:
                            strategy_instance_id=candidate.strategy_instance_id,
                            instrument=candidate.canonical_symbol,
                            producer="context_structure_retrace_adapter")
-                epoch = load_epoch(EPOCH_PATH)
-                watermark = records_by_strategy(epoch or {}).get(self.strategy_id)
-                if watermark and not eligibility(candidate.to_dict(), watermark)[0]:
-                    result.pop()
         audit("context_signal_scan_completed", runner="signal-orchestrator",
               strategy_id=self.strategy_id, candidates_seen=candidates_seen,
               signals_found=len(result),

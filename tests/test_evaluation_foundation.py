@@ -147,7 +147,7 @@ class EvaluationFoundationTests(unittest.TestCase):
             # same-candle TP/SL collisions are no longer assigned a deterministic winner.
             # Re-pinned for the cache-only live market-data boundary. The frozen decision-code
             # fingerprint and strategy configuration remain unchanged.
-            "context_structure_retrace_forward.py": "e0e65c9576ce30ec90dbb74cf0ce9fef293142fd62fa22de28d1795f2c0818eb",
+            "context_structure_retrace_forward.py": "2f25f9c4475d2f41b9b5b9805d0ead18f1e7aefb9e91cf1f3976bdba4616b718",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256(Path(name).read_bytes()).hexdigest(), digest, name)
