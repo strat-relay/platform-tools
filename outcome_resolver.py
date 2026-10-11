@@ -335,7 +335,10 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
             cur.execute("""SELECT mode FROM platform.outcome_resolver_control
                             WHERE control_name = 'canonical-entry-outcome-writer'""")
             mode = cur.fetchone()
-            if mode and mode[0] != "LEGACY_COMPAT":
+            # A missing control row is not proof of legacy authority.  Once the
+            # gate is enabled, legacy compatibility writes fail closed unless
+            # the database explicitly authorizes LEGACY_COMPAT.
+            if not mode or mode[0] != "LEGACY_COMPAT":
                 return False
         cur.execute(
             """INSERT INTO strategy.entry_signal_outcomes

@@ -8,8 +8,10 @@ It never imports an execution client and never reads paper/forward state files.
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Callable
 
 from orchestration.canonical_signal_publisher import CanonicalSignalPublisher
@@ -21,6 +23,35 @@ from outcome_resolver import ensure_open_outcomes
 from postgres.db import connect
 from observability.strategy_audit import audit
 from market_data_cache.reader import MarketDataUnavailable
+
+
+class LiquidityRuntimeMode(str, Enum):
+    """Explicit responsibility boundary for the Liquidity live runtime."""
+
+    STANDALONE = "STANDALONE"
+    MONITOR_ONLY = "MONITOR_ONLY"
+    ORCHESTRATOR = "ORCHESTRATOR"
+
+
+def runtime_mode_from_env(environ: dict[str, str] | None = None) -> LiquidityRuntimeMode:
+    """Resolve the mode without changing the legacy default.
+
+    ``LIQUIDITY_LIVE_ORCHESTRATOR_MODE`` remains a compatibility alias for the
+    orchestrator adapter.  An explicit mode always wins so MONITOR_ONLY cannot
+    accidentally become a publisher because of an old environment variable.
+    """
+    values = environ if environ is not None else os.environ
+    raw = str(values.get("LIQUIDITY_LIVE_RUNTIME_MODE") or "").strip().upper()
+    if not raw:
+        raw = (LiquidityRuntimeMode.ORCHESTRATOR.value
+               if str(values.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "false")).lower() == "true"
+               else LiquidityRuntimeMode.STANDALONE.value)
+    try:
+        return LiquidityRuntimeMode(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            "LIQUIDITY_LIVE_RUNTIME_MODE must be STANDALONE, MONITOR_ONLY, or ORCHESTRATOR"
+        ) from exc
 
 
 def active_instance_memberships(conn: Any) -> list[dict[str, str]]:
@@ -226,10 +257,21 @@ def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]
 class LiquidityLiveRuntime:
     def __init__(self, *, conn: Any, snapshot_reader: Callable[..., dict[str, Any]],
                  publisher: CanonicalSignalPublisher | None = None,
-                 runtime_instance_id: str = "liquidity-live-runtime"):
+                 runtime_instance_id: str = "liquidity-live-runtime",
+                 mode: LiquidityRuntimeMode = LiquidityRuntimeMode.STANDALONE):
+        if not isinstance(mode, LiquidityRuntimeMode):
+            try:
+                mode = LiquidityRuntimeMode(str(mode).upper())
+            except ValueError as exc:
+                raise ValueError(f"unsupported Liquidity runtime mode: {mode}") from exc
+        if mode is LiquidityRuntimeMode.STANDALONE and publisher is None:
+            raise ValueError("STANDALONE mode requires a canonical signal publisher")
+        if mode in {LiquidityRuntimeMode.MONITOR_ONLY, LiquidityRuntimeMode.ORCHESTRATOR} and publisher is not None:
+            raise ValueError(f"{mode.value} mode must not receive a canonical signal publisher")
         self.conn = conn
         self.snapshot_reader = snapshot_reader
         self.publisher = publisher
+        self.mode = mode
         self.runtime_instance_id = runtime_instance_id
         self.evaluators: dict[str, LiquidityLiveEvaluator] = {}
         self._restored: set[str] = set()
@@ -263,6 +305,8 @@ class LiquidityLiveRuntime:
         publishing later fails the signal will not be re-emitted (seen_signal_ids
         deduplication) but setup state will be consistent on the next cycle.
         """
+        if self.mode is not LiquidityRuntimeMode.ORCHESTRATOR:
+            raise RuntimeError("collect_signals() is available only in ORCHESTRATOR mode")
         from orchestration.models import StrategySignal as _StrategySignal
         evaluation_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         pending: list[Any] = []
@@ -300,15 +344,21 @@ class LiquidityLiveRuntime:
         return pending
 
     def tick(self, *, evaluation_time: str | None = None) -> dict[str, Any]:
-        if self.publisher is None:
+        if self.mode is LiquidityRuntimeMode.ORCHESTRATOR:
             raise RuntimeError(
-                "LiquidityLiveRuntime.tick() requires a publisher; in orchestrator-adapter "
-                "mode the runtime is constructed without one — use collect_signals() instead."
+                "ORCHESTRATOR mode does not run the standalone tick; use collect_signals() "
+                "through the Signal Orchestrator."
+            )
+        if self.mode is LiquidityRuntimeMode.STANDALONE and self.publisher is None:
+            raise RuntimeError(
+                "STANDALONE mode requires a canonical signal publisher; "
+                "use collect_signals() only in ORCHESTRATOR mode"
             )
         # DB-level exclusivity: refuse to publish if the orchestrator holds the lock.
         # This is defense-in-depth beyond env-var separation — it catches cases where
         # a standalone pod was not restarted after LIQUIDITY_LIVE_ORCHESTRATOR_MODE was set.
-        check_publication_exclusivity(self.conn)
+        if self.mode is LiquidityRuntimeMode.STANDALONE:
+            check_publication_exclusivity(self.conn)
         evaluation_time = evaluation_time or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         cycle_started = time.perf_counter()
         published: list[str] = []
@@ -324,6 +374,22 @@ class LiquidityLiveRuntime:
         audit("open_entries_monitored", runner="liquidity-live", terminal_outcomes=terminal,
               terminal_count=len(terminal),
               elapsed_ms=round((time.perf_counter() - stage_started) * 1000, 3))
+        if self.mode is LiquidityRuntimeMode.MONITOR_ONLY:
+            self.heartbeat(status="MONITOR_ONLY")
+            self.conn.commit()
+            audit("monitor_only_cycle_completed", runner="liquidity-live",
+                  terminal_outcomes=terminal, production_broker_writes=0)
+            return {
+                "memberships": 0,
+                "published": [],
+                "terminal_outcomes": terminal,
+                "status": "MONITOR_ONLY",
+                "membership_statuses": {},
+                "runner_consecutive_failures": 0,
+                "membership_consecutive_failures": {},
+                "market_data_consecutive_failures": 0,
+                "production_broker_writes": 0,
+            }
         stage_started = time.perf_counter()
         memberships = active_instance_memberships(self.conn)
         audit("memberships_loaded", runner="liquidity-live", membership_count=len(memberships),
@@ -443,10 +509,15 @@ class LiquidityLiveRuntime:
 
 
 def build_runtime(*, conn: Any, cutoff_id: str, cutoff_utc: str,
-                  snapshot_reader: Callable[..., dict[str, Any]]) -> LiquidityLiveRuntime:
+                  snapshot_reader: Callable[..., dict[str, Any]],
+                  mode: LiquidityRuntimeMode = LiquidityRuntimeMode.STANDALONE) -> LiquidityLiveRuntime:
+    publisher = None if mode is not LiquidityRuntimeMode.STANDALONE else CanonicalSignalPublisher(
+        conn, cutoff_id=cutoff_id, cutoff_utc=cutoff_utc,
+        source_id="liquidity-live-evaluator",
+    )
     return LiquidityLiveRuntime(
         conn=conn,
         snapshot_reader=snapshot_reader,
-        publisher=CanonicalSignalPublisher(conn, cutoff_id=cutoff_id, cutoff_utc=cutoff_utc,
-                                            source_id="liquidity-live-evaluator"),
+        publisher=publisher,
+        mode=mode,
     )

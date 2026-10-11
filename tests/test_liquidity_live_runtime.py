@@ -9,7 +9,7 @@ from orchestration.liquidity_live import (
     PaperStateRejected,
 )
 from liquidity_market_data import LiveMarketSnapshot
-from liquidity_live_runtime import LiquidityLiveRuntime
+from liquidity_live_runtime import LiquidityLiveRuntime, LiquidityRuntimeMode
 from liquidity_live_service import run_once
 from market_data_cache.reader import MarketDataUnavailable
 
@@ -78,6 +78,30 @@ def snapshot():
 
 
 class LiquidityLiveRuntimeTests(unittest.TestCase):
+    def test_monitor_only_reuses_legacy_monitor_without_publication(self):
+        conn = RecordingConnection()
+        runtime = LiquidityLiveRuntime(
+            conn=conn, snapshot_reader=lambda *_args: None, publisher=None,
+            mode=LiquidityRuntimeMode.MONITOR_ONLY,
+        )
+        with patch("liquidity_live_runtime.ensure_open_liquidity_outcomes", return_value=1) as backfill, \
+             patch("liquidity_live_runtime.monitor_open_liquidity_entries", return_value=["SIG_terminal"]) as monitor:
+            result = runtime.tick()
+
+        backfill.assert_called_once_with(conn)
+        monitor.assert_called_once_with(conn, runtime.snapshot_reader)
+        self.assertEqual(result["published"], [])
+        self.assertEqual(result["terminal_outcomes"], ["SIG_terminal"])
+        self.assertEqual(result["status"], "MONITOR_ONLY")
+        self.assertEqual(result["production_broker_writes"], 0)
+
+    def test_monitor_only_rejects_a_publisher(self):
+        with self.assertRaisesRegex(ValueError, "must not"):
+            LiquidityLiveRuntime(
+                conn=RecordingConnection(), snapshot_reader=lambda *_args: None,
+                publisher=object(), mode=LiquidityRuntimeMode.MONITOR_ONLY,
+            )
+
     def test_stale_membership_isolated_and_later_membership_still_evaluates(self):
         memberships = [
             {"instance_id": "liquidity-btc25", "canonical_instrument": "BTCUSD", "provider_symbol": "BTCUSDm"},

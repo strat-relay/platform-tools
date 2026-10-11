@@ -278,7 +278,7 @@ def test_unhealthy_and_gap_recovery_both_allowed_in_shadow_with_audit():
 # ---------------------------------------------------------------------------
 
 def test_tick_raises_configuration_error_when_publisher_none():
-    """adapter-mode runtime (publisher=None) must fail immediately on tick()."""
+    """ORCHESTRATOR runtime must fail immediately on standalone tick()."""
     import importlib
     lrt = importlib.import_module("liquidity_live_runtime")
 
@@ -286,6 +286,7 @@ def test_tick_raises_configuration_error_when_publisher_none():
         conn=MagicMock(),
         snapshot_reader=MagicMock(),
         publisher=None,
+        mode=lrt.LiquidityRuntimeMode.ORCHESTRATOR,
     )
     try:
         runtime.tick()
