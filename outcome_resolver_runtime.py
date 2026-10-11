@@ -161,8 +161,13 @@ class OutcomeResolverRuntime:
 
     def _persist_state(self, signal: ResolverSignal, contract: EvaluationContract,
                        result: OutcomeResolution, candles: list[Candle], *, attempt: int,
+                       prior_cursor: datetime | None = None,
                        error: str | None = None) -> None:
-        coverage_end = max((c.close_timestamp for c in candles), default=None)
+        # ``candles`` is the cursor-filtered work set.  On a recovery tick with
+        # no new completed candles it is intentionally empty; retaining the
+        # prior cursor is essential or the next restart will replay the same
+        # history and can regress durable progress.
+        coverage_end = max((c.close_timestamp for c in candles), default=prior_cursor)
         last_close = coverage_end
         with self.conn.cursor() as cur:
             cur.execute("""INSERT INTO platform.outcome_resolver_signal_state
@@ -269,7 +274,8 @@ class OutcomeResolverRuntime:
                                         source_kind="STRATEGY_REPLAY",
                                         writer_id="unified-outcome-resolver")
             self._persist_state(signal, contract, result, candles,
-                                attempt=self._next_attempt(signal.signal_id))
+                                attempt=self._next_attempt(signal.signal_id),
+                                prior_cursor=cursor)
             with self.conn.cursor() as cur:
                 self._assert_lease(cur)
             self.conn.commit()
