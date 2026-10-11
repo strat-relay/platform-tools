@@ -246,7 +246,7 @@ def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]
             continue
         if project_liquidity_outcome(row["signal_id"], status=outcome.status,
                                      realized_r=outcome.realized_r, exit_timestamp=outcome.exit_timestamp,
-                                     connect_fn=lambda: conn):
+                                     conn=conn):
             audit("outcome_projected", runner="liquidity-live", signal_id=row["signal_id"],
                   status=outcome.status, realized_r=outcome.realized_r,
                   exit_timestamp=outcome.exit_timestamp)

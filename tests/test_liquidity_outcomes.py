@@ -18,8 +18,11 @@ class Conn:
     def __init__(self, strategy="LIQUIDITY_DISPLACEMENT_SCALP_V1"):
         self.cursor_obj = Cursor(strategy)
         self.committed = False
+        self.closed = False
     def __enter__(self): return self
-    def __exit__(self, *args): return False
+    def __exit__(self, *args):
+        self.closed = True
+        return False
     def cursor(self): return self.cursor_obj
     def commit(self): self.committed = True
 
@@ -30,6 +33,20 @@ class LiquidityOutcomeTests(unittest.TestCase):
         self.assertTrue(project_liquidity_outcome("sig", status="OPEN", realized_r=None,
                                                   exit_timestamp=None, connect_fn=lambda: conn))
         self.assertTrue(conn.committed)
+
+    def test_borrowed_connection_is_not_committed_or_closed(self):
+        conn = Conn()
+        self.assertTrue(project_liquidity_outcome("sig", status="OPEN", realized_r=None,
+                                                  exit_timestamp=None, conn=conn))
+        self.assertFalse(conn.committed)
+        self.assertFalse(conn.closed)
+
+    def test_owned_connection_is_committed_and_closed_once(self):
+        conn = Conn()
+        self.assertTrue(project_liquidity_outcome("sig", status="OPEN", realized_r=None,
+                                                  exit_timestamp=None, connect_fn=lambda: conn))
+        self.assertTrue(conn.committed)
+        self.assertTrue(conn.closed)
 
     def test_terminal_price_outcome_requires_both_values(self):
         with self.assertRaises(ValueError):
