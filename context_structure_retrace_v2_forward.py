@@ -305,7 +305,6 @@ def run(args: argparse.Namespace) -> None:
     state["prospective_boundary"] = manifest["activation_timestamp"]
     _v1.save_state(state)
     _v1.write_heartbeat(state)
-    _v1._project_entry_only_outcomes(state)
     stopping = {"value": False}
     last_membership_refresh = 0.0
     membership_symbols = tuple(args.symbols)
@@ -331,7 +330,6 @@ def run(args: argparse.Namespace) -> None:
                 state["instrument_membership_symbols"] = list(membership_symbols)
                 last_membership_refresh = __import__("time").monotonic()
             _v1.poll(state, membership_symbols, args.mcp_url, args.limit)
-            _v1._project_entry_only_outcomes(state)
             if args.once:
                 break
             next_cycle = cycle_started + max(0.25, float(args.interval))

@@ -17,6 +17,7 @@ from orchestration.liquidity_live import STRATEGY_ID, PARAMETER_SETS, LiquidityL
 from liquidity_market_data import LiveMarketSnapshot
 from liquidity_lifecycle import settle_filled_entry
 from liquidity_outcomes import project_liquidity_outcome
+from outcome_resolver import ensure_open_outcomes
 from postgres.db import connect
 from observability.strategy_audit import audit
 from market_data_cache.reader import MarketDataUnavailable
@@ -90,33 +91,30 @@ def ensure_open_liquidity_outcomes(conn: Any) -> int:
     intentionally idempotent and also repairs signals created before the
     initial-outcome hook existed.  Terminal outcomes are never overwritten.
     """
-    with conn.cursor() as cur:
-        cur.execute("""INSERT INTO strategy.entry_signal_outcomes
-                (signal_id, outcome_type, status, source)
-                SELECT s.signal_id, 'LIQUIDITY_ENTRY', 'OPEN',
-                       'LIQUIDITY_DISPLACEMENT_SCALP_V1'
-                FROM strategy.entry_signals s
-                WHERE s.strategy_id = 'LIQUIDITY_DISPLACEMENT_SCALP_V1'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM strategy.entry_signal_outcomes o
-                      WHERE o.signal_id = s.signal_id
-                  )
-                ON CONFLICT (signal_id) DO NOTHING""", ())
-        return max(0, getattr(cur, "rowcount", 0))
+    return ensure_open_outcomes(
+        conn, strategy_id="LIQUIDITY_DISPLACEMENT_SCALP_V1",
+        outcome_type="LIQUIDITY_ENTRY",
+        source="LIQUIDITY_DISPLACEMENT_SCALP_V1",
+        updated_at=datetime.now(timezone.utc),
+    )
 
 
 def ensure_open_liquidity_outcome(conn: Any, signal_id: str) -> bool:
     """Create one initial OPEN outcome after a signal is published."""
     with conn.cursor() as cur:
-        cur.execute("""INSERT INTO strategy.entry_signal_outcomes
-                (signal_id, outcome_type, status, source)
-                SELECT signal_id, 'LIQUIDITY_ENTRY', 'OPEN',
-                       'LIQUIDITY_DISPLACEMENT_SCALP_V1'
-                FROM strategy.entry_signals
-                WHERE signal_id = %s
-                  AND strategy_id = 'LIQUIDITY_DISPLACEMENT_SCALP_V1'
-                ON CONFLICT (signal_id) DO NOTHING""", (signal_id,))
-        return getattr(cur, "rowcount", 0) == 1
+        cur.execute(
+            """SELECT signal_id FROM strategy.entry_signals
+               WHERE signal_id = %s AND strategy_id = %s""",
+            (signal_id, "LIQUIDITY_DISPLACEMENT_SCALP_V1"),
+        )
+        if not cur.fetchall():
+            return False
+        return ensure_open_outcomes(
+            conn, strategy_id="LIQUIDITY_DISPLACEMENT_SCALP_V1",
+            outcome_type="LIQUIDITY_ENTRY",
+            source="LIQUIDITY_DISPLACEMENT_SCALP_V1",
+            updated_at=datetime.now(timezone.utc),
+        ) == 1
 
 
 def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]:
