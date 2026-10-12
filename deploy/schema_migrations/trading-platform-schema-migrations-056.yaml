@@ -1,0 +1,80 @@
+# D3-B0: One-shot migration Job for 056_candle_archive.sql.
+#
+# REQUIRES: An image built from a main-merged commit that includes
+# postgres/migrations/056_candle_archive.sql. Fill IMAGE_DIGEST below
+# after the release build completes.
+#
+# APPLY procedure:
+#   1. Confirm backup taken after migration 055 (or take fresh backup first)
+#   2. Confirm trading-platform-schema-migrations-055 status=Complete
+#   3. Replace IMAGE_DIGEST with the digest from the release build
+#   4. kubectl apply -f this file -n trading
+#   5. kubectl wait --for=condition=Complete job/trading-platform-schema-migrations-056 -n trading --timeout=300s
+#   6. kubectl logs -n trading job/trading-platform-schema-migrations-056
+#      Expected output: {"migrations": ["056_candle_archive.sql"]}
+#   7. kubectl exec -n trading deploy/execution-v2-runtime -- python3 -c "
+#        import os,psycopg; conn=psycopg.connect(os.environ['TRADING_POSTGRES_DSN'])
+#        cur=conn.cursor(); cur.execute(\"SELECT version,applied_at FROM platform.schema_migrations WHERE version='056'\")
+#        print(cur.fetchone()); conn.close()"
+#
+# ROLLBACK procedure (if the migration applies but downstream issues detected):
+#   1. kubectl exec -n trading deploy/execution-v2-runtime -- python3 -c "
+#        import os,psycopg; conn=psycopg.connect(os.environ['TRADING_POSTGRES_DSN']); conn.autocommit=True
+#        cur=conn.cursor()
+#        cur.execute('DROP SCHEMA market_data CASCADE')
+#        cur.execute(\"DELETE FROM platform.schema_migrations WHERE version='056'\")
+#        conn.close(); print('rollback complete')"
+#   Safe: market_data has no references from existing tables. No data loss.
+#
+# DO NOT apply without explicit operator authorization.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trading-platform-schema-migrations-056
+  namespace: trading
+  labels:
+    app.kubernetes.io/name: trading-platform-schema-migrations
+    app.kubernetes.io/component: schema-migration
+    app.kubernetes.io/part-of: trading-platform
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trading-platform-schema-migrations
+        app.kubernetes.io/component: schema-migration
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          # Replace IMAGE_DIGEST with the digest of the release build that includes
+          # postgres/migrations/056_candle_archive.sql (from main-merged 8563f21 or later).
+          image: ghcr.io/strat-relay/trading-platform-runtime@IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, postgres.migrate]
+          envFrom:
+            - secretRef:
+                name: trading-runtime-endpoints
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 150m
+              memory: 256Mi
