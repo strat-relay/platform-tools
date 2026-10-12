@@ -28,6 +28,7 @@ from signal_orchestrator import load_adapters  # noqa: E402
 
 CONTEXT = "CONTEXT_STRUCTURE_RETRACE_V1"
 LIQUIDITY = "LIQUIDITY_DISPLACEMENT_SCALP_V1"
+KOJO_V3 = "KOJO_STRUCTURE_RECLAIM_V3"
 T0 = datetime(2026, 9, 20, tzinfo=timezone.utc)
 
 
@@ -234,6 +235,20 @@ class StrategyInstanceTests(unittest.TestCase):
         [context] = [s for s in self.repo.list_strategies() if s["strategy_id"] == CONTEXT]
         self.assertEqual((context["signals_published"], context["unattributed_signals"], context["instance_count"]),
                          (7, 2, 1))
+
+    def test_managed_v2_instance_stats_use_the_canonical_instance_identity(self):
+        """V2-managed rows are not in platform.strategy_instance, but their signals still are."""
+        with self.db.connect() as conn, conn.cursor() as cur:
+            self._signals(cur, KOJO_V3, "kojo-v3-forward",
+                          ["OPEN", "TARGET_HIT", "STOPPED"], "XAUUSDm")
+            conn.commit()
+        by_id = self._by_id()
+        kojo = by_id["kojo-v3-forward"]
+        self.assertEqual((kojo["strategy_id"], kojo["stats"]["signals"], kojo["stats"]["open"],
+                          kojo["stats"]["closed"], kojo["stats"]["outcomes_untracked"]),
+                         (KOJO_V3, 3, 1, 2, 0))
+        summary = next(s for s in self.repo.list_strategies() if s["strategy_id"] == KOJO_V3)
+        self.assertEqual((summary["instance_count"], summary["unattributed_signals"]), (1, 0))
 
     def test_instance_with_no_history_reports_no_last_event(self):
         with self.db.connect() as conn, conn.cursor() as cur:

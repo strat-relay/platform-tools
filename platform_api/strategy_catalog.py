@@ -113,6 +113,102 @@ LEFT JOIN LATERAL (
 {where}
 ORDER BY i.strategy_id, i.instance_id"""
 
+# Managed V2 instances live in strategy_mgmt.strategy_instance_v2 rather than the legacy
+# platform.strategy_instance table.  They still emit canonical signals using the same
+# (strategy_id, strategy_instance_id) identity, so omitting them here makes family totals
+# appear correct while every managed instance shows zero or no instance at all.
+_MANAGED_INSTANCE_SQL = """
+SELECT coalesce(v.attributes->>'instance_id', v.id::text) AS instance_id,
+       CASE sv.evaluator_key
+         WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+         WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+         ELSE upper(sv.evaluator_key)
+       END AS strategy_id,
+       v.display_name, v.online AS enabled, v.attributes,
+       1::bigint AS revision, v.created_at, v.updated_at, v.created_by AS updated_by,
+       coalesce(pd.enabled, false) AS parent_enabled, sv.version_label AS strategy_version,
+       coalesce(sig.signals, 0) AS signals, coalesce(sig.signals_24h, 0) AS signals_24h,
+       coalesce(o.tracked, 0) AS outcomes_tracked, coalesce(o.open_n, 0) AS open_n,
+       coalesce(o.closed_n, 0) AS closed_n, coalesce(o.invalidated_n, 0) AS invalidated_n,
+       o.realized_r_total,
+       coalesce(mem.active, ARRAY[]::text[]) AS instruments,
+       coalesce(mem.disabled_n, 0) AS instruments_disabled,
+       ev.at AS last_event_at, ev.type AS last_event_type, ev.message AS last_event_message,
+       obs.fingerprint AS observed_config_fingerprint, obs.at AS observed_config_at
+FROM strategy_mgmt.strategy_instance_v2 v
+JOIN strategy_mgmt.strategy_version sv ON sv.id = v.strategy_version_id
+LEFT JOIN platform.strategy_definition pd ON pd.strategy_id = CASE sv.evaluator_key
+  WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+  WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+  ELSE upper(sv.evaluator_key) END
+LEFT JOIN LATERAL (
+    SELECT count(*) AS signals,
+           count(*) FILTER (WHERE s.signal_emitted_at > now() - interval '24 hours') AS signals_24h
+    FROM strategy.entry_signals s
+    WHERE s.strategy_id = CASE sv.evaluator_key
+      WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+      WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      ELSE upper(sv.evaluator_key) END
+      AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) sig ON TRUE
+LEFT JOIN LATERAL (
+    SELECT count(*) AS tracked, count(*) FILTER (WHERE o.status = 'OPEN') AS open_n,
+           count(*) FILTER (WHERE o.status <> 'OPEN' AND o.realized_r IS NOT NULL) AS closed_n,
+           count(*) FILTER (WHERE o.status = 'INVALIDATED') AS invalidated_n,
+           sum(o.realized_r) FILTER (WHERE o.status <> 'OPEN') AS realized_r_total
+    FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
+    WHERE s.strategy_id = CASE sv.evaluator_key
+      WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+      WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      ELSE upper(sv.evaluator_key) END
+      AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) o ON TRUE
+LEFT JOIN LATERAL (
+    SELECT array_agg(m.canonical_instrument ORDER BY m.canonical_instrument)
+               FILTER (WHERE m.state = 'ACTIVE') AS active,
+           count(*) FILTER (WHERE m.state <> 'ACTIVE') AS disabled_n
+    FROM strategy.instrument_membership m
+    WHERE m.strategy_id = CASE sv.evaluator_key
+      WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+      WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      ELSE upper(sv.evaluator_key) END
+      AND m.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) mem ON TRUE
+LEFT JOIN LATERAL (
+    SELECT * FROM (
+        SELECT s.signal_emitted_at AS at, 'SIGNAL_CREATED' AS type,
+               s.direction || ' ' || s.instrument AS message
+        FROM strategy.entry_signals s
+        WHERE s.strategy_id = CASE sv.evaluator_key
+          WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+          WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+          ELSE upper(sv.evaluator_key) END
+          AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
+        UNION ALL
+        SELECT o.exit_timestamp, o.status, s.instrument || ' ' || o.status
+        FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
+        WHERE s.strategy_id = CASE sv.evaluator_key
+          WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+          ELSE upper(sv.evaluator_key) END
+          AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
+          AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
+    ORDER BY e.at DESC NULLS LAST LIMIT 1) ev ON TRUE
+LEFT JOIN LATERAL (
+    SELECT coalesce(s.source_provenance ->> 'config_fingerprint', s.source_provenance ->> 'source_config_hash') AS fingerprint,
+           s.signal_emitted_at AS at
+    FROM strategy.entry_signals s
+    WHERE s.strategy_id = CASE sv.evaluator_key
+      WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+      WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      ELSE upper(sv.evaluator_key) END
+      AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
+    ORDER BY s.signal_emitted_at DESC NULLS LAST LIMIT 1) obs ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1 FROM platform.strategy_instance legacy
+    WHERE legacy.strategy_id = CASE sv.evaluator_key
+      WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+      WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      ELSE upper(sv.evaluator_key) END
+      AND legacy.instance_id = coalesce(v.attributes->>'instance_id', v.id::text))
+ORDER BY strategy_id, instance_id"""
+
 # Runtimes that read platform.strategy_instance.enabled before producing new signals. ONLINE/OFFLINE
 # remains instance-scoped and is only offered where that child-runtime gate is enforced.
 LIFECYCLE_ENFORCEMENT: dict[str, str] = {
@@ -460,8 +556,20 @@ class StrategyCatalogRepository:
         self._require_instances(cur)
         execution = self._execution_facts(cur)
         published = self._published_parameter_sets(cur)
-        return [_instance(r, execution, published.get(r["instance_id"]))
-                for r in self._rows(cur, _INSTANCE_SQL.format(where=where), params)]
+        rows = self._rows(cur, _INSTANCE_SQL.format(where=where), params)
+        # Migration 030 is present on all current deployments, but managed V2 tables are
+        # introduced later.  Keep older schema-030 deployments readable by treating their
+        # managed-instance contribution as optional.
+        cur.execute("SELECT to_regclass('strategy_mgmt.strategy_instance_v2') IS NOT NULL")
+        if cur.fetchone()[0]:
+            managed = self._rows(cur, _MANAGED_INSTANCE_SQL)
+            if params:
+                strategy_id = params[0]
+                managed = [r for r in managed if r["strategy_id"] == strategy_id]
+                if len(params) > 1:
+                    managed = [r for r in managed if r["instance_id"] == params[1]]
+            rows.extend(managed)
+        return [_instance(r, execution, published.get(r["instance_id"])) for r in rows]
 
     def strategy_instances(self, strategy_id: str) -> list[dict[str, Any]]:
         return self._run(lambda cur: self._instances(cur, "WHERE i.strategy_id = %s", (strategy_id,)))
