@@ -10,7 +10,7 @@ import os
 import time
 from typing import Any
 
-from liquidity_live_runtime import build_runtime
+from liquidity_live_runtime import LiquidityRuntimeMode, build_runtime, runtime_mode_from_env
 from liquidity_market_data import build_liquidity_market_data
 from postgres.config import PostgresConfig
 from postgres.db import connect
@@ -28,17 +28,15 @@ def check_configuration() -> None:
     """Configuration errors stop the process (fail closed); they are checked before the loop."""
     if os.environ.get("LIQUIDITY_LIVE_RUNTIME_ENABLED", "false").lower() != "true":
         raise RuntimeError("Liquidity live runtime is disabled")
-    # When the orchestrator has taken over canonical publication the standalone service
-    # must not run concurrently: it would bypass orchestrator admission (provenance
-    # validation, replay guard, tradeability) and publish directly to the canonical DB.
-    # Scale this deployment to 0 replicas BEFORE setting LIQUIDITY_LIVE_ORCHESTRATOR_MODE.
-    if os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "false").lower() == "true":
+    mode = runtime_mode_from_env()
+    # The standalone service must never run the ORCHESTRATOR path. The
+    # orchestrator owns signal publication through its adapter; this process may
+    # be STANDALONE or MONITOR_ONLY only.
+    if mode is LiquidityRuntimeMode.ORCHESTRATOR:
         raise RuntimeError(
-            "Standalone Liquidity live service cannot run while "
-            "LIQUIDITY_LIVE_ORCHESTRATOR_MODE is active — the orchestrator now owns "
-            "canonical publication.  Scale this deployment to 0 before enabling "
-            "orchestrator mode, or unset LIQUIDITY_LIVE_ORCHESTRATOR_MODE to keep "
-            "the standalone path."
+            "Standalone Liquidity live service cannot run in ORCHESTRATOR mode; "
+            "LIQUIDITY_LIVE_ORCHESTRATOR_MODE/LIQUIDITY_LIVE_RUNTIME_MODE selects "
+            "that mode. Run MONITOR_ONLY while the Signal Orchestrator owns publication."
         )
     source = os.environ.get("MARKET_DATA_SOURCE", "BRIDGE").strip().upper()
     if source != "REDIS":
@@ -56,9 +54,11 @@ def run_once() -> dict[str, Any]:
     cutoff_utc = _required("SIGNAL_CUTOFF_UTC")
     market_data = build_liquidity_market_data(mcp_url)
     with connect(PostgresConfig.from_env()) as conn:
+        mode = runtime_mode_from_env()
         runtime = build_runtime(conn=conn, cutoff_id=cutoff_id, cutoff_utc=cutoff_utc,
-                                snapshot_reader=market_data.snapshot)
-        runtime.publisher.require_schema()
+                                snapshot_reader=market_data.snapshot, mode=mode)
+        if runtime.publisher is not None:
+            runtime.publisher.require_schema()
         return runtime.tick()
 
 

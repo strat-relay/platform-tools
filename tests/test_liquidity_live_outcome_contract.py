@@ -418,3 +418,34 @@ def test_simultaneous_modes_blocked_at_db_level():
 
     # Critical: publish was never invoked on the standalone path
     publisher.publish.assert_not_called()
+
+
+def test_stale_orchestrator_heartbeat_remains_fail_closed():
+    """A 300s-old heartbeat must not silently authorize a bypass publisher."""
+    stale_conn = MagicMock()
+    stale_cursor = MagicMock()
+    stale_cursor.__enter__ = MagicMock(return_value=stale_cursor)
+    stale_cursor.__exit__ = MagicMock(return_value=False)
+    stale_cursor.fetchone.return_value = ("RUNNING",)
+    stale_conn.cursor.return_value = stale_cursor
+
+    try:
+        lrt.check_publication_exclusivity(stale_conn)
+        assert False, "A stale RUNNING fence must remain blocked"
+    except RuntimeError as exc:
+        assert "stale heartbeat" in str(exc).lower()
+
+
+def test_publication_fence_has_explicit_clean_stop_release():
+    """Only an explicit STOPPED transition releases the orchestrator fence."""
+    conn = MagicMock()
+    cursor = MagicMock()
+    cursor.__enter__ = MagicMock(return_value=cursor)
+    cursor.__exit__ = MagicMock(return_value=False)
+    conn.cursor.return_value = cursor
+
+    lrt.release_orchestrator_publication_mode(conn)
+
+    sql = cursor.execute.call_args[0][0].lower()
+    assert "status = 'stopped'" in sql
+    assert "liquidity-live-orchestrator" in str(cursor.execute.call_args[0][1])

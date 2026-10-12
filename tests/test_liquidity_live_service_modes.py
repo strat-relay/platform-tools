@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import liquidity_live_service as svc
+from liquidity_live_runtime import LiquidityRuntimeMode, runtime_mode_from_env
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +81,38 @@ def test_orchestrator_mode_case_insensitive():
             assert False, "Expected RuntimeError"
         except RuntimeError as exc:
             assert "LIQUIDITY_LIVE_ORCHESTRATOR_MODE" in str(exc)
+
+
+
+def test_explicit_runtime_modes_are_parsed_and_explicit_mode_wins():
+    assert runtime_mode_from_env({}) is LiquidityRuntimeMode.STANDALONE
+    assert runtime_mode_from_env({"LIQUIDITY_LIVE_ORCHESTRATOR_MODE": "true"}) is LiquidityRuntimeMode.ORCHESTRATOR
+    assert runtime_mode_from_env({"LIQUIDITY_LIVE_RUNTIME_MODE": "monitor_only"}) is LiquidityRuntimeMode.MONITOR_ONLY
+    assert runtime_mode_from_env({
+        "LIQUIDITY_LIVE_RUNTIME_MODE": "MONITOR_ONLY",
+        "LIQUIDITY_LIVE_ORCHESTRATOR_MODE": "true",
+    }) is LiquidityRuntimeMode.MONITOR_ONLY
+
+
+def test_unknown_runtime_mode_fails_closed():
+    try:
+        runtime_mode_from_env({"LIQUIDITY_LIVE_RUNTIME_MODE": "PUBLISH_ONLY"})
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "STANDALONE" in str(exc)
+
+
+def test_monitor_only_service_configuration_is_allowed():
+    env = {
+        "LIQUIDITY_LIVE_RUNTIME_ENABLED": "true",
+        "LIQUIDITY_LIVE_RUNTIME_MODE": "MONITOR_ONLY",
+        "SIGNAL_CUTOFF_ID": "cutoff-1",
+        "SIGNAL_CUTOFF_UTC": "2026-01-01T00:00:00Z",
+        "MARKET_DATA_SOURCE": "REDIS",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        svc.check_configuration()
+
 
 
 # ---------------------------------------------------------------------------

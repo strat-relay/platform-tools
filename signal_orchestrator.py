@@ -191,7 +191,7 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                 try:
                     from orchestration.adapters.liquidity_live import LiquidityLiveAdapter
                     from liquidity_live_runtime import (
-                        LiquidityLiveRuntime, register_orchestrator_publication_mode,
+                        LiquidityLiveRuntime, LiquidityRuntimeMode, register_orchestrator_publication_mode,
                     )
                     from liquidity_market_data import build_liquidity_market_data
                     mcp_url = os.environ.get("LIQUIDITY_LIVE_MCP_URL", "").strip()
@@ -199,6 +199,7 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                     live_runtime = LiquidityLiveRuntime(
                         conn=conn,
                         snapshot_reader=market_data.snapshot,
+                        mode=LiquidityRuntimeMode.ORCHESTRATOR,
                     )
                     # Claim DB-level canonical publication lock so any still-running
                     # standalone service detects the orchestrator and refuses to publish.
@@ -509,7 +510,12 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     if orchestration_mode != "PRIMARY" and provider is None:
         provider = MT5ShadowProvider(config["mcp_url"], caller="SIGNAL_ORCHESTRATOR")
     discovered = []
-    publisher_conn = canonical_publisher.conn if canonical_publisher is not None else None
+    # The production CanonicalSignalPublisher exposes its connection, but
+    # authority/failure-path implementations may intentionally provide only
+    # the publish/existing-id interface. Do not make adapter loading depend on
+    # a private publisher attribute; DB_PRIMARY still fails closed when the
+    # actual publish call is attempted.
+    publisher_conn = getattr(canonical_publisher, "conn", None) if canonical_publisher is not None else None
     adapters = load_adapters(config, orchestrator_boundary, conn=publisher_conn)
     _validate_adapter_interfaces(adapters)
     # Build a mapping from strategy_id → adapter to support after_publish hooks.
@@ -588,10 +594,11 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                   strategy_id=signal.strategy_id,
                   decision="ACCEPTED" if inserted else "DUPLICATE", inserted=inserted)
             if inserted:
-                # Call adapter-specific post-publish hooks (e.g. initial outcome creation).
+                # Hooks are observability-only extension points. Canonical
+                # outcome creation belongs exclusively to the resolver.
                 _adapter = _adapter_by_strategy.get(signal.strategy_id)
                 if _adapter is not None and callable(getattr(_adapter, "after_publish_hook", None)):
-                    _adapter.after_publish_hook(signal.signal_id, canonical_publisher.conn)
+                    _adapter.after_publish_hook(signal.signal_id, getattr(canonical_publisher, "conn", None))
             if not inserted:
                 seen.add(signal.signal_id)
                 continue
@@ -1025,6 +1032,17 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
     finally:
         state = store.load_state(); state["status"] = "STOPPED"; store.save_state(state); PID.unlink(missing_ok=True)
         if db_conn is not None:
+            if os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "").lower() == "true":
+                try:
+                    from liquidity_live_runtime import release_orchestrator_publication_mode
+                    release_orchestrator_publication_mode(db_conn)
+                    db_conn.commit()
+                except Exception as exc:
+                    # A failed release must not turn an uncertain ownership
+                    # state into permission for standalone publication. The
+                    # RUNNING fence remains fail-closed for operator review.
+                    audit("liquidity_publication_fence_release_failed",
+                          runner="signal-orchestrator", error=str(exc))
             db_conn.close()
 
 

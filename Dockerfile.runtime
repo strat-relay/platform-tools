@@ -12,3 +12,7 @@ RUN pip install --no-cache-dir --disable-pip-version-check \
     -r requirements-risk-state.txt
 
 COPY . /app
+
+# Fail the image build if a production Kubernetes command references a module
+# omitted or made unimportable by the release source tree.
+RUN python3 -m scripts.verify_runtime_entrypoints

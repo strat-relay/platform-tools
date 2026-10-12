@@ -140,6 +140,7 @@ class LiquidityInstanceAdapter:
     def __init__(self, root: Path, definition: LiquidityInstanceDefinition):
         self.root = Path(root)
         self.definition = definition
+        # The orchestrator validates this identity directly on every adapter.
         self.strategy_id = definition.strategy_id
         self.state_path = self.root / definition.state_path
         self.baseline_path = self.root / "runtime" / "orchestration" / f"{definition.instance_id}-startup-baseline.json"

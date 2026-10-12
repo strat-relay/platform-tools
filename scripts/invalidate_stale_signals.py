@@ -36,6 +36,7 @@ def override_id(signal_id: str) -> str:
 def invalidate(connect_fn: Callable[[], Any], *, before: datetime, reason: str, operator: str,
                apply: bool, now: datetime | None = None) -> dict[str, Any]:
     from trade_management.lifecycle import close_terminal_trades
+    from outcome_resolver import persist_outcome_row
     now = now or datetime.now(timezone.utc)
     if before > now:
         raise ValueError("--before must not be in the future")
@@ -55,16 +56,15 @@ def invalidate(connect_fn: Callable[[], Any], *, before: datetime, reason: str, 
                 if outcome_type is None:
                     report["skipped_unsupported_strategy"].append(signal_id)
                     continue
-                if status is None:
-                    cur.execute("""INSERT INTO strategy.entry_signal_outcomes
-                                   (signal_id, outcome_type, status, realized_r, exit_timestamp, source)
-                                   VALUES (%s, %s, 'INVALIDATED', NULL, %s, %s)
-                                   ON CONFLICT (signal_id) DO NOTHING""", (signal_id, outcome_type, now, strategy_id))
-                else:
-                    cur.execute("""UPDATE strategy.entry_signal_outcomes
-                                   SET status = 'INVALIDATED', realized_r = NULL, exit_timestamp = %s, updated_at = %s
-                                   WHERE signal_id = %s AND status = 'OPEN'""", (now, now, signal_id))
-                if cur.rowcount != 1:
+                changed = persist_outcome_row(
+                    cur, signal_id=signal_id, outcome_type=outcome_type,
+                    status="INVALIDATED", realized_r=None, exit_timestamp=now,
+                    source=strategy_id, updated_at=now, source_kind="OPERATOR",
+                    resolution_state="RESOLVED", resolution_method="OPERATOR_OVERRIDE",
+                    resolution_evidence={"reason": reason, "operator": operator},
+                    outcome_contract_version="entry-outcome.v2",
+                )
+                if not changed:
                     continue          # became terminal concurrently: never overwrite
                 cur.execute("""INSERT INTO strategy.entry_signal_outcome_override
                                (override_id, signal_id, previous_status, new_status, reason, operator, created_at)

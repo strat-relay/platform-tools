@@ -22,8 +22,7 @@ class ContextInstanceMembershipTest(unittest.TestCase):
                         "executable_paper_entry": 100.0, "stop": 99.0, "target": 102.0,
                         "geometry": {"stop_distance": 1.0, "target_R": 2.0},
                         "entry_mechanisms": ["DEPTH_ONLY"], "status": "OPEN", "reentry_type": "INITIAL"}]}}}))
-            with patch.dict(os.environ, {"CONTEXT_RUNNER_STATE_DIR": directory}), \
-                    patch("orchestration.adapters.context_structure_retrace.EPOCH_PATH", Path(directory) / "missing.json"):
+            with patch.dict(os.environ, {"CONTEXT_RUNNER_STATE_DIR": directory}):
                 adapter = ContextStructureRetraceAdapter(
                     Path(directory), "2026-01-01T00:00:00Z",
                     {"active_instruments": ["BTCUSD"], "instance_policy": {"reentry_enabled": True}},
@@ -58,8 +57,7 @@ class ContextInstanceMembershipTest(unittest.TestCase):
                     }
                 }
             }))
-            with patch.dict(os.environ, {"CONTEXT_RUNNER_STATE_DIR": directory}), \
-                    patch("orchestration.adapters.context_structure_retrace.EPOCH_PATH", Path(directory) / "missing.json"):
+            with patch.dict(os.environ, {"CONTEXT_RUNNER_STATE_DIR": directory}):
                 adapter = ContextStructureRetraceAdapter(
                     Path(directory), "2026-01-01T00:00:00Z",
                     {"active_instruments": ["BTCUSD"], "instance_policy": {"reentry_enabled": True}},

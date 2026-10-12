@@ -16,6 +16,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4
+        env:
+          POSTGRES_DB: trading_platform_ci
+          POSTGRES_USER: trading_platform_ci
+          POSTGRES_PASSWORD: trading_platform_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trading_platform_ci -d trading_platform_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +61,13 @@ jobs:
             -r requirements-realtime.txt \
             -r requirements-risk-state.txt \
             -r requirements-test.txt
+
+      - name: Prepare isolated PostgreSQL authority test database
+        env:
+          TRADING_POSTGRES_DSN: postgresql://trading_platform_ci:trading_platform_ci_only@127.0.0.1:5432/trading_platform_ci
+        run: |
+          python3 -c 'from postgres.db import apply_migrations, connect; conn=connect(); cur=conn.cursor(); cur.execute("DO $do$ BEGIN CREATE ROLE trading_app; EXCEPTION WHEN duplicate_object THEN NULL; END $do$;"); cur.execute("DO $do$ BEGIN CREATE ROLE trading_readonly; EXCEPTION WHEN duplicate_object THEN NULL; END $do$;"); conn.commit(); print(apply_migrations(conn)); conn.close()'
+          echo "OUTCOME_RESOLVER_TEST_DSN=$TRADING_POSTGRES_DSN" >> "$GITHUB_ENV"
 
       - name: Run tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v

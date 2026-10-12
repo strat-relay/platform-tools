@@ -177,7 +177,7 @@ class RestartAndCompactionTests(RunnerSandbox):
         with patch.dict("os.environ", {"ENTRY_OUTCOME_SIGNAL_CUTOFF_ID": CUTOFF}), \
                 patch("context_structure_retrace_outcome_projector.project_entry_only_outcomes",
                       side_effect=lambda s: captured.setdefault("state", s) and {}):
-            fwd._project_entry_only_outcomes(state)
+            fwd._legacy_project_entry_only_outcomes(state)
         self.assertEqual(captured["state"]["positions"]["POS1"]["status"], "STOPPED")  # ... projector sees authority
 
     def test_compacted_away_setup_position_keeps_evaluating_from_frozen_position_state(self):  # 8

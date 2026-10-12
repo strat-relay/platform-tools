@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from postgres.db import connect
 from outcome_attribution import broker_authoritative, validate_temporal_order
+from outcome_resolver import persist_broker_attribution, persist_outcome_row
 
 STRATEGY_ID = "CONTEXT_STRUCTURE_RETRACE_V1"
 OUTCOME_TYPE = "ENTRY_ONLY"
@@ -189,27 +190,11 @@ def project_entry_only_outcomes(
                 if status == "INVALIDATED" and exit_at is None:
                     raise OutcomeProjectionError(f"invalidated position {signal_id} is missing exit data")
 
-                cur.execute(
-                    """INSERT INTO strategy.entry_signal_outcomes
-                           (signal_id, outcome_type, status, realized_r, exit_timestamp, source)
-                       VALUES (%s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (signal_id) DO UPDATE SET
-                           status = EXCLUDED.status,
-                           realized_r = EXCLUDED.realized_r,
-                           exit_timestamp = EXCLUDED.exit_timestamp,
-                           updated_at = %s
-                       WHERE (strategy.entry_signal_outcomes.status,
-                              strategy.entry_signal_outcomes.realized_r,
-                              strategy.entry_signal_outcomes.exit_timestamp,
-                              strategy.entry_signal_outcomes.outcome_type,
-                              strategy.entry_signal_outcomes.source)
-                             IS DISTINCT FROM
-                             (EXCLUDED.status, EXCLUDED.realized_r, EXCLUDED.exit_timestamp,
-                              EXCLUDED.outcome_type, EXCLUDED.source)
-                       RETURNING signal_id""",
-                    (signal_id, OUTCOME_TYPE, status, realized_r, exit_at, OUTCOME_SOURCE, now()),
+                changed = persist_outcome_row(
+                    cur, signal_id=signal_id, outcome_type=OUTCOME_TYPE, status=status,
+                    realized_r=realized_r, exit_timestamp=exit_at, source=OUTCOME_SOURCE,
+                    updated_at=now(),
                 )
-                changed = cur.fetchone()
                 if changed:
                     counts["projected"] += 1
                 else:
@@ -241,19 +226,16 @@ def project_entry_only_outcomes(
                     counts["unchanged"] += 1
                 counts["matched"] += 1
                 if broker_status:
-                    cur.execute(
-                        """UPDATE strategy.entry_signal_outcomes
-                           SET strategy_outcome = %s, strategy_realized_r = %s,
-                               strategy_exit_timestamp = %s, execution_outcome = %s,
-                               broker_realized_r = %s, broker_fill_timestamp = %s,
-                               broker_exit_timestamp = %s, broker_exit_reason = %s,
-                               attribution_status = 'BROKER_AUTHORITATIVE', attribution_error = NULL,
-                               updated_at = %s WHERE signal_id = %s""",
-                        (strategy_status, strategy_realized_r, strategy_exit_at,
-                         status, position.get("broker_realized_r"),
-                         position.get("broker_fill_timestamp"), exit_at,
-                         position.get("broker_exit_reason") or position.get("broker_outcome"),
-                         now(), signal_id),
+                    persist_broker_attribution(
+                        cur, signal_id=signal_id, strategy_outcome=strategy_status,
+                        strategy_realized_r=strategy_realized_r,
+                        strategy_exit_timestamp=strategy_exit_at,
+                        execution_outcome=status,
+                        broker_realized_r=position.get("broker_realized_r"),
+                        broker_fill_timestamp=position.get("broker_fill_timestamp"),
+                        broker_exit_timestamp=exit_at,
+                        broker_exit_reason=position.get("broker_exit_reason") or position.get("broker_outcome"),
+                        updated_at=now(),
                     )
         conn.commit()
     return counts
