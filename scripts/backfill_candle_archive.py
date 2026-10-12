@@ -291,7 +291,6 @@ def run_backfill(
                               timeframe, start, end)
     except Exception as _e:
         if "UndefinedTable" in type(_e).__name__ or "does not exist" in str(_e):
-        conn.rollback()
             conn.rollback()
             raise RuntimeError(
                 "market_data schema not found — apply migration 056 before running backfill"
