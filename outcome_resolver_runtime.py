@@ -257,6 +257,24 @@ class OutcomeResolverRuntime:
             row = cur.fetchone()
         return _utc(row[0]) if row and row[0] else None
 
+    def _prior_resolution(self, signal_id: str) -> tuple[str | None, dict[str, Any]]:
+        """Return the durable unresolved classification before replaying a cursor.
+
+        A restart can legitimately find no candles newer than the durable cursor.
+        In that case the resolver must preserve a previously proven ambiguity or
+        unfilled expiration instead of downgrading its evidence to generic
+        INSUFFICIENT_DATA.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute("""SELECT resolution_state, evidence
+                             FROM platform.outcome_resolver_signal_state
+                            WHERE signal_id = %s""", (signal_id,))
+            row = cur.fetchone()
+        if not row:
+            return None, {}
+        evidence = row[1] if isinstance(row[1], dict) else {}
+        return row[0], evidence
+
     def resolve_one(self, signal: ResolverSignal) -> OutcomeResolution:
         contract = EvaluationContract.from_signal({"strategy_id": signal.strategy_id,
                                                     "entry_type": signal.entry_type,
@@ -266,9 +284,19 @@ class OutcomeResolverRuntime:
         if cursor is not None:
             candles = [candle for candle in candles if _utc(candle.close_timestamp) > cursor]
         if not candles and cursor is not None:
-            result = OutcomeResolution("OPEN", None, None, "INSUFFICIENT_DATA",
-                                       "CANDLE_REPLAY_V2", {"reason": "NO_NEW_COMPLETED_CANDLES",
-                                                             "cursor": cursor.isoformat()})
+            prior_state, prior_evidence = self._prior_resolution(signal.signal_id)
+            if prior_state in {"AMBIGUOUS_INTRABAR", "RESOLVED"} and (
+                    prior_state == "AMBIGUOUS_INTRABAR"
+                    or prior_evidence.get("event") == "EXPIRED_UNFILLED"):
+                result = OutcomeResolution(
+                    "OPEN", None, None, prior_state, "CANDLE_REPLAY_V2",
+                    {**prior_evidence, "cursor": cursor.isoformat(),
+                     "replayed_without_new_candles": True},
+                )
+            else:
+                result = OutcomeResolution("OPEN", None, None, "INSUFFICIENT_DATA",
+                                           "CANDLE_REPLAY_V2", {"reason": "NO_NEW_COMPLETED_CANDLES",
+                                                                 "cursor": cursor.isoformat()})
         else:
             result = resolve_candle_path(
                 direction=signal.direction, entry=signal.entry, stop=signal.stop,

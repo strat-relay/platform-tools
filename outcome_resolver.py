@@ -329,7 +329,17 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
                         outcome_kind: str = "STRATEGY_THEORETICAL",
                         source_kind: str = STRATEGY_REPLAY_SOURCE_KIND,
                         writer_id: str = "legacy-compat") -> bool:
-    """The only canonical outcome INSERT/UPDATE SQL mutation in the platform."""
+    """Persist theoretical outcome state under the selected writer domain.
+
+    Broker attribution is deliberately a separate, column-scoped projection.  The
+    database guard installed by migration 054 rejects cross-domain updates, while
+    this marker makes the ownership boundary explicit to that guard.
+    """
+    writer_domain = "BROKER_ATTRIBUTION" if writer_id == "broker-attribution" else (
+        "RESOLVER_PRIMARY" if writer_id == "unified-outcome-resolver" else "LEGACY_COMPAT"
+    )
+    cur.execute("SELECT set_config('platform.outcome_writer_domain', %s, true)",
+                (writer_domain,))
     if resolution_state is None and resolution_method is None and resolution_evidence is None and outcome_contract_version is None:
         if os.environ.get("OUTCOME_RESOLVER_ENFORCE_WRITER_GATE", "false").lower() == "true":
             cur.execute("""SELECT mode FROM platform.outcome_resolver_control
@@ -393,10 +403,22 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
                   strategy.entry_signal_outcomes.realized_r,
                   strategy.entry_signal_outcomes.exit_timestamp,
                   strategy.entry_signal_outcomes.outcome_type,
-                  strategy.entry_signal_outcomes.source)
+                  strategy.entry_signal_outcomes.source,
+                  strategy.entry_signal_outcomes.resolution_state,
+                  strategy.entry_signal_outcomes.resolution_method,
+                  strategy.entry_signal_outcomes.resolution_evidence,
+                  strategy.entry_signal_outcomes.outcome_contract_version,
+                  strategy.entry_signal_outcomes.price_basis,
+                  strategy.entry_signal_outcomes.exit_price,
+                  strategy.entry_signal_outcomes.activation_price,
+                  strategy.entry_signal_outcomes.outcome_kind)
                  IS DISTINCT FROM
                  (EXCLUDED.status, EXCLUDED.realized_r, EXCLUDED.exit_timestamp,
-                  EXCLUDED.outcome_type, EXCLUDED.source)
+                  EXCLUDED.outcome_type, EXCLUDED.source,
+                  EXCLUDED.resolution_state, EXCLUDED.resolution_method,
+                  EXCLUDED.resolution_evidence, EXCLUDED.outcome_contract_version,
+                  EXCLUDED.price_basis, EXCLUDED.exit_price,
+                  EXCLUDED.activation_price, EXCLUDED.outcome_kind)
              AND EXISTS (
                  SELECT 1 FROM platform.outcome_resolver_control
                   WHERE control_name = 'canonical-entry-outcome-writer'
@@ -442,17 +464,25 @@ def persist_broker_attribution(cur: Any, *, signal_id: str, strategy_outcome: st
                                execution_outcome: str, broker_realized_r: float | None,
                                broker_fill_timestamp: Any, broker_exit_timestamp: Any,
                                broker_exit_reason: str, updated_at: Any) -> None:
-    """Record broker truth separately without replacing the strategy outcome."""
+    """Project broker truth without mutating theoretical outcome columns.
+
+    ``strategy_outcome`` and its legacy companion values remain accepted as
+    compatibility arguments because callers and replay tooling still provide
+    them.  They are intentionally not written here: ``status``, ``realized_r``,
+    ``exit_timestamp`` and the outcome contract belong exclusively to the
+    theoretical outcome writer.  The execution close-fact ledger is the
+    authoritative one-to-many broker source; these columns are only a
+    compatibility projection for existing readers.
+    """
+    cur.execute("SELECT set_config('platform.outcome_writer_domain', 'BROKER_ATTRIBUTION', true)")
     cur.execute(
         """UPDATE strategy.entry_signal_outcomes
-              SET strategy_outcome = %s, strategy_realized_r = %s,
-                  strategy_exit_timestamp = %s, execution_outcome = %s,
+              SET execution_outcome = %s,
                   broker_realized_r = %s, broker_fill_timestamp = %s,
                   broker_exit_timestamp = %s, broker_exit_reason = %s,
                   attribution_status = 'BROKER_AUTHORITATIVE', attribution_error = NULL,
                   updated_at = %s WHERE signal_id = %s""",
-        (strategy_outcome, strategy_realized_r, strategy_exit_timestamp,
-         execution_outcome, broker_realized_r, broker_fill_timestamp,
+        (execution_outcome, broker_realized_r, broker_fill_timestamp,
          broker_exit_timestamp, broker_exit_reason, updated_at, signal_id),
     )
 
