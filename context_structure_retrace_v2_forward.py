@@ -15,7 +15,8 @@ import os
 from pathlib import Path
 from datetime import datetime, timezone
 
-from context_structure_retrace_v2 import V2_CONTRACT_HASH, V2_PARAMETER_HASH
+from context_structure_retrace_v2 import (V2_CONTRACT_HASH, V2_PARAMETER_HASH,
+                                           apply_v2_target_policy)
 from context_structure_retrace_v2_config import DEFAULTS, INSTANCE_ID, load_from_database
 
 
@@ -174,7 +175,17 @@ def _configure_runtime() -> None:
                 "spread_stop_ratio": spread / risk if risk > 0 else None,
                 "flags": (["OPPOSING_STRUCTURE_VERY_CLOSE"] if signed > 0 and risk and signed / risk < 0.10 else [])}
 
-    _v1._geometry = configured_geometry
+    _v1_geometry = configured_geometry
+
+    def configured_v2_geometry(event_bar, direction, snapshot, entry, spread, atr_value):
+        base = _v1_geometry(event_bar, direction, snapshot, entry, spread, atr_value)
+        return apply_v2_target_policy(
+            base, direction, entry,
+            minimum_required_r=float(PARAMETER_VALUES.get("minimum_required_r", 1.0)),
+            policy=str(PARAMETER_VALUES.get("target_selection_policy", "NEAREST_VALID_STRUCTURE")),
+        )
+
+    _v1._geometry = configured_v2_geometry
 
     def configured_make_setup(symbol, event, event_bar, snapshot, quote, contract):
         direction = event["direction"]

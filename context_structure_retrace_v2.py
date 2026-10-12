@@ -64,47 +64,60 @@ def research_metadata() -> dict[str, Any]:
     }
 
 
-def select_target_candidates(base: dict[str, Any], direction: str, entry: float) -> list[dict[str, Any]]:
-    candidates = [{"target": float(base["extension_target"]), "source": "STRUCTURE_CAPPED_EXTENSION"}]
+def select_target_candidates(base: dict[str, Any], direction: str, entry: float,
+                             policy: str = "NEAREST_VALID_STRUCTURE") -> list[dict[str, Any]]:
+    extension = {"target": float(base["extension_target"]), "source": "STRUCTURE_CAPPED_EXTENSION"}
     opposing = base.get("opposing_structure")
-    if opposing is not None:
-        candidates.append({"target": float(opposing), "source": "OPPOSING_STRUCTURE"})
+    structure = ([{"target": float(opposing), "source": "OPPOSING_STRUCTURE"}]
+                 if opposing is not None else [])
+    if policy == "EXTENSION_ONLY":
+        candidates = [extension]
+    elif policy == "OPPOSING_STRUCTURE_ONLY":
+        candidates = structure
+    else:
+        candidates = [extension, *structure]
     if direction == "LONG":
         return [row for row in candidates if row["target"] > entry]
     return [row for row in candidates if row["target"] < entry]
 
 
-def v2_geometry(event_bar: dict[str, Any], direction: str, snapshot: dict[str, Any], entry: float,
-                spread: float, atr_value: float | None, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
-    base = v1_geometry(event_bar, direction, snapshot, entry, spread, atr_value)
-    risk = float(base["stop_distance"])
-    if risk <= 0:
-        return {**base, "target_candidates": [], "rejected_target_candidates": [],
-                "minimum_required_r": MIN_PLANNED_R, "v2_eligible": False,
-                "best_structural_target": None, "best_structural_target_r": None,
-                "rejection_reason": "INVALID_RISK"}
-    candidates = select_target_candidates(base, direction, entry)
+def apply_v2_target_policy(base: dict[str, Any], direction: str, entry: float,
+                           *, minimum_required_r: float = MIN_PLANNED_R,
+                           policy: str = "NEAREST_VALID_STRUCTURE") -> dict[str, Any]:
+    """Apply V2 planned-R admission to live forward geometry as well as research geometry."""
+    risk = float(base.get("stop_distance") or 0)
+    candidates = select_target_candidates(base, direction, entry, policy)
     for candidate in candidates:
-        signed = (candidate["target"] - entry) if direction == "LONG" else (entry - candidate["target"])
-        candidate.update({"reward_distance": signed, "planned_r": signed / risk})
-    minimum_required_r = float((parameters or {}).get("minimum_required_r", MIN_PLANNED_R))
-    eligible = [row for row in candidates if row["planned_r"] >= minimum_required_r]
-    # Preserve V1's nearest-structural-target hierarchy among candidates that satisfy V2.
+        signed = ((candidate["target"] - entry) if direction == "LONG"
+                  else (entry - candidate["target"]))
+        candidate.update({"reward_distance": signed, "planned_r": signed / risk if risk > 0 else None})
+    eligible = [row for row in candidates if risk > 0 and row["planned_r"] >= minimum_required_r]
     selected = (min(eligible, key=lambda row: row["target"]) if direction == "LONG"
                 else max(eligible, key=lambda row: row["target"])) if eligible else None
-    rejected = [row for row in candidates if selected is None or row["target"] != selected["target"]]
-    result = {**base, "target_candidates": candidates, "rejected_target_candidates": rejected,
+    result = {**base, "target_candidates": candidates,
+              "rejected_target_candidates": [row for row in candidates if row is not selected],
               "minimum_required_r": minimum_required_r}
     if selected is None:
-        result.update({"v2_eligible": False, "rejection_reason": "RR_BELOW_MINIMUM",
-                       "best_structural_target": (max(candidates, key=lambda row: row["planned_r"])["target"]
-                                                   if candidates else None),
-                       "best_structural_target_r": (max(candidates, key=lambda row: row["planned_r"])["planned_r"]
-                                                     if candidates else None)})
+        best = max(candidates, key=lambda row: row["planned_r"] or float("-inf")) if candidates else None
+        result.update({"v2_eligible": False,
+                       "rejection_reason": "INVALID_RISK" if risk <= 0 else "RR_BELOW_MINIMUM",
+                       "best_structural_target": best["target"] if best else None,
+                       "best_structural_target_r": best["planned_r"] if best else None,
+                       "effective_target": entry, "signed_target_distance": 0.0,
+                       "target_direction_state": "TARGET_AT_ENTRY", "target_R": 0.0})
         return result
-    signed = float(selected["reward_distance"])
     result.update({"v2_eligible": True, "effective_target": selected["target"],
-                   "signed_target_distance": signed, "target_R": signed / risk,
+                   "signed_target_distance": selected["reward_distance"],
+                   "target_R": selected["planned_r"],
                    "target_source": selected["source"], "target_structure": selected["source"],
                    "rejection_reason": None})
     return result
+
+
+def v2_geometry(event_bar: dict[str, Any], direction: str, snapshot: dict[str, Any], entry: float,
+                spread: float, atr_value: float | None, parameters: dict[str, Any] | None = None) -> dict[str, Any]:
+    base = v1_geometry(event_bar, direction, snapshot, entry, spread, atr_value)
+    return apply_v2_target_policy(
+        base, direction, entry,
+        minimum_required_r=float((parameters or {}).get("minimum_required_r", MIN_PLANNED_R)),
+    )
