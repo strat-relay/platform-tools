@@ -60,7 +60,7 @@ spec:
         - name: migrate
           # Replace IMAGE_DIGEST with the digest of the release build that includes
           # postgres/migrations/056_candle_archive.sql (from main-merged 8563f21 or later).
-          image: ghcr.io/strat-relay/trading-platform-runtime@IMAGE_DIGEST
+          image: ghcr.io/strat-relay/trading-platform-runtime@sha256:0e7d0922592b8941e82bc9b50f40811d5cb63e974a5c4bd9f43497e49efcb3fe
           imagePullPolicy: IfNotPresent
           command: [python, -m, postgres.migrate]
           envFrom:
