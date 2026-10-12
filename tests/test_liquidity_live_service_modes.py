@@ -83,6 +83,7 @@ def test_orchestrator_mode_case_insensitive():
             assert "LIQUIDITY_LIVE_ORCHESTRATOR_MODE" in str(exc)
 
 
+
 def test_explicit_runtime_modes_are_parsed_and_explicit_mode_wins():
     assert runtime_mode_from_env({}) is LiquidityRuntimeMode.STANDALONE
     assert runtime_mode_from_env({"LIQUIDITY_LIVE_ORCHESTRATOR_MODE": "true"}) is LiquidityRuntimeMode.ORCHESTRATOR
@@ -111,6 +112,7 @@ def test_monitor_only_service_configuration_is_allowed():
     }
     with patch.dict(os.environ, env, clear=True):
         svc.check_configuration()
+
 
 
 # ---------------------------------------------------------------------------

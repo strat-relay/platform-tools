@@ -135,8 +135,9 @@ class KojoStructureReclaimV3Adapter:
                 m15_watermark = int(persisted.get("_m15_watermark", 0))
 
                 if r is not None:
-                    raw_h1 = json.loads(r.get(f"md:bars:{canonical_instrument}:H1") or "[]")
-                    raw_m15 = json.loads(r.get(f"md:bars:{canonical_instrument}:M15") or "[]")
+                    broker_symbol = canonical_to_broker_hint(canonical_instrument)
+                    raw_h1 = json.loads(r.get(f"md:bars:{broker_symbol}:H1") or "[]")
+                    raw_m15 = json.loads(r.get(f"md:bars:{broker_symbol}:M15") or "[]")
                     now_ts = int(datetime.now(timezone.utc).timestamp())
                     # Exclude any bar whose close time (open + duration) is still in the
                     # future — these are forming candles, not closed bars.  Treating a
