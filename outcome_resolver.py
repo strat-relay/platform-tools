@@ -403,10 +403,22 @@ def persist_outcome_row(cur: Any, *, signal_id: str, outcome_type: str, status: 
                   strategy.entry_signal_outcomes.realized_r,
                   strategy.entry_signal_outcomes.exit_timestamp,
                   strategy.entry_signal_outcomes.outcome_type,
-                  strategy.entry_signal_outcomes.source)
+                  strategy.entry_signal_outcomes.source,
+                  strategy.entry_signal_outcomes.resolution_state,
+                  strategy.entry_signal_outcomes.resolution_method,
+                  strategy.entry_signal_outcomes.resolution_evidence,
+                  strategy.entry_signal_outcomes.outcome_contract_version,
+                  strategy.entry_signal_outcomes.price_basis,
+                  strategy.entry_signal_outcomes.exit_price,
+                  strategy.entry_signal_outcomes.activation_price,
+                  strategy.entry_signal_outcomes.outcome_kind)
                  IS DISTINCT FROM
                  (EXCLUDED.status, EXCLUDED.realized_r, EXCLUDED.exit_timestamp,
-                  EXCLUDED.outcome_type, EXCLUDED.source)
+                  EXCLUDED.outcome_type, EXCLUDED.source,
+                  EXCLUDED.resolution_state, EXCLUDED.resolution_method,
+                  EXCLUDED.resolution_evidence, EXCLUDED.outcome_contract_version,
+                  EXCLUDED.price_basis, EXCLUDED.exit_price,
+                  EXCLUDED.activation_price, EXCLUDED.outcome_kind)
              AND EXISTS (
                  SELECT 1 FROM platform.outcome_resolver_control
                   WHERE control_name = 'canonical-entry-outcome-writer'
