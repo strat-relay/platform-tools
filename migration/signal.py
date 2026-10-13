@@ -167,7 +167,11 @@ def canonical_signal(raw: Mapping[str, Any], *, source_reference: str | Mapping[
         _optional_text(raw, field)
     entry_mechanisms = _entry_mechanisms(raw)
     strategy_metadata = dict(metadata_value)
-    parameter_set_ref = raw.get("parameter_set_ref") or raw.get("parameter_set_id")
+    parameter_set_ref = (
+        raw.get("parameter_set_ref")
+        or raw.get("parameter_set_id")
+        or (raw.get("provenance") or {}).get("parameter_set_id")
+    )
     if parameter_set_ref is not None and not isinstance(parameter_set_ref, str):
         raise QuarantinedRecordError("parameter_set_ref must be text when present", failure_class="CANONICAL_VALIDATION")
     parameter_status = "EXPLICIT" if parameter_set_ref else "LEGACY_IMPLICIT_IN_STRATEGY_ID"

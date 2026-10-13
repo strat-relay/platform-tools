@@ -234,6 +234,7 @@ class KojoStructureReclaimV3Adapter:
             .isoformat(timespec="microseconds")
             .replace("+00:00", "Z")
         )
+        now_ts_wall = int(datetime.now(timezone.utc).timestamp())
         result: list[Any] = []
         for es, canonical_instrument in entry_signals:
             if es.signal_id in seen_signal_ids:
@@ -245,6 +246,11 @@ class KojoStructureReclaimV3Adapter:
                 .isoformat(timespec="microseconds")
                 .replace("+00:00", "Z")
             )
+            # Forward cohort classification: signals emitted within one M15 bar duration
+            # (900 s) + one orchestrator cycle (≤ 300 s) of their decision timestamp are
+            # prospective LIVE signals.  All others are catch-up/replay emissions.
+            emission_latency_s = now_ts_wall - int(es.decision_timestamp)
+            signal_emission_class = "PROSPECTIVE" if emission_latency_s <= 1200 else "RETROSPECTIVE"
             result.append(StrategySignal(
                 signal_id=es.signal_id,
                 schema_version="strategy-signal-v1",
@@ -275,8 +281,11 @@ class KojoStructureReclaimV3Adapter:
                 entry_mechanism=("M15_OPEN",),
                 strategy_metadata={
                     "parameter_set_fingerprint": self._active_fingerprint,
+                    "parameter_set_id": (es.provenance or {}).get("parameter_set_id"),
                     "execution_mode": self._execution_mode,
                     "execution_mode_revision": self._execution_mode_revision,
+                    "signal_emission_class": signal_emission_class,
+                    "emission_latency_s": emission_latency_s,
                     "outcome_contract": {
                         "version": "entry-outcome.v2",
                         "timeframe_minutes": 15,
@@ -289,8 +298,12 @@ class KojoStructureReclaimV3Adapter:
                         "time_exit_priority": "AFTER_PRICE",
                     },
                 },
-                provenance={"provider_symbol": canonical_to_broker_hint(canonical_instrument),
-                            **dict(es.provenance or {})},
+                provenance={
+                    "provider_symbol": canonical_to_broker_hint(canonical_instrument),
+                    "signal_emission_class": signal_emission_class,
+                    "emission_latency_s": emission_latency_s,
+                    **dict(es.provenance or {}),
+                },
                 decision_time=ts_iso,
                 signal_emitted_at=now_iso,
             ))

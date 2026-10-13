@@ -1042,6 +1042,10 @@ class KojoStructureReclaimV3Evaluator:
             if retest:
                 setup["retest_timestamp"] = event.close_timestamp
                 setup["retest_h1_index"] = h1_index
+                setup["retest_tolerance_band"] = tolerance
+                setup["m15_retest_bar_extreme"] = (
+                    float(event.low) if direction == "LONG" else float(event.high)
+                )
                 setup["state"] = RETEST_SEEN
                 setup["confirmation_expiry_m15_count"] = int(values["max_confirmation_wait_m15_bars"])
                 setup["retest_m15_bars_seen"] = 0
@@ -1062,7 +1066,65 @@ class KojoStructureReclaimV3Evaluator:
             adv = self._advance_setup_on_m15(setup, event, m15_index)
             outputs.extend(adv)
 
-        return tuple(outputs)
+        return tuple(self._deduplicate_m15_entry_signals(outputs))
+
+    def _deduplicate_m15_entry_signals(
+        self, outputs: list[SetupLifecycleEvent | EntrySignal]
+    ) -> list[SetupLifecycleEvent | EntrySignal]:
+        """One M15 economic opportunity → one EntrySignal.
+
+        Multiple H1 structural levels can all satisfy the same M15 retest bar when
+        the ATR tolerance band spans several levels.  When that happens every setup
+        produces a candidate signal that is execution-equivalent.  This method keeps
+        the canonical level (closest structural_level_price to entry_price — the most
+        proximate H1 cause) and folds the rest into supporting_h1_levels in the
+        canonical signal's provenance.  Suppressed setups remain CONSUMED in the
+        retirement ledger; only their EntrySignal output is dropped.
+        """
+        from dataclasses import replace as _replace
+        groups: dict[tuple[int | None, str | None], list[tuple[int, EntrySignal]]] = {}
+        for idx, item in enumerate(outputs):
+            if isinstance(item, EntrySignal):
+                key = (
+                    item.provenance.get("confirmation_timestamp"),
+                    item.provenance.get("direction"),
+                )
+                groups.setdefault(key, []).append((idx, item))
+
+        if all(len(v) == 1 for v in groups.values()):
+            return outputs  # fast-path: no fanout on this bar
+
+        result: list[SetupLifecycleEvent | EntrySignal | None] = list(outputs)
+        for (_conf_ts, _dir), candidates in groups.items():
+            if len(candidates) <= 1:
+                continue
+            # Select canonical: level whose price is closest to entry_price.
+            canonical_idx, canonical_sig = min(
+                candidates,
+                key=lambda x: abs(
+                    float(x[1].provenance.get("structural_level_price", 0)) - x[1].entry_price
+                ),
+            )
+            supporting = [
+                {
+                    "structural_level_id": sig.provenance.get("structural_level_id"),
+                    "structural_level_price": sig.provenance.get("structural_level_price"),
+                    "structural_level_type": sig.provenance.get("structural_level_type"),
+                    "setup_id": sig.provenance.get("setup_id"),
+                }
+                for _, sig in candidates
+                if sig is not canonical_sig
+            ]
+            new_prov = {
+                **canonical_sig.provenance,
+                "supporting_h1_levels": supporting,
+                "h1_fanout_suppressed_count": len(candidates) - 1,
+            }
+            result[canonical_idx] = _replace(canonical_sig, provenance=new_prov)
+            for idx, sig in candidates:
+                if sig is not canonical_sig:
+                    result[idx] = None
+        return [item for item in result if item is not None]
 
     def _advance_setup_on_m15(
         self, setup: dict[str, Any], event: MarketEvent, m15_index: int
@@ -1092,6 +1154,11 @@ class KojoStructureReclaimV3Evaluator:
                 setup["retest_timestamp"] = event.close_timestamp
                 setup["retest_m15_index"] = m15_index
                 setup["m15_retest_first_open_ts"] = event.open_timestamp
+                setup["m15_atr_at_retest"] = m15_atr
+                setup["retest_tolerance_band"] = tolerance
+                setup["m15_retest_bar_extreme"] = (
+                    float(event.low) if direction == "LONG" else float(event.high)
+                )
                 setup["state"] = RETEST_SEEN
                 setup["confirmation_expiry_m15_count"] = int(values["max_confirmation_wait_m15_bars"])
                 setup["retest_m15_bars_seen"] = 0
@@ -1296,6 +1363,28 @@ class KojoStructureReclaimV3Evaluator:
             "v3_status": "READY_FOR_DISCOVERY",
             "production_eligible": False,
             # dual_timeframe_confirmed removed (V2 mislabel); M15_ONLY_BASELINE_ENABLED=false
+            # ── Retest diagnostics (observability only; no semantic change) ─────────
+            "m15_atr_at_retest": setup.get("m15_atr_at_retest"),
+            "retest_tolerance_band": setup.get("retest_tolerance_band"),
+            "retest_distance_abs": (
+                abs(float(setup["structural_level_price"]) - float(setup["m15_retest_bar_extreme"]))
+                if setup.get("m15_retest_bar_extreme") is not None else None
+            ),
+            "retest_distance_atr": (
+                abs(float(setup["structural_level_price"]) - float(setup["m15_retest_bar_extreme"]))
+                / setup["m15_atr_at_retest"]
+                if setup.get("m15_retest_bar_extreme") is not None and setup.get("m15_atr_at_retest")
+                else None
+            ),
+            # ── Pullback classification ───────────────────────────────────────────
+            # Classifier is never invoked; simple_pullback_enabled / complex_pullback_enabled
+            # are scaffold parameters (V3 treats all pullbacks equally by design).
+            "pullback_classifier_status": "INERT_SCAFFOLD_V3_TREATS_ALL_PULLBACKS_EQUALLY",
+            # ── TP1 reaction quality (surfaced top-level for metrics queries) ──────
+            "tp1_wick_reaction_count": tp1_prov.get("wick_reaction_count") if tp1_prov else None,
+            "tp1_body_close_rejection_count": tp1_prov.get("body_close_rejection_count") if tp1_prov else None,
+            "tp1_total_distinct_reactions": tp1_prov.get("total_distinct_reactions") if tp1_prov else None,
+            "tp1_source_rule_required": True,
         }
 
         self._terminate_setup(setup, CONSUMED)
