@@ -96,6 +96,40 @@ class ResolverRedisCandleStore:
                                  spread=_number(row.get("spread"))))
         return result
 
+    def archive_candles(self, signal: ResolverSignal, timeframe_minutes: int,
+                        *, since: datetime, until: datetime, conn: Any) -> list[Candle]:
+        """Fetch completed bars from market_data.candle_archive for the period (since, until).
+
+        Returns an empty list on any error so callers always degrade to Redis-only
+        rather than raising. The archive is queried only when the cursor predates
+        the oldest Redis bar, keeping the hot path free of extra DB round-trips.
+        """
+        symbol = self.symbol_resolver(signal)
+        timeframe = f"M{timeframe_minutes}"
+        # candle_time is the bar OPEN (unix seconds). Fetch any bar whose
+        # close_timestamp > since: close = open + timeframe, so open > since - timeframe.
+        since_open_ts = int(since.timestamp()) - timeframe_minutes * 60
+        until_open_ts = int(until.timestamp())
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT candle_time, high_price, low_price, close_price
+                      FROM market_data.candle_archive
+                     WHERE provider_symbol = %s AND timeframe = %s
+                       AND candle_time > %s AND candle_time < %s
+                     ORDER BY candle_time ASC
+                """, (symbol, timeframe, since_open_ts, until_open_ts))
+                rows = cur.fetchall()
+        except Exception:
+            return []
+        result: list[Candle] = []
+        for (candle_time, high, low, close) in rows:
+            opened = datetime.fromtimestamp(int(candle_time), timezone.utc)
+            result.append(Candle(opened, opened + timedelta(minutes=timeframe_minutes),
+                                 float(high), float(low),
+                                 float(close) if close is not None else None))
+        return result
+
 
 def _number(value: Any) -> float | None:
     return float(value) if value is not None else None
@@ -281,6 +315,18 @@ class OutcomeResolverRuntime:
                                                     "strategy_metadata": signal.strategy_metadata})
         candles = self.candle_store.candles(signal, contract.timeframe_minutes)
         cursor = self._cursor(signal.signal_id)
+        if cursor is not None and candles:
+            oldest_redis_open = min(_utc(c.open_timestamp) for c in candles)
+            gap_threshold = cursor + timedelta(minutes=contract.timeframe_minutes)
+            if oldest_redis_open > gap_threshold:
+                archive = self.candle_store.archive_candles(
+                    signal, contract.timeframe_minutes,
+                    since=cursor, until=oldest_redis_open, conn=self.conn,
+                )
+                if archive:
+                    seen_opens = {_utc(c.open_timestamp) for c in archive}
+                    redis_deduped = [c for c in candles if _utc(c.open_timestamp) not in seen_opens]
+                    candles = archive + redis_deduped
         if cursor is not None:
             candles = [candle for candle in candles if _utc(candle.close_timestamp) > cursor]
         if not candles and cursor is not None:
