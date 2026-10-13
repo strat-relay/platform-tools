@@ -191,6 +191,45 @@ class KojoStructureReclaimV3Adapter:
                     if new_m15:
                         m15_watermark = max(m15_watermark, max(int(b["time"]) for b in new_m15))
 
+                    # ── Live entry path ────────────────────────────────────────
+                    # If any setup just entered CONFIRMED_PENDING_NEXT_OPEN, resolve
+                    # it immediately using the current broker quote rather than waiting
+                    # for the next completed M15 bar (~900 s).  No bar watermarks are
+                    # advanced; the normal M15 path remains the fallback.
+                    if evaluator.has_pending_live_entry_setups():
+                        try:
+                            from orchestration.brokers import MT5ShadowProvider
+                            from strategy_backtest.models import LiveEntryPriceObservation
+                            mcp_url = os.environ.get(
+                                "MT5_BRIDGE_URL",
+                                os.environ.get("MT5_BRIDGE_EXECUTION_URL", "http://10.10.10.100:22347/mcp"),
+                            )
+                            provider = MT5ShadowProvider(mcp_url=mcp_url)
+                            quote = provider.quote(canonical_to_broker_hint(canonical_instrument))
+                            bid = quote.get("bid")
+                            ask = quote.get("ask")
+                            if bid and ask and float(bid) > 0 and float(ask) >= float(bid):
+                                live_obs = LiveEntryPriceObservation(
+                                    canonical_instrument=canonical_instrument,
+                                    bid=float(bid),
+                                    ask=float(ask),
+                                    observed_at=int(quote.get("timestamp") or now_ts),
+                                )
+                                for live_out in evaluator.consume_live_entry_price(live_obs):
+                                    if isinstance(live_out, EntrySignal):
+                                        entry_signals.append((live_out, canonical_instrument))
+                        except Exception as live_exc:
+                            from observability.strategy_audit import audit as _audit
+                            _audit(
+                                "live_entry_quote_failed",
+                                runner="signal-orchestrator",
+                                strategy_id=STRATEGY_ID,
+                                instance_id=self.instance_id,
+                                canonical_instrument=canonical_instrument,
+                                error=str(live_exc),
+                                error_type=type(live_exc).__name__,
+                            )
+
                 try:
                     state = evaluator.snapshot_state()
                     state["_h1_watermark"] = h1_watermark
@@ -234,6 +273,7 @@ class KojoStructureReclaimV3Adapter:
             .isoformat(timespec="microseconds")
             .replace("+00:00", "Z")
         )
+        now_ts_wall = int(datetime.now(timezone.utc).timestamp())
         result: list[Any] = []
         for es, canonical_instrument in entry_signals:
             if es.signal_id in seen_signal_ids:
@@ -245,6 +285,11 @@ class KojoStructureReclaimV3Adapter:
                 .isoformat(timespec="microseconds")
                 .replace("+00:00", "Z")
             )
+            # Forward cohort classification: signals emitted within one M15 bar duration
+            # (900 s) + one orchestrator cycle (≤ 300 s) of their decision timestamp are
+            # prospective LIVE signals.  All others are catch-up/replay emissions.
+            emission_latency_s = now_ts_wall - int(es.decision_timestamp)
+            signal_emission_class = "PROSPECTIVE" if emission_latency_s <= 1200 else "RETROSPECTIVE"
             result.append(StrategySignal(
                 signal_id=es.signal_id,
                 schema_version="strategy-signal-v1",
@@ -275,8 +320,11 @@ class KojoStructureReclaimV3Adapter:
                 entry_mechanism=("M15_OPEN",),
                 strategy_metadata={
                     "parameter_set_fingerprint": self._active_fingerprint,
+                    "parameter_set_id": (es.provenance or {}).get("parameter_set_id"),
                     "execution_mode": self._execution_mode,
                     "execution_mode_revision": self._execution_mode_revision,
+                    "signal_emission_class": signal_emission_class,
+                    "emission_latency_s": emission_latency_s,
                     "outcome_contract": {
                         "version": "entry-outcome.v2",
                         "timeframe_minutes": 15,
@@ -289,8 +337,12 @@ class KojoStructureReclaimV3Adapter:
                         "time_exit_priority": "AFTER_PRICE",
                     },
                 },
-                provenance={"provider_symbol": canonical_to_broker_hint(canonical_instrument),
-                            **dict(es.provenance or {})},
+                provenance={
+                    "provider_symbol": canonical_to_broker_hint(canonical_instrument),
+                    "signal_emission_class": signal_emission_class,
+                    "emission_latency_s": emission_latency_s,
+                    **dict(es.provenance or {}),
+                },
                 decision_time=ts_iso,
                 signal_emitted_at=now_iso,
             ))

@@ -80,6 +80,28 @@ class EntrySignal:
 
 
 @dataclass(frozen=True)
+class LiveEntryPriceObservation:
+    """A live market quote used to resolve CONFIRMED_PENDING_NEXT_OPEN setups immediately.
+
+    bid/ask are the current executable market prices at observed_at (Unix seconds).
+    reference_entry_price (midpoint) is computed by callers for theoretical parity
+    with historical bar-open entry.  Execution prices are ask (LONG) and bid (SHORT).
+    """
+    canonical_instrument: str
+    bid: float
+    ask: float
+    observed_at: int
+
+    def __post_init__(self) -> None:
+        if self.bid <= 0 or self.ask <= 0:
+            raise ValueError("bid and ask must be positive")
+        if self.ask < self.bid:
+            raise ValueError("ask must be >= bid")
+        if self.observed_at <= 0:
+            raise ValueError("observed_at must be a positive Unix timestamp")
+
+
+@dataclass(frozen=True)
 class EntrySignalOutcome:
     signal_id: str
     status: str
