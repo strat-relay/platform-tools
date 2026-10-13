@@ -9,8 +9,8 @@ The functions in this file are pure primitives.  Their identities are pinned in
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Iterable, Mapping
+from dataclasses import asdict
+from typing import Any, Mapping
 
 from core.strategies.evaluation import (
     Decision,
@@ -24,6 +24,10 @@ from core.strategies.evaluation import (
 )
 
 from .models import MarketEvent, ParameterSet, StrategyVersion
+from .price_action_primitives import (
+    Candle, SRLevel, confirmed_swings, construct_levels, engulfing_confirmation,
+    opposing_target, structural_stop,
+)
 
 
 STRATEGY_ID = "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST"
@@ -79,100 +83,6 @@ def _reason(code: str, description: str, *, terminal: bool = True) -> ReasonCode
     return known["NO_VALID_ENTRY_SIGNAL"] if terminal else known["DATA_UNAVAILABLE"]
 
 
-@dataclass(frozen=True)
-class Candle:
-    index: int
-    open_timestamp: int
-    close_timestamp: int
-    open: float
-    high: float
-    low: float
-    close: float
-
-    @classmethod
-    def from_event(cls, index: int, event: MarketEvent) -> "Candle":
-        return cls(index, event.open_timestamp, event.close_timestamp, event.open,
-                   event.high, event.low, event.close)
-
-    def payload(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class Swing:
-    kind: str
-    bar_index: int
-    price: float
-    event_time: int
-    known_at: int
-
-    def payload(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class SRLevel:
-    kind: str
-    price: float
-    source_swings: tuple[int, ...]
-    known_at: int
-    expires_at: int
-
-    def payload(self) -> dict[str, Any]:
-        return asdict(self) | {"source_swings": list(self.source_swings)}
-
-
-def validate_candle(candle: Candle) -> None:
-    values = (candle.open, candle.high, candle.low, candle.close)
-    if any(value != value or value in (float("inf"), float("-inf")) for value in values):
-        raise ValueError("invalid OHLC value")
-    if candle.close_timestamp <= candle.open_timestamp:
-        raise ValueError("timestamps must be increasing")
-    if candle.high < max(candle.open, candle.close) or candle.low > min(candle.open, candle.close):
-        raise ValueError("inconsistent OHLC")
-
-
-def confirmed_swings(candles: tuple[Candle, ...], *, left: int, right: int) -> tuple[Swing, ...]:
-    """Strict pivots; a center at i is known only at the close of i + right."""
-    if left <= 0 or right <= 0:
-        raise ValueError("swing windows must be positive")
-    result: list[Swing] = []
-    for center in range(left, len(candles) - right):
-        current = candles[center]
-        before = candles[center - left:center]
-        after = candles[center + 1:center + right + 1]
-        if current.high > max(x.high for x in before + after):
-            result.append(Swing("RESISTANCE", center, current.high, current.close_timestamp,
-                                after[-1].close_timestamp))
-        if current.low < min(x.low for x in before + after):
-            result.append(Swing("SUPPORT", center, current.low, current.close_timestamp,
-                                after[-1].close_timestamp))
-    return tuple(result)
-
-
-def construct_levels(swings: tuple[Swing, ...], *, as_of: int, tolerance: float,
-                      lookback: int, max_age: int) -> tuple[SRLevel, ...]:
-    """Cluster confirmed swings without using any swing not known at ``as_of``."""
-    if tolerance <= 0 or lookback <= 0 or max_age <= 0:
-        raise ValueError("level parameters must be positive")
-    usable = [s for s in swings if s.known_at <= as_of and as_of - s.known_at <= max_age * 3600]
-    usable = usable[-lookback:]
-    clusters: list[list[Swing]] = []
-    for swing in usable:
-        cluster = next((group for group in clusters
-                        if group[0].kind == swing.kind and abs(group[-1].price - swing.price) <= tolerance), None)
-        if cluster is None:
-            clusters.append([swing])
-        else:
-            cluster.append(swing)
-    levels = []
-    for group in clusters:
-        levels.append(SRLevel(group[0].kind, sum(s.price for s in group) / len(group),
-                              tuple(s.bar_index for s in group), max(s.known_at for s in group),
-                              as_of + max_age))
-    return tuple(sorted(levels, key=lambda level: (level.kind, level.price, level.known_at)))
-
-
 def close_break(candle: Candle, level: SRLevel, *, direction: str, tolerance: float,
                 buffer: float) -> bool:
     if direction == "LONG":
@@ -203,30 +113,6 @@ def rejection_confirmation(previous: Candle, candle: Candle, *, direction: str,
         location = (candle.high - candle.close) / max(candle.high - candle.low, 1e-12)
         return candle.close < candle.open and wick / body >= min_wick_body_ratio and location >= close_location
     raise ValueError("direction must be LONG or SHORT")
-
-
-def engulfing_confirmation(previous: Candle, candle: Candle, *, direction: str) -> bool:
-    if direction == "LONG":
-        return (previous.close < previous.open and candle.close > candle.open and
-                candle.open <= previous.close and candle.close >= previous.open)
-    if direction == "SHORT":
-        return (previous.close > previous.open and candle.close < candle.open and
-                candle.open >= previous.close and candle.close <= previous.open)
-    raise ValueError("direction must be LONG or SHORT")
-
-
-def structural_stop(retest: Candle, *, direction: str, buffer: float) -> float:
-    if buffer < 0:
-        raise ValueError("stop buffer cannot be negative")
-    return retest.low - buffer if direction == "LONG" else retest.high + buffer
-
-
-def opposing_target(levels: tuple[SRLevel, ...], *, direction: str, entry: float,
-                    as_of: int) -> SRLevel | None:
-    opposing = "RESISTANCE" if direction == "LONG" else "SUPPORT"
-    eligible = [level for level in levels if level.kind == opposing and level.known_at <= as_of and
-                ((direction == "LONG" and level.price > entry) or (direction == "SHORT" and level.price < entry))]
-    return min(eligible, key=lambda level: abs(level.price - entry)) if eligible else None
 
 
 def _event_id(event: MarketEvent) -> str:
