@@ -140,6 +140,7 @@ from typing import Any
 
 from .models import (
     EntrySignal,
+    LiveEntryPriceObservation,
     MarketEvent,
     ParameterSchema,
     ParameterSet,
@@ -191,6 +192,20 @@ H1_CLOSE_BEYOND_LEVEL_REQUIRED = True
 H1_CONFIRMATION_IS_COMPLETED_BAR = True
 H1_CONFIRMATION_PRECEDES_M15_RETEST = True
 M15_ONLY_BASELINE_ENABLED = False
+
+# ─── live entry timing ────────────────────────────────────────────────────────
+
+# A live quote observed more than one M15 period after confirmation_timestamp is
+# considered stale; the historical completed-bar path will handle it instead.
+LIVE_ENTRY_STALE_THRESHOLD_SECONDS = 900
+
+# ─── clustering algorithm (cohort discriminator) ──────────────────────────────
+
+# Bounded-diameter invariant: max(cluster) - min(cluster) <= equal_tol for every
+# EQUAL_HIGHS / EQUAL_LOWS cluster.  Replaces the prior transitive adjacency rule
+# which allowed span >> equal_tol.  Signals emitted after this constant was
+# introduced carry clustering_algorithm=CLUSTERING_ALGORITHM in provenance.
+CLUSTERING_ALGORITHM = "bounded_diameter_v1"
 
 # ─── target semantics ──────────────────────────────────────────────────────────
 
@@ -617,6 +632,27 @@ def _liq_obj(
     }
 
 
+def _bounded_diameter_clusters(sorted_prices: list[float], equal_tol: float) -> list[list[float]]:
+    """Partition sorted prices into clusters satisfying max(cluster) - min(cluster) <= equal_tol.
+
+    Invariant guaranteed because prices are sorted: cluster_start = min(cluster), so
+    all members satisfy price - cluster_start <= equal_tol, i.e. span <= equal_tol.
+    Deterministic and independent of input ordering (caller must sort first).
+    """
+    clusters: list[list[float]] = []
+    i = 0
+    while i < len(sorted_prices):
+        cluster_start = sorted_prices[i]
+        cluster: list[float] = [cluster_start]
+        j = i + 1
+        while j < len(sorted_prices) and sorted_prices[j] - cluster_start <= equal_tol:
+            cluster.append(sorted_prices[j])
+            j += 1
+        clusters.append(cluster)
+        i = j
+    return clusters
+
+
 def _detect_liquidity_objectives(
     h1_bars: list[dict[str, Any]],
     direction: str,
@@ -655,14 +691,9 @@ def _detect_liquidity_objectives(
             continue
         swing_by_price[p] = lv
 
-    # ── 2. Equal highs/lows: 2+ swings within equal_tol of each other ────────
+    # ── 2. Equal highs/lows: bounded-diameter clustering ─────────────────────
     swing_prices = sorted(swing_by_price.keys())
-    equal_clusters: list[list[float]] = []
-    for sp in swing_prices:
-        if equal_clusters and abs(sp - equal_clusters[-1][-1]) <= equal_tol:
-            equal_clusters[-1].append(sp)
-        else:
-            equal_clusters.append([sp])
+    equal_clusters = _bounded_diameter_clusters(swing_prices, equal_tol)
     for cluster in equal_clusters:
         if len(cluster) < 2:
             continue
@@ -1385,10 +1416,232 @@ class KojoStructureReclaimV3Evaluator:
             "tp1_body_close_rejection_count": tp1_prov.get("body_close_rejection_count") if tp1_prov else None,
             "tp1_total_distinct_reactions": tp1_prov.get("total_distinct_reactions") if tp1_prov else None,
             "tp1_source_rule_required": True,
+            "clustering_algorithm": CLUSTERING_ALGORITHM,
         }
 
         self._terminate_setup(setup, CONSUMED)
         outputs.extend(self._emit_lifecycle(setup, CONSUMED, event, entry=entry_price))
+        outputs.append(EntrySignal(
+            signal_id=signal_id,
+            strategy_version_id=self.strategy_version.strategy_version_id,
+            canonical_instrument=self._instrument,
+            direction=direction,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            target_price=tp1,
+            decision_timestamp=decision_ts,
+            order_type=entry_type,
+            provenance=provenance,
+        ))
+        return outputs
+
+    # ── live entry path ────────────────────────────────────────────────────────
+
+    def has_pending_live_entry_setups(self) -> bool:
+        """Return True if any setup is in CONFIRMED_PENDING_NEXT_OPEN state."""
+        return any(s["state"] == CONFIRMED_PENDING_NEXT_OPEN for s in self._setups.values())
+
+    def consume_live_entry_price(
+        self, obs: LiveEntryPriceObservation
+    ) -> tuple[SetupLifecycleEvent | EntrySignal, ...]:
+        """Resolve CONFIRMED_PENDING_NEXT_OPEN setups using a live market quote.
+
+        This is the live-path equivalent of the historical _on_m15 CONFIRMED_PENDING_NEXT_OPEN
+        branch, called by the adapter immediately after confirmation rather than waiting for
+        the next completed M15 bar.
+
+        Does NOT:
+          - perform H1 or M15 structural evaluation
+          - advance completed-bar watermarks
+          - create a fake completed M15 bar
+
+        Only resolves setups already in CONFIRMED_PENDING_NEXT_OPEN.
+        Guards: obs.observed_at must be strictly after confirmation_timestamp and within
+        LIVE_ENTRY_STALE_THRESHOLD_SECONDS of it.
+        """
+        outputs: list[SetupLifecycleEvent | EntrySignal] = []
+        for setup in list(self._setups.values()):
+            if setup["state"] != CONFIRMED_PENDING_NEXT_OPEN:
+                continue
+            confirmation_ts = setup["confirmation_timestamp"]
+            if obs.observed_at <= confirmation_ts:
+                continue
+            if obs.observed_at - confirmation_ts > LIVE_ENTRY_STALE_THRESHOLD_SECONDS:
+                continue
+            outputs.extend(self._try_emit_signal_live(setup, obs, confirmation_ts))
+        return tuple(outputs)
+
+    def _try_emit_signal_live(
+        self,
+        setup: dict[str, Any],
+        obs: LiveEntryPriceObservation,
+        decision_ts: int,
+    ) -> list[SetupLifecycleEvent | EntrySignal]:
+        """Emit a signal using a live quote price rather than a completed bar open.
+
+        entry_price = ask (LONG) or bid (SHORT) — the executable broker price.
+        reference_entry_price = midpoint — comparable to historical bar open for R tracking.
+        All stop and target computation is identical to the historical path.
+        """
+        outputs: list[SetupLifecycleEvent | EntrySignal] = []
+        direction = setup["direction"]
+        level_price = float(setup["structural_level_price"])
+        values = self._values
+        buffer = float(values["stop_buffer_value"])
+
+        entry_price = obs.ask if direction == "LONG" else obs.bid
+        reference_entry_price = (obs.bid + obs.ask) / 2.0
+        live_entry_latency_seconds = obs.observed_at - decision_ts
+
+        stop_price, stop_basis, structural_extreme = self._compute_stop(
+            setup, entry_price, direction, level_price, buffer
+        )
+        if stop_price is None:
+            self._reject("INVALID_STOP_GEOMETRY")
+            self._terminate_setup(setup, INVALIDATED)
+            outputs.extend(self._emit_lifecycle(
+                setup, INVALIDATED, event_ts=obs.observed_at, reason="INVALID_STOP_GEOMETRY"
+            ))
+            return outputs
+
+        tp1, tp1_prov, tp2 = self._compute_targets_v3(setup, direction, entry_price, stop_price)
+        if tp1 is None:
+            self._reject("NO_QUALIFYING_TP1_REACTION_ZONE")
+            self._terminate_setup(setup, CONSUMED)
+            outputs.extend(self._emit_lifecycle(
+                setup, CONSUMED, event_ts=obs.observed_at,
+                reason="NO_QUALIFYING_TP1_REACTION_ZONE",
+            ))
+            return outputs
+
+        if direction == "LONG":
+            valid = stop_price < entry_price < tp1
+        else:
+            valid = tp1 < entry_price < stop_price
+        if not valid:
+            self._reject("INVALID_SIGNAL_GEOMETRY")
+            self._terminate_setup(setup, INVALIDATED)
+            outputs.extend(self._emit_lifecycle(
+                setup, INVALIDATED, event_ts=obs.observed_at, reason="INVALID_SIGNAL_GEOMETRY"
+            ))
+            return outputs
+
+        setup["stop_basis"] = stop_basis
+        setup["structural_extreme"] = structural_extreme
+        setup["final_stop"] = stop_price
+        setup["tp1"] = tp1
+        setup["tp1_provenance"] = tp1_prov
+        setup["tp2"] = tp2
+        setup["intended_entry"] = entry_price
+
+        entry_type = str(values.get("entry_type", "MARKET"))
+
+        signal_id = "KSRV3_SIG_" + fingerprint({
+            "setup_id": setup["setup_id"],
+            "confirmation_timestamp": setup["confirmation_timestamp"],
+            "direction": direction,
+            "entry_price": entry_price,
+        })[:24]
+
+        provenance = {
+            "strategy_id": STRATEGY_ID,
+            "strategy_version": self.strategy_version.strategy_version_id,
+            "strategy_instance_id": self._instance_id,
+            "parameter_set_id": self.parameters.parameter_set_id,
+            "parameter_set_fingerprint": self.parameters.fingerprint,
+            "configuration_revision": self._configuration_revision,
+            "effective_parameter_snapshot": dict(self.parameters.values),
+            "evaluator_version": self.VERSION,
+            "timeframe": TIMEFRAME_H1,
+            "entry_timeframe": TIMEFRAME_M15,
+            "setup_id": setup["setup_id"],
+            "direction": direction,
+            "structural_level_id": setup["structural_level_id"],
+            "structural_level_price": setup["structural_level_price"],
+            "structural_level_type": setup["structural_level_type"],
+            "structure_timeframe": setup["structure_timeframe"],
+            "episode_start_ts": setup["episode_start_ts"],
+            "episode_envelope_high": setup["episode_envelope_high"],
+            "episode_envelope_low": setup["episode_envelope_low"],
+            "pullback_extreme": setup["pullback_extreme"],
+            "pullback_type": setup["pullback_type"],
+            "break_timestamp": setup["break_timestamp"],
+            "break_direction": setup["break_direction"],
+            "break_h1_evidence": setup["break_h1_evidence"],
+            "h1_context_evidence": setup["h1_context_evidence"],
+            "h1_key_level_id": setup["h1_key_level_id"],
+            "h1_confirmation_open_ts": setup["h1_confirmation_open_ts"],
+            "h1_confirmation_close_ts": setup["h1_confirmation_close_ts"],
+            "h1_confirmation_open": setup["h1_confirmation_open"],
+            "h1_confirmation_high": setup["h1_confirmation_high"],
+            "h1_confirmation_low": setup["h1_confirmation_low"],
+            "h1_confirmation_close": setup["h1_confirmation_close"],
+            "h1_confirmation_relation_to_level": setup["h1_confirmation_relation_to_level"],
+            "m15_retest_first_ts": setup["m15_retest_first_open_ts"],
+            "m15_retest_level_id": setup["structural_level_id"],
+            "m15_rejection_ts": setup["m15_rejection_open_ts"],
+            "entry_decision_ts": decision_ts,
+            "m15_confirmation_evidence": setup["m15_confirmation_evidence"],
+            "retest_timestamp": setup["retest_timestamp"],
+            "confirmation_timestamp": setup["confirmation_timestamp"],
+            "confirmation_type": setup["confirmation_type"],
+            "ema_state": setup["ema_state"],
+            "stop_basis": stop_basis,
+            "structural_extreme": structural_extreme,
+            "stop_buffer_value": buffer,
+            "final_stop": stop_price,
+            "tp1": tp1,
+            "tp1_provenance": tp1_prov,
+            "tp2": tp2,
+            "intended_entry": entry_price,
+            "available_through": obs.observed_at,
+            "tp1_class": "CURRENT_DAY_M15_REACTION_ZONE",
+            "targets_are_objectives": TARGETS_ARE_OBJECTIVES,
+            "mandatory_hold_to_target": MANDATORY_HOLD_TO_TARGET,
+            "trade_management_policy_ref": "SOURCE_RULE_REQUIRED",
+            "initial_trade_plan": {
+                "planned_entry": entry_price,
+                "initial_stop": stop_price,
+                "planned_tp1": tp1,
+                "planned_tp1_reason": "EXTERNAL_STRUCTURAL_OBJECTIVE",
+                "planned_tp2": tp2,
+                "planned_tp2_reason": "EXTERNAL_STRUCTURAL_OBJECTIVE",
+                "targets_are_objectives": TARGETS_ARE_OBJECTIVES,
+                "mandatory_hold_to_target": MANDATORY_HOLD_TO_TARGET,
+                "trade_management_policy_ref": "SOURCE_RULE_REQUIRED",
+            },
+            "v3_status": "READY_FOR_DISCOVERY",
+            "production_eligible": False,
+            "m15_atr_at_retest": setup.get("m15_atr_at_retest"),
+            "retest_tolerance_band": setup.get("retest_tolerance_band"),
+            "retest_distance_abs": (
+                abs(float(setup["structural_level_price"]) - float(setup["m15_retest_bar_extreme"]))
+                if setup.get("m15_retest_bar_extreme") is not None else None
+            ),
+            "retest_distance_atr": (
+                abs(float(setup["structural_level_price"]) - float(setup["m15_retest_bar_extreme"]))
+                / setup["m15_atr_at_retest"]
+                if setup.get("m15_retest_bar_extreme") is not None and setup.get("m15_atr_at_retest")
+                else None
+            ),
+            "pullback_classifier_status": "INERT_SCAFFOLD_V3_TREATS_ALL_PULLBACKS_EQUALLY",
+            "tp1_wick_reaction_count": tp1_prov.get("wick_reaction_count") if tp1_prov else None,
+            "tp1_body_close_rejection_count": tp1_prov.get("body_close_rejection_count") if tp1_prov else None,
+            "tp1_total_distinct_reactions": tp1_prov.get("total_distinct_reactions") if tp1_prov else None,
+            "tp1_source_rule_required": True,
+            "clustering_algorithm": CLUSTERING_ALGORITHM,
+            # ── live-entry specific ────────────────────────────────────────────
+            "entry_mechanism": "LIVE_QUOTE",
+            "confirmation_close_ts": setup["confirmation_timestamp"],
+            "live_entry_observed_at": obs.observed_at,
+            "live_entry_latency_seconds": live_entry_latency_seconds,
+            "reference_entry_price": reference_entry_price,
+            "bid_at_entry": obs.bid,
+            "ask_at_entry": obs.ask,
+        }
+
+        self._terminate_setup(setup, CONSUMED)
+        outputs.extend(self._emit_lifecycle(setup, CONSUMED, event_ts=obs.observed_at, entry=entry_price))
         outputs.append(EntrySignal(
             signal_id=signal_id,
             strategy_version_id=self.strategy_version.strategy_version_id,
@@ -1571,12 +1824,19 @@ class KojoStructureReclaimV3Evaluator:
     # ── lifecycle events ───────────────────────────────────────────────────────
 
     def _emit_lifecycle(
-        self, setup: dict[str, Any], status: str, event: MarketEvent, **extra: Any
+        self,
+        setup: dict[str, Any],
+        status: str,
+        event: MarketEvent | None = None,
+        *,
+        event_ts: int | None = None,
+        **extra: Any,
     ) -> list[SetupLifecycleEvent]:
         key = (setup["setup_id"], status)
         if key in self._emitted_lifecycle:
             return []
         self._emitted_lifecycle.add(key)
+        ts = event_ts if event is None else event.close_timestamp
         provenance = {
             "setup_id": setup["setup_id"],
             "structural_level_id": setup["structural_level_id"],
@@ -1591,7 +1851,7 @@ class KojoStructureReclaimV3Evaluator:
             strategy_version_id=self.strategy_version.strategy_version_id,
             canonical_instrument=self._instrument,
             status=status,
-            event_timestamp=event.close_timestamp,
+            event_timestamp=ts,
             provenance=provenance,
         )]
 

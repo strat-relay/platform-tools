@@ -191,6 +191,45 @@ class KojoStructureReclaimV3Adapter:
                     if new_m15:
                         m15_watermark = max(m15_watermark, max(int(b["time"]) for b in new_m15))
 
+                    # ── Live entry path ────────────────────────────────────────
+                    # If any setup just entered CONFIRMED_PENDING_NEXT_OPEN, resolve
+                    # it immediately using the current broker quote rather than waiting
+                    # for the next completed M15 bar (~900 s).  No bar watermarks are
+                    # advanced; the normal M15 path remains the fallback.
+                    if evaluator.has_pending_live_entry_setups():
+                        try:
+                            from orchestration.brokers import MT5ShadowProvider
+                            from strategy_backtest.models import LiveEntryPriceObservation
+                            mcp_url = os.environ.get(
+                                "MT5_BRIDGE_URL",
+                                os.environ.get("MT5_BRIDGE_EXECUTION_URL", "http://10.10.10.100:22347/mcp"),
+                            )
+                            provider = MT5ShadowProvider(mcp_url=mcp_url)
+                            quote = provider.quote(canonical_to_broker_hint(canonical_instrument))
+                            bid = quote.get("bid")
+                            ask = quote.get("ask")
+                            if bid and ask and float(bid) > 0 and float(ask) >= float(bid):
+                                live_obs = LiveEntryPriceObservation(
+                                    canonical_instrument=canonical_instrument,
+                                    bid=float(bid),
+                                    ask=float(ask),
+                                    observed_at=int(quote.get("timestamp") or now_ts),
+                                )
+                                for live_out in evaluator.consume_live_entry_price(live_obs):
+                                    if isinstance(live_out, EntrySignal):
+                                        entry_signals.append((live_out, canonical_instrument))
+                        except Exception as live_exc:
+                            from observability.strategy_audit import audit as _audit
+                            _audit(
+                                "live_entry_quote_failed",
+                                runner="signal-orchestrator",
+                                strategy_id=STRATEGY_ID,
+                                instance_id=self.instance_id,
+                                canonical_instrument=canonical_instrument,
+                                error=str(live_exc),
+                                error_type=type(live_exc).__name__,
+                            )
+
                 try:
                     state = evaluator.snapshot_state()
                     state["_h1_watermark"] = h1_watermark
