@@ -1841,6 +1841,11 @@ def kojo_structure_reclaim_v3_parameter_schema() -> ParameterSchema:
                 "restart_required": False,
                 "research_only": False,
                 "production_allowed": True,
+                # INERT in V3: classifier never invoked; parameter has zero behavioral effect.
+                # Preserved in ParameterSet fingerprints; must not be surfaced as an active
+                # strategy control in UI.  Do not remove without a schema migration.
+                "scaffold": True,
+                "ui_active": False,
             },
             "complex_pullback_enabled": {
                 "required": True,
@@ -1852,6 +1857,11 @@ def kojo_structure_reclaim_v3_parameter_schema() -> ParameterSchema:
                 "restart_required": False,
                 "research_only": False,
                 "production_allowed": True,
+                # INERT in V3: classifier never invoked; parameter has zero behavioral effect.
+                # Preserved in ParameterSet fingerprints; must not be surfaced as an active
+                # strategy control in UI.  Do not remove without a schema migration.
+                "scaffold": True,
+                "ui_active": False,
             },
             # ── TARGETS ─────────────────────────────────────────────────────────
             "tp1_min_rr": {
