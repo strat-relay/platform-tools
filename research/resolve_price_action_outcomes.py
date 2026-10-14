@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import Counter
 from pathlib import Path
 from statistics import mean, median
@@ -13,7 +14,7 @@ from strategy_backtest.research_outcomes import (
     POLICY_VERSION, RESOLVER_VERSION, ResearchOutcomeEntry, resolve_research_entry,
 )
 
-DEFAULT_SOURCE = Path("/Users/caleb/mt5-native-bridge/artifacts/research/multitimeframe_structure_sniper/paged_native_full")
+DEFAULT_SOURCE = Path(os.environ.get("PRICE_ACTION_OUTCOME_SOURCE_ROOT", "artifacts/research/multitimeframe_structure_sniper/paged_native_full"))
 DEFAULT_INPUT = Path("docs/research/price_action_historical/outcome_audit_v1/accepted_research_entries.jsonl")
 DEFAULT_OUTPUT = Path("docs/research/price_action_historical/outcome_resolution_v1")
 
