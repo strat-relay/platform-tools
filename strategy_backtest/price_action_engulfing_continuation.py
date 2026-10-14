@@ -87,6 +87,8 @@ class EngulfingContinuationEvaluator:
         self.strategy_version: StrategyVersion | None = None
         self.parameters: ParameterSet | None = None
         self.events: list[MarketEvent] = []
+        self._context_events: dict[str, list[MarketEvent]] = {}
+        self._execution_events: dict[str, list[MarketEvent]] = {}
         self.seen_events: set[str] = set()
         self.emitted_evaluations: set[str] = set()
         self.pending: dict[str, dict[str, Any]] = {}
@@ -144,9 +146,8 @@ class EngulfingContinuationEvaluator:
         stop, target = float(pending["stop"]), float(pending["target"])
         gap = tick * self.values["entry_gap_cancel_ticks"]
         valid_side = stop < entry < target if direction == "LONG" else target < entry < stop
-        context_after_confirmation = [x for x in self.events
-                                      if x.canonical_instrument == event.canonical_instrument and
-                                      x.timeframe == self.values["context_timeframe"] and
+        context_after_confirmation = [x for x in self._context_events.get(event.canonical_instrument, [])
+                                      if
                                       x.close_timestamp > pending["confirmation_time"] and
                                       x.close_timestamp <= event.open_timestamp]
         tolerance = tick * self.values["zone_tolerance_ticks"]
@@ -181,8 +182,7 @@ class EngulfingContinuationEvaluator:
 
     def _context(self, instrument: str, cutoff: int) -> tuple[Candle, ...]:
         return tuple(Candle.from_event(i, event) for i, event in enumerate(
-            x for x in self.events if x.canonical_instrument == instrument and
-            x.timeframe == self.values["context_timeframe"] and x.close_timestamp <= cutoff))
+            x for x in self._context_events.get(instrument, []) if x.close_timestamp <= cutoff))
 
     def _evaluate_execution_close(self, event: MarketEvent) -> Evaluation | None:
         if event.timeframe != self.values["execution_timeframe"]:
@@ -204,8 +204,7 @@ class EngulfingContinuationEvaluator:
         if not zones:
             return self._evaluation(event, Decision.NO_CANDIDATE, (), "NO_STRUCTURAL_ZONE")
         execution = tuple(Candle.from_event(i, x) for i, x in enumerate(
-            x for x in self.events if x.canonical_instrument == event.canonical_instrument and
-            x.timeframe == self.values["execution_timeframe"] and x.completed))
+            x for x in self._execution_events.get(event.canonical_instrument, []) if x.completed))
         current = execution[-1]
         # Zone selection is structural and stable for the episode; it must not
         # move to an older zone merely because a later candle travels farther.
@@ -266,6 +265,10 @@ class EngulfingContinuationEvaluator:
             raise ValueError("invalid OHLC value")
         self.seen_events.add(event_id)
         self.events.append(event)
+        if event.timeframe == self.values.get("context_timeframe", "H1"):
+            self._context_events.setdefault(event.canonical_instrument, []).append(event)
+        elif event.timeframe == self.values.get("execution_timeframe", "M15"):
+            self._execution_events.setdefault(event.canonical_instrument, []).append(event)
         outputs: list[Evaluation] = []
         if event.timeframe == self.values.get("execution_timeframe", "M15"):
             resolved = self._resolve_pending(event)
@@ -291,6 +294,11 @@ class EngulfingContinuationEvaluator:
 
     def restore_state(self, state: Mapping[str, Any]) -> None:
         self.events = [MarketEvent(**item) for item in state.get("events", [])]
+        self._context_events = {}
+        self._execution_events = {}
+        for event in self.events:
+            target = self._context_events if event.timeframe == "H1" else self._execution_events
+            target.setdefault(event.canonical_instrument, []).append(event)
         self.seen_events = set(state.get("seen_events", []))
         self.emitted_evaluations = set(state.get("emitted_evaluations", []))
         self.pending = dict(state.get("pending", {}))

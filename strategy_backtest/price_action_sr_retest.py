@@ -128,6 +128,8 @@ class SupportResistanceRetestEvaluator:
         self.strategy_version: StrategyVersion | None = None
         self.parameters: ParameterSet | None = None
         self.events: list[MarketEvent] = []
+        self._context_events: dict[str, list[MarketEvent]] = {}
+        self._execution_events: dict[str, list[MarketEvent]] = {}
         self.seen_events: set[str] = set()
         self.emitted_evaluations: set[str] = set()
         self.rejection_counts: dict[str, int] = {}
@@ -155,10 +157,9 @@ class SupportResistanceRetestEvaluator:
         if event.timeframe != self.values["execution_timeframe"]:
             return None
         instrument = event.canonical_instrument
-        context_events = [x for x in self.events if x.canonical_instrument == instrument and
-                          x.timeframe == self.values["context_timeframe"] and x.close_timestamp <= event.close_timestamp]
-        execution_events = [x for x in self.events if x.canonical_instrument == instrument and
-                            x.timeframe == self.values["execution_timeframe"] and x.completed]
+        context_events = [x for x in self._context_events.get(instrument, [])
+                          if x.close_timestamp <= event.close_timestamp]
+        execution_events = [x for x in self._execution_events.get(instrument, []) if x.completed]
         if len(context_events) < self.values["swing_left_bars"] + self.values["swing_right_bars"] + 1:
             return self._evaluation(event, instrument, Decision.NO_CANDIDATE, (), "INSUFFICIENT_CONTEXT")
         context = tuple(Candle.from_event(i, x) for i, x in enumerate(context_events))
@@ -299,6 +300,10 @@ class SupportResistanceRetestEvaluator:
                 raise ValueError("invalid OHLC value")
         self.seen_events.add(event_id)
         self.events.append(event)
+        if event.timeframe == self.values.get("context_timeframe", "H1"):
+            self._context_events.setdefault(event.canonical_instrument, []).append(event)
+        elif event.timeframe == self.values.get("execution_timeframe", "M15"):
+            self._execution_events.setdefault(event.canonical_instrument, []).append(event)
         outputs: list[Evaluation] = []
         if event.timeframe == self.values.get("execution_timeframe", "M15"):
             pending_evaluation = self._resolve_pending(event)
@@ -325,6 +330,11 @@ class SupportResistanceRetestEvaluator:
 
     def restore_state(self, state: Mapping[str, Any]) -> None:
         self.events = [MarketEvent(**item) for item in state.get("events", [])]
+        self._context_events = {}
+        self._execution_events = {}
+        for event in self.events:
+            target = self._context_events if event.timeframe == "H1" else self._execution_events
+            target.setdefault(event.canonical_instrument, []).append(event)
         self.seen_events = set(state.get("seen_events", []))
         self.emitted_evaluations = set(state.get("emitted_evaluations", []))
         self.rejection_counts = dict(state.get("rejection_counts", {}))
