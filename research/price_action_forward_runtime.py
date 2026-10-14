@@ -105,27 +105,38 @@ def run_once() -> dict[str, Any]:
             before = observer.state.get("events_count", 0)
             results = []
             emitted: list[dict[str, Any]] = []
+            successful = 0
             for canonical, broker_symbol in symbols.items():
-                info = client.symbol_info(broker_symbol, CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND"))
-                quote = client.quote(broker_symbol, CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND"))
-                h1 = _completed((client.rates(broker_symbol, "H1", 320,
-                                               CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND")) or {}).get("rates", []))
-                m15 = _completed((client.rates(broker_symbol, "M15", 320,
-                                                CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND")) or {}).get("rates", []))
-                if not info or info.get("error") or not quote or quote.get("error"):
-                    raise RuntimeError(f"market metadata/quote unavailable for {canonical}")
-                result = observer.ingest(canonical, broker_symbol, h1, m15,
-                                         observed_at=now_iso(), snapshot_id=_event_id(instance_id, {"i": canonical, "h": h1[-1:] , "m": m15[-1:]}),
-                                         source_kind="LIVE_MARKET")
-                results.append(result)
-                emitted.extend(result.get("emitted", []))
-            observer.state["status"] = "RUNNING"
+                try:
+                    info = client.symbol_info(broker_symbol, CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND"))
+                    quote = client.quote(broker_symbol, CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND"))
+                    h1 = _completed((client.rates(broker_symbol, "H1", 320,
+                                                   CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND")) or {}).get("rates", []))
+                    m15 = _completed((client.rates(broker_symbol, "M15", 320,
+                                                    CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND")) or {}).get("rates", []))
+                    if not info or info.get("error") or not quote or quote.get("error"):
+                        raise RuntimeError(f"market metadata/quote unavailable for {canonical}")
+                    result = observer.ingest(canonical, broker_symbol, h1, m15,
+                                             observed_at=now_iso(), snapshot_id=_event_id(instance_id, {"i": canonical, "h": h1[-1:], "m": m15[-1:]}),
+                                             source_kind="LIVE_MARKET")
+                    results.append(result)
+                    emitted.extend(result.get("emitted", []))
+                    successful += 1
+                except Exception as exc:  # one slow symbol must not hide other read-only coverage
+                    results.append({"instrument": canonical, "broker_symbol": broker_symbol,
+                                    "status": "DEGRADED", "error": f"{type(exc).__name__}: {exc}"})
+            observer.state["status"] = "RUNNING" if successful else "DEGRADED"
+            observer.state["runtime"] = {"last_cycle_at": now_iso(),
+                                          "successful_instrument_count": successful,
+                                          "instrument_count": len(symbols),
+                                          "degraded_instrument_count": len(symbols) - successful}
             observer.state["events_count"] = before + len(emitted)
             observed_at = now_iso()
             ledger.save(conn, observer.state, emitted, observed_at=observed_at)
             conn.commit()
             return {"instance_id": instance_id, "strategy": strategy, "bridge": bridge_url,
                     "observed_at": observed_at, "instruments": results,
+                    "successful_instrument_count": successful,
                     "execution_disabled": True, "evaluations_persisted": len(emitted)}
 
 
@@ -133,12 +144,14 @@ def health() -> dict[str, Any]:
     instance_id = _required("PRICE_ACTION_INSTANCE_ID")
     with connect(PostgresConfig.from_env(), readonly=True) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT strategy_key, last_observed_at, updated_at FROM research.price_action_observer_state WHERE instance_id=%s", (instance_id,))
+            cur.execute("SELECT strategy_key, state, last_observed_at, updated_at FROM research.price_action_observer_state WHERE instance_id=%s", (instance_id,))
             row = cur.fetchone()
-    return {"status": "healthy" if row else "starting", "instance_id": instance_id,
+    successful = int((row[1].get("runtime") or {}).get("successful_instrument_count", 0)) if row else 0
+    return {"status": "healthy" if successful else ("degraded" if row else "starting"), "instance_id": instance_id,
             "strategy": row[0] if row else os.environ.get("PRICE_ACTION_STRATEGY"),
-            "last_observed_at": row[1].isoformat() if row and row[1] else None,
-            "updated_at": row[2].isoformat() if row and row[2] else None,
+            "last_observed_at": row[2].isoformat() if row and row[2] else None,
+            "updated_at": row[3].isoformat() if row and row[3] else None,
+            "successful_instrument_count": successful,
             "execution_disabled": True, "broker_writes": 0}
 
 
@@ -147,7 +160,10 @@ def main() -> None:
     parser.add_argument("command", choices=("run", "once", "health"))
     args = parser.parse_args()
     if args.command == "health":
-        print(json.dumps(health(), default=str)); return
+        result = health(); print(json.dumps(result, default=str))
+        if result["status"] != "healthy":
+            raise SystemExit(1)
+        return
     interval = max(60.0, float(os.environ.get("PRICE_ACTION_POLL_SECONDS", "60")))
     while True:
         try:
