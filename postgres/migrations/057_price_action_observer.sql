@@ -21,10 +21,18 @@ CREATE TABLE IF NOT EXISTS research.price_action_observer_evaluation (
     UNIQUE (instance_id, event_id)
 );
 
-GRANT SELECT, INSERT, UPDATE ON research.price_action_observer_state,
-    research.price_action_observer_evaluation TO trading_app;
-GRANT SELECT ON research.price_action_observer_state,
-    research.price_action_observer_evaluation TO trading_readonly;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'trading_app') THEN
+        GRANT SELECT, INSERT, UPDATE ON research.price_action_observer_state,
+            research.price_action_observer_evaluation TO trading_app;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'trading_readonly') THEN
+        GRANT SELECT ON research.price_action_observer_state,
+            research.price_action_observer_evaluation TO trading_readonly;
+    END IF;
+END
+$$;
 
 DO $$
 DECLARE
