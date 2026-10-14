@@ -1137,7 +1137,8 @@ def run(args: argparse.Namespace) -> None:
     # the frozen V1 runner remains the legacy state observer.  Its SQL mutation is
     # centralized in outcome_resolver.persist_outcome_row; this hook is removed
     # only after resolver cutover validation, never as part of a code-only merge.
-    _legacy_project_entry_only_outcomes(state)
+    if _legacy_outcome_projection_enabled():
+        _legacy_project_entry_only_outcomes(state)
     stopping = {"value": False}
     last_membership_refresh = 0.0
     membership_symbols = tuple(args.symbols)
@@ -1155,7 +1156,8 @@ def run(args: argparse.Namespace) -> None:
                 state["instrument_membership_symbols"] = list(membership_symbols)
                 last_membership_refresh = time.monotonic()
             poll(state, membership_symbols, args.mcp_url, args.limit)
-            _legacy_project_entry_only_outcomes(state)
+            if _legacy_outcome_projection_enabled():
+                _legacy_project_entry_only_outcomes(state)
             if args.once: break
             next_cycle = cycle_started + max(0.25, float(args.interval))
             delay = next_cycle - time.monotonic()
@@ -1184,6 +1186,17 @@ def _legacy_project_entry_only_outcomes(state: dict[str, Any]) -> None:
         print(f"LEGACY_ENTRY_ONLY_OUTCOME_PROJECTION {json.dumps(result, sort_keys=True)}")
     except Exception as exc:
         print(f"LEGACY_ENTRY_ONLY_OUTCOME_PROJECTION_UNAVAILABLE {type(exc).__name__}: {exc}")
+
+
+def _legacy_outcome_projection_enabled() -> bool:
+    """Enable the historical compatibility projector only for explicit audits.
+
+    Outcome projection is not part of Context signal detection. Running it in
+    the forward process repeatedly scans the legacy signal set and can consume
+    unbounded memory, starving the signal producer. Current outcome projection
+    belongs to the dedicated resolver; this helper remains for migration runs.
+    """
+    return os.getenv("CONTEXT_LEGACY_OUTCOME_PROJECTION_ENABLED", "false").strip().lower() == "true"
 
 
 def stop() -> None:

@@ -512,6 +512,14 @@ class LiquidityLiveRuntime:
                       setup_id=signal.setup_id if signal else None,
                       evaluation_elapsed_ms=evaluation_elapsed_ms,
                       membership_elapsed_ms=round((time.perf_counter() - membership_started) * 1000, 3))
+                audit("strategy_decision", runner="liquidity-live", strategy_id=STRATEGY_ID,
+                      instance_id=instance_id, canonical_instrument=row["canonical_instrument"],
+                      provider_symbol=row["provider_symbol"],
+                      decision=("SIGNAL" if signal else "NO_SIGNAL"),
+                      signal_id=signal.signal_id if signal else None,
+                      setup_id=signal.setup_id if signal else None,
+                      evaluation_elapsed_ms=evaluation_elapsed_ms,
+                      membership_elapsed_ms=round((time.perf_counter() - membership_started) * 1000, 3))
                 for state in evaluator.export_state():
                     state_started = time.perf_counter()
                     self.setup_store.save(state)

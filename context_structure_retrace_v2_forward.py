@@ -58,6 +58,17 @@ PARAMETER_IDENTITY: dict[str, object] = {
 }
 
 
+def _normalize_state(state: dict) -> dict:
+    """Backfill only missing V2 checkpoint containers in place."""
+    state.setdefault("symbols", {})
+    state.setdefault("setups", {})
+    state.setdefault("positions", {})
+    state.setdefault("counters", {})
+    for key in ("events", "setups", "opportunities", "positions"):
+        state["counters"].setdefault(key, 0)
+    return state
+
+
 def _source_hash() -> str:
     digest = hashlib.sha256()
     for path in (Path(__file__), Path(_v1.__file__)):
@@ -311,6 +322,10 @@ def run(args: argparse.Namespace) -> None:
     _v1.acquire_lock()
     _v1.STOP_FILE.unlink(missing_ok=True)
     state = _v1.load_state()
+    # Normalize checkpoints written before the shared state schema required
+    # these containers. Preserve all existing evaluator state and only create
+    # missing maps/counters so restart recovery remains append-only.
+    _normalize_state(state)
     state["runner_status"] = "ACTIVE"
     state["poll_interval_seconds"] = args.interval
     state["prospective_boundary"] = manifest["activation_timestamp"]
