@@ -17,12 +17,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from contracts.mt5_bridge import BridgeEndpoint, CallContext, Mt5ReadClient
+from market_data_cache.canonical import CanonicalMarketDataReader
+from market_data_cache.reader import default_store
 from postgres.config import PostgresConfig
 from postgres.db import connect
 from research.price_action_forward_observer import MANIFEST, Observer, UNIVERSE, now_iso
 
-BRIDGE_URL = "http://10.10.10.100:22347/mcp"
+REQUIRED_HISTORY = 320
 
 
 def _json(value: Any) -> str:
@@ -59,6 +60,32 @@ def _event_id(instance_id: str, row: dict[str, Any]) -> str:
     return hashlib.sha256((instance_id + "|" + _json(row)).encode()).hexdigest()
 
 
+def _read_cached_symbol(reader: CanonicalMarketDataReader, canonical: str, broker_symbol: str) -> dict[str, Any]:
+    """Read one causal, validated snapshot from the shared market-data cache.
+
+    The collector is the sole bridge reader.  This path deliberately fails closed when the
+    cache is missing, stale, shallow, or in recovery, rather than falling back to duplicate
+    observer bridge traffic.
+    """
+    snapshot = reader.get_snapshot(canonical, broker_symbol,
+                                   {"H1": REQUIRED_HISTORY, "M15": REQUIRED_HISTORY})
+    return {
+        "symbol_info": snapshot.symbol_info,
+        "quote": snapshot.quote,
+        "H1": list(snapshot.bars["H1"].bars),
+        "M15": list(snapshot.bars["M15"].bars),
+        "source": snapshot.source,
+        "cache_age_seconds": snapshot.cache_age_seconds,
+        "latest_completed_open": {
+            "H1": snapshot.bars["H1"].latest_completed_timestamp,
+            "M15": snapshot.bars["M15"].latest_completed_timestamp,
+        },
+        "continuity_status": snapshot.continuity_status,
+        "gap_status": snapshot.gap_status,
+        "recovery_status": snapshot.recovery_status,
+    }
+
+
 class PostgresLedger:
     def __init__(self, instance_id: str):
         self.instance_id = instance_id
@@ -89,12 +116,12 @@ class PostgresLedger:
 def run_once() -> dict[str, Any]:
     instance_id = _required("PRICE_ACTION_INSTANCE_ID")
     strategy = _required("PRICE_ACTION_STRATEGY")
-    bridge_url = os.environ.get("PRICE_ACTION_MCP_URL", BRIDGE_URL).strip()
     manifest = Path(os.environ.get("PRICE_ACTION_MANIFEST_PATH", str(MANIFEST)))
     symbols = _symbols()
+    cache = default_store()
+    reader = CanonicalMarketDataReader(cache, max_age=float(os.environ.get("MARKET_DATA_MAX_AGE_SECONDS", "330")))
     # Ephemeral staging; the authoritative state is PostgreSQL.
     with tempfile.TemporaryDirectory(prefix=f"price-action-{strategy}-") as staging:
-        client = Mt5ReadClient(BridgeEndpoint(bridge_url, profile="research"), timeout_s=25)
         with connect(PostgresConfig.from_env()) as conn:
             ledger = PostgresLedger(instance_id)
             stored = ledger.load_state(conn)
@@ -108,17 +135,27 @@ def run_once() -> dict[str, Any]:
             successful = 0
             for canonical, broker_symbol in symbols.items():
                 try:
-                    info = client.symbol_info(broker_symbol, CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND"))
-                    quote = client.quote(broker_symbol, CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND"))
-                    h1 = _completed((client.rates(broker_symbol, "H1", 320,
-                                                   CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND")) or {}).get("rates", []))
-                    m15 = _completed((client.rates(broker_symbol, "M15", 320,
-                                                    CallContext(origin="PRICE_ACTION_RESEARCH", priority="BACKGROUND")) or {}).get("rates", []))
+                    snapshot = _read_cached_symbol(reader, canonical, broker_symbol)
+                    info, quote = snapshot["symbol_info"], snapshot["quote"]
+                    h1, m15 = snapshot["H1"], snapshot["M15"]
                     if not info or info.get("error") or not quote or quote.get("error"):
                         raise RuntimeError(f"market metadata/quote unavailable for {canonical}")
                     result = observer.ingest(canonical, broker_symbol, h1, m15,
                                              observed_at=now_iso(), snapshot_id=_event_id(instance_id, {"i": canonical, "h": h1[-1:], "m": m15[-1:]}),
                                              source_kind="LIVE_MARKET")
+                    for event in result.get("emitted", []):
+                        event["data_provenance"] = {
+                            "source": snapshot["source"],
+                            "cache_age_seconds": snapshot["cache_age_seconds"],
+                            "continuity_status": snapshot["continuity_status"],
+                            "gap_status": snapshot["gap_status"],
+                            "recovery_status": snapshot["recovery_status"],
+                            "latest_completed_open": snapshot["latest_completed_open"],
+                        }
+                    result.update({"market_data_source": snapshot["source"],
+                                  "cache_age_seconds": snapshot["cache_age_seconds"],
+                                  "h1_bars": len(h1), "m15_bars": len(m15),
+                                  "latest_completed_open": snapshot["latest_completed_open"]})
                     results.append(result)
                     emitted.extend(result.get("emitted", []))
                     successful += 1
@@ -129,12 +166,16 @@ def run_once() -> dict[str, Any]:
             observer.state["runtime"] = {"last_cycle_at": now_iso(),
                                           "successful_instrument_count": successful,
                                           "instrument_count": len(symbols),
-                                          "degraded_instrument_count": len(symbols) - successful}
+                                          "degraded_instrument_count": len(symbols) - successful,
+                                          "market_data_source": "REDIS_CANONICAL_CACHE",
+                                          "bridge_requests": 0,
+                                          "overlapping_cycles": 0}
             observer.state["events_count"] = before + len(emitted)
             observed_at = now_iso()
             ledger.save(conn, observer.state, emitted, observed_at=observed_at)
             conn.commit()
-            return {"instance_id": instance_id, "strategy": strategy, "bridge": bridge_url,
+            return {"instance_id": instance_id, "strategy": strategy,
+                    "market_data_source": "REDIS_CANONICAL_CACHE", "bridge_requests": 0,
                     "observed_at": observed_at, "instruments": results,
                     "successful_instrument_count": successful,
                     "execution_disabled": True, "evaluations_persisted": len(emitted)}
