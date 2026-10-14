@@ -22,7 +22,9 @@ The first snapshot is warm-up/reconstructed state only. Subsequent completed H1/
 - Status: `FROZEN_NOT_ACTIVATED`
 - T0: `2026-10-14T04:38:01.680419Z`
 - Healthy universe at preflight: none
-- Bridge evidence: `BridgeTransportError: [Errno 61] Connection refused` from `http://127.0.0.1:22347/mcp`
+- Verified bridge listener: `http://192.168.1.166:22347/mcp`; loopback `127.0.0.1:22347` is not the listener on this host.
+- Bridge evidence: `/health` responds, but reports `poll_path_healthy: false`, `read_path_healthy: false`, `read_path_status: STALE_RESPONSE`, and `last_poll_timestamp: null`.
+- Read probes for `EURUSD`, `EURUSDm`, and `XAUUSDm` did not produce fresh metadata, quotes, or completed H1/M15 candles within the 8-second read timeout.
 - Activation: blocked; no first live candle or live evaluation exists
 - Historical baselines remain unchanged and are not mixed with this observer
 

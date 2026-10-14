@@ -262,7 +262,7 @@ def audit_order_isolation() -> dict[str, Any]:
 def main() -> None:
     p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="command", required=True)
     f = sub.add_parser("freeze"); f.add_argument("--t0", default=None); f.add_argument("--output", type=Path, default=MANIFEST)
-    h = sub.add_parser("health"); h.add_argument("--mcp-url", default="http://127.0.0.1:22347/mcp")
+    h = sub.add_parser("health"); h.add_argument("--mcp-url", default="http://192.168.1.166:22347/mcp")
     r = sub.add_parser("report"); r.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
     sub.add_parser("audit-order-isolation")
     stop = sub.add_parser("stop"); stop.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)

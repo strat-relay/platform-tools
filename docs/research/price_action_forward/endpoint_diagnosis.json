@@ -1,0 +1,46 @@
+{
+  "schema": "price-action-forward-endpoint-diagnosis-v1",
+  "observer_source_hash_after_endpoint_correction": "cd72d94cfb99a07100c8f86b8b1f67954f538d8fad65ecacc286598430027c6c",
+  "preserved_blocked_manifest": {
+    "path": "docs/research/price_action_forward/forward_manifest.json",
+    "manifest_hash": "fed969b18a9be3164603b1e57468f75be0a1362cb4ffe62c2cd6f4664653583b",
+    "status": "FROZEN_NOT_ACTIVATED"
+  },
+  "observer_endpoint_correction": {
+    "before": "http://127.0.0.1:22347/mcp",
+    "after": "http://192.168.1.166:22347/mcp",
+    "basis": "lsof showed the bridge listener bound to 192.168.1.166:22347; loopback refused TCP connections"
+  },
+  "bridge_process": {
+    "pid": 41512,
+    "command": "/Users/caleb/mt5-native-bridge/bridge.py",
+    "working_directory": "/Users/caleb/mt5-native-bridge",
+    "listener": "192.168.1.166:22347",
+    "execution_listener_checked": "not used; no 22348 connection was attempted"
+  },
+  "health": {
+    "http_reachability": "PASS",
+    "endpoint": "http://192.168.1.166:22347/health",
+    "response_ok": true,
+    "pending_after_probe": 7,
+    "poll_path_healthy": false,
+    "read_path_healthy": false,
+    "read_path_status": "STALE_RESPONSE",
+    "last_poll_timestamp": null,
+    "last_response_age_seconds_at_probe": 614759,
+    "execution_metrics": {"mt5_order_send_attempted": 0, "broker_orders_accepted": 0}
+  },
+  "readiness": {
+    "symbol_info": "BLOCKED_NO_FRESH_RESPONSE",
+    "quote": "BLOCKED_NO_FRESH_RESPONSE",
+    "completed_h1_m15": "NOT_VERIFIED",
+    "warmup_coverage": "NOT_VERIFIED",
+    "healthy_instruments": []
+  },
+  "activation": {
+    "status": "NOT_ACTIVATED",
+    "activation_t0": null,
+    "reason": "bridge is reachable but the attached EA poll path is stale; do not start observers"
+  },
+  "required_smallest_repair": "Restore the already-configured MT5 terminal/EA WebRequest poll path for the existing research bridge, then rerun /health and read-only symbol/quote/H1/M15 checks. Do not restart or modify the shared bridge from this observer task."
+}

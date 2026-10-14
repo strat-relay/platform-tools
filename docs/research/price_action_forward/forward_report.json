@@ -10,9 +10,12 @@
   },
   "activation": {
     "status": "NOT_ACTIVATED",
-    "reason": "read-only MT5 bridge health preflight failed closed",
-    "bridge": "http://127.0.0.1:22347/mcp",
-    "error": "BridgeTransportError: <urlopen error [Errno 61] Connection refused>",
+    "reason": "bridge HTTP is reachable but the EA poll/read path is stale and unhealthy",
+    "configured_observer_endpoint_before_correction": "http://127.0.0.1:22347/mcp",
+    "verified_bridge_listener": "http://192.168.1.166:22347/mcp",
+    "health_evidence": {"poll_path_healthy": false, "read_path_healthy": false, "read_path_status": "STALE_RESPONSE", "last_poll_timestamp": null},
+    "read_probes": {"symbols_tested": ["EURUSD", "EURUSDm", "XAUUSDm"], "symbol_info": "NO_FRESH_RESPONSE_WITHIN_8S", "quote": "NO_FRESH_RESPONSE_WITHIN_8S", "completed_h1_m15": "NOT_VERIFIED", "warmup": "NOT_VERIFIED"},
+    "shared_infrastructure_blocker": "The bridge process is listening, but its attached EA is not polling; no fresh symbol metadata, quote, or H1/M15 read evidence is available. Repair/attach the EA and WebRequest path through the established operator workflow.",
     "healthy_universe": [],
     "first_live_candle": null,
     "first_live_evaluation": null
