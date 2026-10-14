@@ -1,0 +1,49 @@
+{
+  "schema": "price-action-forward-report-v1",
+  "observer_version": "price-action-forward-observer-v1",
+  "branch": "codex/price-action-forward-observation",
+  "base_commit": "15af452",
+  "manifest": {
+    "path": "docs/research/price_action_forward/forward_manifest.json",
+    "t0": "2026-10-14T04:38:01.680419Z",
+    "manifest_hash": "fed969b18a9be3164603b1e57468f75be0a1362cb4ffe62c2cd6f4664653583b"
+  },
+  "activation": {
+    "status": "NOT_ACTIVATED",
+    "reason": "read-only MT5 bridge health preflight failed closed",
+    "bridge": "http://127.0.0.1:22347/mcp",
+    "error": "BridgeTransportError: <urlopen error [Errno 61] Connection refused>",
+    "healthy_universe": [],
+    "first_live_candle": null,
+    "first_live_evaluation": null
+  },
+  "scope": {
+    "strategies": [
+      "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1",
+      "PRICE_ACTION_ENGULFING_CONTINUATION@V1"
+    ],
+    "roles": {"context": "H1", "execution": "M15"},
+    "outcomes": "shared-research-outcome-resolver-v1 only; no max hold; open/unresolved retained separately",
+    "costs": "gross/reference only; no spread, commission, slippage, or net P&L",
+    "minimum_review_sample_per_strategy": 100,
+    "window_days": 30
+  },
+  "checks": {
+    "order_isolation": "PASS",
+    "normalization_gap_incomplete_duplicate": "PASS",
+    "restart_idempotency": "PASS",
+    "prefix_invariance": "PASS",
+    "frozen_evaluator_tests": "PASS",
+    "live_processing": "NOT_RUN",
+    "durable_live_records": "NOT_RUN"
+  },
+  "limitations": [
+    "No live candle, setup, proposal, accepted entry, or theoretical outcome can be reported until the read-only bridge is available.",
+    "Historical availability/revision timestamps are not inferred by this observer; only source timestamps and observed-at timestamps are persisted.",
+    "A first snapshot is labeled reconstructed/warm-up and cannot generate a post-T0 entry."
+  ],
+  "rollback": {
+    "stop": "Do not start the observer; if started later, terminate its dedicated PID and remove only docs/research/price_action_forward/state/.",
+    "production_impact": "none; no deployment, migration, signal, outbox, or execution writes were performed"
+  }
+}
