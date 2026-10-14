@@ -1,0 +1,799 @@
+{
+  "adapter_version": "price-action-research-entry-adapter-v1",
+  "by_strategy": {
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1": {
+      "entry_count": 65,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.3614671524391358,
+        "gross_r_denominator": 61,
+        "holding_time_minutes_mean": 107.70491803278688,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 61,
+        "maximum_drawdown_r": 22.875583255309163,
+        "profit_factor": 0.5500102796165861,
+        "sl_count": 49,
+        "tp_count": 12,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.19672131147540983,
+        "win_rate_denominator": 61,
+        "win_rate_numerator": 12
+      },
+      "status_counts": {
+        "DATA_GAP_UNRESOLVED": 1,
+        "OPEN_AT_DATASET_END": 3,
+        "SL": 49,
+        "TP": 12
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1": {
+      "entry_count": 404,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.017937611743000632,
+        "gross_r_denominator": 401,
+        "holding_time_minutes_mean": 108.29177057356608,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 401,
+        "maximum_drawdown_r": 53.57013550682579,
+        "profit_factor": 0.9760538614046026,
+        "sl_count": 299,
+        "tp_count": 102,
+        "valuation_uncertain_count": 2,
+        "win_rate": 0.2543640897755611,
+        "win_rate_denominator": 401,
+        "win_rate_numerator": 102
+      },
+      "status_counts": {
+        "DATA_GAP_UNRESOLVED": 2,
+        "OPEN_AT_DATASET_END": 1,
+        "SL": 299,
+        "TP": 102
+      }
+    }
+  },
+  "by_strategy_instrument": {
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|AUDJPY": {
+      "entry_count": 2,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -1.0,
+        "gross_r_denominator": 2,
+        "holding_time_minutes_mean": 150.0,
+        "holding_time_minutes_median": 150.0,
+        "known_outcome_count": 2,
+        "maximum_drawdown_r": 2.0,
+        "profit_factor": 0.0,
+        "sl_count": 2,
+        "tp_count": 0,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.0,
+        "win_rate_denominator": 2,
+        "win_rate_numerator": 0
+      },
+      "status_counts": {
+        "SL": 2
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|AUDUSD": {
+      "entry_count": 6,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.23999999999993343,
+        "gross_r_denominator": 5,
+        "holding_time_minutes_mean": 54.0,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 5,
+        "maximum_drawdown_r": 3.0,
+        "profit_factor": 0.7000000000000832,
+        "sl_count": 4,
+        "tp_count": 1,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.2,
+        "win_rate_denominator": 5,
+        "win_rate_numerator": 1
+      },
+      "status_counts": {
+        "DATA_GAP_UNRESOLVED": 1,
+        "SL": 4,
+        "TP": 1
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|CADJPY": {
+      "entry_count": 4,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -1.0,
+        "gross_r_denominator": 4,
+        "holding_time_minutes_mean": 52.5,
+        "holding_time_minutes_median": 30.0,
+        "known_outcome_count": 4,
+        "maximum_drawdown_r": 4.0,
+        "profit_factor": 0.0,
+        "sl_count": 4,
+        "tp_count": 0,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.0,
+        "win_rate_denominator": 4,
+        "win_rate_numerator": 0
+      },
+      "status_counts": {
+        "SL": 4
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|CHFJPY": {
+      "entry_count": 6,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.5868343917925785,
+        "gross_r_denominator": 6,
+        "holding_time_minutes_mean": 80.0,
+        "holding_time_minutes_median": 67.5,
+        "known_outcome_count": 6,
+        "maximum_drawdown_r": 3.0,
+        "profit_factor": 2.173668783585157,
+        "sl_count": 3,
+        "tp_count": 3,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.5,
+        "win_rate_denominator": 6,
+        "win_rate_numerator": 3
+      },
+      "status_counts": {
+        "SL": 3,
+        "TP": 3
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURGBP": {
+      "entry_count": 6,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.3999999999998766,
+        "gross_r_denominator": 5,
+        "holding_time_minutes_mean": 30.0,
+        "holding_time_minutes_median": 30.0,
+        "known_outcome_count": 5,
+        "maximum_drawdown_r": 2.0,
+        "profit_factor": 0.5000000000001542,
+        "sl_count": 4,
+        "tp_count": 1,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.2,
+        "win_rate_denominator": 5,
+        "win_rate_numerator": 1
+      },
+      "status_counts": {
+        "OPEN_AT_DATASET_END": 1,
+        "SL": 4,
+        "TP": 1
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURJPY": {
+      "entry_count": 3,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -1.0,
+        "gross_r_denominator": 2,
+        "holding_time_minutes_mean": 105.0,
+        "holding_time_minutes_median": 105.0,
+        "known_outcome_count": 2,
+        "maximum_drawdown_r": 2.0,
+        "profit_factor": 0.0,
+        "sl_count": 2,
+        "tp_count": 0,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.0,
+        "win_rate_denominator": 2,
+        "win_rate_numerator": 0
+      },
+      "status_counts": {
+        "OPEN_AT_DATASET_END": 1,
+        "SL": 2
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURUSD": {
+      "entry_count": 6,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -1.0,
+        "gross_r_denominator": 5,
+        "holding_time_minutes_mean": 66.0,
+        "holding_time_minutes_median": 30.0,
+        "known_outcome_count": 5,
+        "maximum_drawdown_r": 5.0,
+        "profit_factor": 0.0,
+        "sl_count": 5,
+        "tp_count": 0,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.0,
+        "win_rate_denominator": 5,
+        "win_rate_numerator": 0
+      },
+      "status_counts": {
+        "OPEN_AT_DATASET_END": 1,
+        "SL": 5
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPAUD": {
+      "entry_count": 1,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -1.0,
+        "gross_r_denominator": 1,
+        "holding_time_minutes_mean": 15.0,
+        "holding_time_minutes_median": 15.0,
+        "known_outcome_count": 1,
+        "maximum_drawdown_r": 1.0,
+        "profit_factor": 0.0,
+        "sl_count": 1,
+        "tp_count": 0,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.0,
+        "win_rate_denominator": 1,
+        "win_rate_numerator": 0
+      },
+      "status_counts": {
+        "SL": 1
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPCAD": {
+      "entry_count": 2,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -1.0,
+        "gross_r_denominator": 2,
+        "holding_time_minutes_mean": 22.5,
+        "holding_time_minutes_median": 22.5,
+        "known_outcome_count": 2,
+        "maximum_drawdown_r": 2.0,
+        "profit_factor": 0.0,
+        "sl_count": 2,
+        "tp_count": 0,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.0,
+        "win_rate_denominator": 2,
+        "win_rate_numerator": 0
+      },
+      "status_counts": {
+        "SL": 2
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPJPY": {
+      "entry_count": 2,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -1.0,
+        "gross_r_denominator": 2,
+        "holding_time_minutes_mean": 67.5,
+        "holding_time_minutes_median": 67.5,
+        "known_outcome_count": 2,
+        "maximum_drawdown_r": 2.0,
+        "profit_factor": 0.0,
+        "sl_count": 2,
+        "tp_count": 0,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.0,
+        "win_rate_denominator": 2,
+        "win_rate_numerator": 0
+      },
+      "status_counts": {
+        "SL": 2
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPUSD": {
+      "entry_count": 2,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.25,
+        "gross_r_denominator": 2,
+        "holding_time_minutes_mean": 255.0,
+        "holding_time_minutes_median": 255.0,
+        "known_outcome_count": 2,
+        "maximum_drawdown_r": 1.0,
+        "profit_factor": 1.5,
+        "sl_count": 1,
+        "tp_count": 1,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.5,
+        "win_rate_denominator": 2,
+        "win_rate_numerator": 1
+      },
+      "status_counts": {
+        "SL": 1,
+        "TP": 1
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|NZDUSD": {
+      "entry_count": 8,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.6477272727274104,
+        "gross_r_denominator": 8,
+        "holding_time_minutes_mean": 136.875,
+        "holding_time_minutes_median": 165.0,
+        "known_outcome_count": 8,
+        "maximum_drawdown_r": 5.181818181819283,
+        "profit_factor": 0.25974025974010245,
+        "sl_count": 7,
+        "tp_count": 1,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.125,
+        "win_rate_denominator": 8,
+        "win_rate_numerator": 1
+      },
+      "status_counts": {
+        "SL": 7,
+        "TP": 1
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDCAD": {
+      "entry_count": 5,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.23188405797086448,
+        "gross_r_denominator": 5,
+        "holding_time_minutes_mean": 60.0,
+        "holding_time_minutes_median": 15.0,
+        "known_outcome_count": 5,
+        "maximum_drawdown_r": 2.0,
+        "profit_factor": 1.386473429951441,
+        "sl_count": 3,
+        "tp_count": 2,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.4,
+        "win_rate_denominator": 5,
+        "win_rate_numerator": 2
+      },
+      "status_counts": {
+        "SL": 3,
+        "TP": 2
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDCHF": {
+      "entry_count": 7,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.3061224489797213,
+        "gross_r_denominator": 7,
+        "holding_time_minutes_mean": 248.57142857142858,
+        "holding_time_minutes_median": 105.0,
+        "known_outcome_count": 7,
+        "maximum_drawdown_r": 5.0,
+        "profit_factor": 0.6428571428569918,
+        "sl_count": 6,
+        "tp_count": 1,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.14285714285714285,
+        "win_rate_denominator": 7,
+        "win_rate_numerator": 1
+      },
+      "status_counts": {
+        "SL": 6,
+        "TP": 1
+      }
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDJPY": {
+      "entry_count": 5,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.25895047705586116,
+        "gross_r_denominator": 5,
+        "holding_time_minutes_mean": 156.0,
+        "holding_time_minutes_median": 165.0,
+        "known_outcome_count": 5,
+        "maximum_drawdown_r": 2.0,
+        "profit_factor": 1.4315841284264355,
+        "sl_count": 3,
+        "tp_count": 2,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.4,
+        "win_rate_denominator": 5,
+        "win_rate_numerator": 2
+      },
+      "status_counts": {
+        "SL": 3,
+        "TP": 2
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|AUDJPY": {
+      "entry_count": 24,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.5080780161520583,
+        "gross_r_denominator": 24,
+        "holding_time_minutes_mean": 171.25,
+        "holding_time_minutes_median": 52.5,
+        "known_outcome_count": 24,
+        "maximum_drawdown_r": 5.885714285714135,
+        "profit_factor": 1.812924825843293,
+        "sl_count": 15,
+        "tp_count": 9,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.375,
+        "win_rate_denominator": 24,
+        "win_rate_numerator": 9
+      },
+      "status_counts": {
+        "SL": 15,
+        "TP": 9
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|AUDUSD": {
+      "entry_count": 33,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.4738977105909531,
+        "gross_r_denominator": 33,
+        "holding_time_minutes_mean": 120.0,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 33,
+        "maximum_drawdown_r": 6.0,
+        "profit_factor": 1.7819312224750725,
+        "sl_count": 20,
+        "tp_count": 13,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.3939393939393939,
+        "win_rate_denominator": 33,
+        "win_rate_numerator": 13
+      },
+      "status_counts": {
+        "SL": 20,
+        "TP": 13
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|CADJPY": {
+      "entry_count": 29,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.29861534278491486,
+        "gross_r_denominator": 29,
+        "holding_time_minutes_mean": 97.75862068965517,
+        "holding_time_minutes_median": 60.0,
+        "known_outcome_count": 29,
+        "maximum_drawdown_r": 7.001560758082437,
+        "profit_factor": 1.4557813126717123,
+        "sl_count": 19,
+        "tp_count": 10,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.3448275862068966,
+        "win_rate_denominator": 29,
+        "win_rate_numerator": 10
+      },
+      "status_counts": {
+        "SL": 19,
+        "TP": 10
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|CHFJPY": {
+      "entry_count": 17,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.05607406714651796,
+        "gross_r_denominator": 17,
+        "holding_time_minutes_mean": 71.47058823529412,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 17,
+        "maximum_drawdown_r": 6.0,
+        "profit_factor": 1.0733276262685236,
+        "sl_count": 13,
+        "tp_count": 4,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.23529411764705882,
+        "win_rate_denominator": 17,
+        "win_rate_numerator": 4
+      },
+      "status_counts": {
+        "SL": 13,
+        "TP": 4
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|EURGBP": {
+      "entry_count": 32,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.2689302884616659,
+        "gross_r_denominator": 32,
+        "holding_time_minutes_mean": 89.53125,
+        "holding_time_minutes_median": 75.0,
+        "known_outcome_count": 32,
+        "maximum_drawdown_r": 9.272435897440511,
+        "profit_factor": 0.6557692307690677,
+        "sl_count": 25,
+        "tp_count": 7,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.21875,
+        "win_rate_denominator": 32,
+        "win_rate_numerator": 7
+      },
+      "status_counts": {
+        "SL": 25,
+        "TP": 7
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|EURJPY": {
+      "entry_count": 16,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.20658838713569,
+        "gross_r_denominator": 16,
+        "holding_time_minutes_mean": 108.75,
+        "holding_time_minutes_median": 52.5,
+        "known_outcome_count": 16,
+        "maximum_drawdown_r": 5.0,
+        "profit_factor": 1.330541419417104,
+        "sl_count": 10,
+        "tp_count": 6,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.375,
+        "win_rate_denominator": 16,
+        "win_rate_numerator": 6
+      },
+      "status_counts": {
+        "SL": 10,
+        "TP": 6
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|EURUSD": {
+      "entry_count": 29,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.45524904214567646,
+        "gross_r_denominator": 29,
+        "holding_time_minutes_mean": 58.96551724137931,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 29,
+        "maximum_drawdown_r": 14.222222222224753,
+        "profit_factor": 0.44990740740730756,
+        "sl_count": 24,
+        "tp_count": 5,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.1724137931034483,
+        "win_rate_denominator": 29,
+        "win_rate_numerator": 5
+      },
+      "status_counts": {
+        "SL": 24,
+        "TP": 5
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|GBPAUD": {
+      "entry_count": 25,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.37610474631747537,
+        "gross_r_denominator": 25,
+        "holding_time_minutes_mean": 79.8,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 25,
+        "maximum_drawdown_r": 13.787234042553202,
+        "profit_factor": 0.5522562543839579,
+        "sl_count": 21,
+        "tp_count": 4,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.16,
+        "win_rate_denominator": 25,
+        "win_rate_numerator": 4
+      },
+      "status_counts": {
+        "SL": 21,
+        "TP": 4
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|GBPCAD": {
+      "entry_count": 29,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.27370924042598527,
+        "gross_r_denominator": 29,
+        "holding_time_minutes_mean": 93.10344827586206,
+        "holding_time_minutes_median": 60.0,
+        "known_outcome_count": 29,
+        "maximum_drawdown_r": 19.26338361431461,
+        "profit_factor": 0.6548883490281056,
+        "sl_count": 23,
+        "tp_count": 6,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.20689655172413793,
+        "win_rate_denominator": 29,
+        "win_rate_numerator": 6
+      },
+      "status_counts": {
+        "SL": 23,
+        "TP": 6
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|GBPJPY": {
+      "entry_count": 22,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.466715051058762,
+        "gross_r_denominator": 22,
+        "holding_time_minutes_mean": 101.5909090909091,
+        "holding_time_minutes_median": 60.0,
+        "known_outcome_count": 22,
+        "maximum_drawdown_r": 10.267731123292764,
+        "profit_factor": 0.4295704931504021,
+        "sl_count": 18,
+        "tp_count": 4,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.18181818181818182,
+        "win_rate_denominator": 22,
+        "win_rate_numerator": 4
+      },
+      "status_counts": {
+        "SL": 18,
+        "TP": 4
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|GBPUSD": {
+      "entry_count": 29,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.38308637955437447,
+        "gross_r_denominator": 26,
+        "holding_time_minutes_mean": 124.61538461538461,
+        "holding_time_minutes_median": 30.0,
+        "known_outcome_count": 26,
+        "maximum_drawdown_r": 10.0,
+        "profit_factor": 1.5242234667586176,
+        "sl_count": 19,
+        "tp_count": 7,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.2692307692307692,
+        "win_rate_denominator": 26,
+        "win_rate_numerator": 7
+      },
+      "status_counts": {
+        "DATA_GAP_UNRESOLVED": 2,
+        "OPEN_AT_DATASET_END": 1,
+        "SL": 19,
+        "TP": 7
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|NZDUSD": {
+      "entry_count": 36,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.2889264823702031,
+        "gross_r_denominator": 36,
+        "holding_time_minutes_mean": 98.75,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 36,
+        "maximum_drawdown_r": 12.365853658536796,
+        "profit_factor": 1.3714769059045469,
+        "sl_count": 28,
+        "tp_count": 8,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.2222222222222222,
+        "win_rate_denominator": 36,
+        "win_rate_numerator": 8
+      },
+      "status_counts": {
+        "SL": 28,
+        "TP": 8
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|USDCAD": {
+      "entry_count": 30,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.10772930943564904,
+        "gross_r_denominator": 30,
+        "holding_time_minutes_mean": 75.5,
+        "holding_time_minutes_median": 60.0,
+        "known_outcome_count": 30,
+        "maximum_drawdown_r": 11.299999999999777,
+        "profit_factor": 1.146903603775885,
+        "sl_count": 22,
+        "tp_count": 8,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.26666666666666666,
+        "win_rate_denominator": 30,
+        "win_rate_numerator": 8
+      },
+      "status_counts": {
+        "SL": 22,
+        "TP": 8
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|USDCHF": {
+      "entry_count": 34,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": -0.7138627079959353,
+        "gross_r_denominator": 34,
+        "holding_time_minutes_mean": 226.3235294117647,
+        "holding_time_minutes_median": 45.0,
+        "known_outcome_count": 34,
+        "maximum_drawdown_r": 26.116159658068646,
+        "profit_factor": 0.22657739157678192,
+        "sl_count": 30,
+        "tp_count": 4,
+        "valuation_uncertain_count": 2,
+        "win_rate": 0.11764705882352941,
+        "win_rate_denominator": 34,
+        "win_rate_numerator": 4
+      },
+      "status_counts": {
+        "SL": 30,
+        "TP": 4
+      }
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|USDJPY": {
+      "entry_count": 19,
+      "metrics_resolved_known_outcomes": {
+        "drawdown_order": "entry-chronological resolved-only R sequence; overlapping episodes are not netted",
+        "drawdown_scope": "independent theoretical episode diagnostic, not account equity",
+        "expectancy_r": 0.11314554416389222,
+        "gross_r_denominator": 19,
+        "holding_time_minutes_mean": 68.6842105263158,
+        "holding_time_minutes_median": 30.0,
+        "known_outcome_count": 19,
+        "maximum_drawdown_r": 7.0,
+        "profit_factor": 1.1791471115928294,
+        "sl_count": 12,
+        "tp_count": 7,
+        "valuation_uncertain_count": 0,
+        "win_rate": 0.3684210526315789,
+        "win_rate_denominator": 19,
+        "win_rate_numerator": 7
+      },
+      "status_counts": {
+        "SL": 12,
+        "TP": 7
+      }
+    }
+  },
+  "input_entry_count": 469,
+  "output_outcome_count": 469,
+  "policy_version": "price-action-research-outcome-policy-v1",
+  "protocol": {
+    "cost_basis": "gross reference-price; no bid/ask/commission/slippage",
+    "dataset_end": "no future price inferred",
+    "entry_price_basis": "accepted next-open reference price",
+    "gap_policy": "barrier at reopening open can resolve with uncertain open valuation; otherwise DATA_GAP_UNRESOLVED",
+    "max_hold": "none; OPEN_AT_DATASET_END is explicit",
+    "optimization": false,
+    "same_candle": "AMBIGUOUS_INTRABAR without lower-timeframe evidence"
+  },
+  "resolution_fingerprint": "1c7b5031df12356c4a62eb28925370e8e7454b11d40be854f803c7cc2a774dc6",
+  "resolver_version": "shared-research-outcome-resolver-v1",
+  "schema": "price-action-outcome-resolution-report-v1",
+  "status_counts": {
+    "DATA_GAP_UNRESOLVED": 3,
+    "OPEN_AT_DATASET_END": 4,
+    "SL": 348,
+    "TP": 114
+  }
+}

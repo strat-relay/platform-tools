@@ -240,6 +240,21 @@ def main() -> None:
         for name in ("gap_breached", "invalid_entry_geometry", "actual_entry_r_below_minimum"):
             if diagnostics.get(name):
                 cancellation_subtypes[(episode["strategy_version"], episode["instrument"], name)] += 1
+    engulfing_gap_semantics = {}
+    for instrument in sorted({episode["instrument"] for episode in all_episodes
+                               if episode["strategy_version"] == ENGULF_STRATEGY and episode["status"] == "CANCELLED"}):
+        rows = [episode for episode in all_episodes if episode["strategy_version"] == ENGULF_STRATEGY
+                and episode["instrument"] == instrument and episode["status"] == "CANCELLED"]
+        deltas = [abs(float(row["entry_open"]) - float(row["entry_reference"])) for row in rows]
+        anchor = [row["cancellation_diagnostics"] for row in rows]
+        engulfing_gap_semantics[instrument] = {"cancellation_denominator": len(rows),
+            "actual_close_to_open_gap_count": sum(delta > 0 for delta in deltas),
+            "actual_close_to_open_gap_abs_mean": sum(deltas) / len(deltas) if deltas else None,
+            "actual_close_to_open_gap_abs_max": max(deltas) if deltas else None,
+            "structural_anchor_breach_count": sum(item.get("gap_breached", False) for item in anchor),
+            "structural_anchor_distance_abs_mean": sum(abs(float(item["measured_gap_against_level"])) for item in anchor if item.get("measured_gap_against_level") is not None) / len(anchor) if anchor else None,
+            "threshold": "8 ticks from structural zone; price units = tick_size * 8",
+            "anchor": "latest confirmed structural support for LONG or resistance for SHORT"}
     representative = {}
     for episode in all_episodes:
         if episode["status"] != "CANCELLED":
@@ -260,6 +275,16 @@ def main() -> None:
                   f"{strategy}|{instrument}|{reason}": count for (strategy, instrument, reason), count in sorted(cancellation_counts.items())},
               "cancellation_subtypes_by_strategy_instrument": {
                   f"{strategy}|{instrument}|{subtype}": count for (strategy, instrument, subtype), count in sorted(cancellation_subtypes.items())},
+              "engulfing_gap_semantics_by_instrument": engulfing_gap_semantics,
+              "engulfing_gap_semantics": {
+                  "formula": "LONG cancels when next_open < structural_zone_price - 8*tick_size; SHORT cancels when next_open > structural_zone_price + 8*tick_size",
+                  "anchor": "latest confirmed structural support/resistance zone, not confirmation close and not proposed entry reference",
+                  "threshold_units": "price units derived from 8 ticks",
+                  "baseline_entry_gap_cancelled_count": sum(1 for episode in all_episodes if episode["strategy_version"] == ENGULF_STRATEGY and episode.get("reason") == "ENTRY_GAP_CANCELLED"),
+                  "structural_anchor_breach_count": sum(1 for episode in all_episodes if episode["strategy_version"] == ENGULF_STRATEGY and episode.get("cancellation_diagnostics", {}).get("gap_breached")),
+                  "nonzero_proposal_reference_to_next_open_count": sum(1 for episode in all_episodes if episode["strategy_version"] == ENGULF_STRATEGY and episode["status"] == "CANCELLED" and episode.get("entry_open") != episode.get("entry_reference")),
+                  "interpretation": "The baseline gap reason is an anchor-distance/geometry gate; only the proposal-reference delta is a close-to-open movement diagnostic."
+              },
               "representative_cancellations": {f"{strategy}|{reason}": value for (strategy, reason), value in representative.items()},
               "resolver": resolver_audit(), "outcome_metrics": {"status": "BLOCKED_RESOLVER_SEMANTICS",
                   "accepted_entries": sum(ledger["counts"]["accepted_research_entries"] for ledger in ledgers),
