@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
@@ -34,7 +35,7 @@ from strategy_backtest.price_action_sr_retest import (
     strategy_version as sr_strategy_version,
 )
 
-DEFAULT_SOURCE = Path("/Users/caleb/mt5-native-bridge/artifacts/research/multitimeframe_structure_sniper/paged_native_full")
+DEFAULT_SOURCE = Path(os.environ.get("PRICE_ACTION_HISTORICAL_SOURCE_ROOT", "artifacts/research/multitimeframe_structure_sniper/paged_native_full"))
 DEFAULT_OUTPUT = Path("docs/research/price_action_historical")
 TIMEFRAME_SECONDS = {"H1": 3600, "M15": 900}
 WARMUP_H1_BARS = 120
