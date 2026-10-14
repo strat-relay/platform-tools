@@ -191,6 +191,22 @@ class KojoStructureReclaimV3Adapter:
                     if new_m15:
                         m15_watermark = max(m15_watermark, max(int(b["time"]) for b in new_m15))
 
+                    from observability.strategy_audit import audit as _audit
+                    _audit(
+                        "kojo_market_replay",
+                        runner="signal-orchestrator",
+                        strategy_id=STRATEGY_ID,
+                        instance_id=self.instance_id,
+                        canonical_instrument=canonical_instrument,
+                        new_h1_bars=len(new_h1),
+                        new_m15_bars=len(new_m15),
+                        emitted_signals=sum(1 for _, instrument in entry_signals
+                                            if instrument == canonical_instrument),
+                        h1_watermark=h1_watermark,
+                        m15_watermark=m15_watermark,
+                        source="redis_canonical_cache",
+                    )
+
                     # ── Live entry path ────────────────────────────────────────
                     # If any setup just entered CONFIRMED_PENDING_NEXT_OPEN, resolve
                     # it immediately using the current broker quote rather than waiting

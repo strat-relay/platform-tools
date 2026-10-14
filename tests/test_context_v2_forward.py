@@ -10,6 +10,16 @@ from orchestration.adapters.context_structure_retrace import ContextStructureRet
 
 
 class ContextV2ForwardTests(unittest.TestCase):
+    def test_v2_normalizes_legacy_checkpoint_without_replacing_state(self):
+        state = {"setups": {"existing": {"status": "WAITING_FOR_RETRACE"}},
+                 "counters": {"setups": 1}}
+        normalized = v2._normalize_state(state)
+        self.assertIs(normalized, state)
+        self.assertIn("existing", normalized["setups"])
+        self.assertEqual(normalized["positions"], {})
+        self.assertEqual(normalized["counters"]["setups"], 1)
+        self.assertEqual(normalized["counters"]["positions"], 0)
+
     def test_v2_has_independent_identity_and_state_paths(self):
         v1_fingerprint = v2._v1.FROZEN_DECISION_CODE_HASH
         with tempfile.TemporaryDirectory() as directory:
