@@ -24,6 +24,7 @@ from postgres.db import connect
 from research.price_action_forward_observer import MANIFEST, Observer, UNIVERSE, now_iso
 
 REQUIRED_HISTORY = 320
+CACHE_REPLAY_VERSION = "price-action-cache-causal-v1"
 
 
 def _json(value: Any) -> str:
@@ -86,6 +87,19 @@ def _read_cached_symbol(reader: CanonicalMarketDataReader, canonical: str, broke
     }
 
 
+def _causal_bars(snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Expose only completed H1 bars whose close is covered by completed M15 data.
+
+    The cache can observe a newly completed H1 candle before the final constituent M15
+    candle is visible. Holding that H1 row until the lower timeframe catches up prevents
+    a later M15 increment from arriving behind an already-consumed higher-timeframe event.
+    """
+    m15 = list(snapshot["M15"])
+    latest_m15_close = int(m15[-1]["time"]) + 900 if m15 else -1
+    h1 = [row for row in snapshot["H1"] if int(row["time"]) + 3600 <= latest_m15_close]
+    return h1, m15
+
+
 class PostgresLedger:
     def __init__(self, instance_id: str):
         self.instance_id = instance_id
@@ -128,6 +142,18 @@ def run_once() -> dict[str, Any]:
             observer = Observer(Path(staging), manifest, strategy_filter=strategy)
             if stored:
                 observer.state = stored
+            if observer.state.get("runtime", {}).get("cache_replay_version") != CACHE_REPLAY_VERSION:
+                # The first cache-backed cycle must not inherit a checkpoint created by the
+                # direct-bridge path: that path could consume H1 before the matching M15 tail
+                # was available. Rebuild only the evaluator cursor/bars for this strategy from
+                # the shared cache; durable evaluation/entry rows remain append-only and
+                # event identity suppression remains authoritative.
+                for canonical in symbols:
+                    observer.state.get("cursors", {}).pop(canonical, None)
+                    observer.state.get("bars", {}).pop(canonical, None)
+                    observer.state.get("health", {}).pop(canonical, None)
+                    observer.state.get("evaluators", {}).pop(f"{strategy}|{canonical}", None)
+                observer.state["runtime"] = {"cache_replay_version": CACHE_REPLAY_VERSION}
             observer.state["status"] = "RUNNING"
             before = observer.state.get("events_count", 0)
             results = []
@@ -137,7 +163,7 @@ def run_once() -> dict[str, Any]:
                 try:
                     snapshot = _read_cached_symbol(reader, canonical, broker_symbol)
                     info, quote = snapshot["symbol_info"], snapshot["quote"]
-                    h1, m15 = snapshot["H1"], snapshot["M15"]
+                    h1, m15 = _causal_bars(snapshot)
                     if not info or info.get("error") or not quote or quote.get("error"):
                         raise RuntimeError(f"market metadata/quote unavailable for {canonical}")
                     result = observer.ingest(canonical, broker_symbol, h1, m15,
@@ -168,6 +194,7 @@ def run_once() -> dict[str, Any]:
                                           "instrument_count": len(symbols),
                                           "degraded_instrument_count": len(symbols) - successful,
                                           "market_data_source": "REDIS_CANONICAL_CACHE",
+                                          "cache_replay_version": CACHE_REPLAY_VERSION,
                                           "bridge_requests": 0,
                                           "overlapping_cycles": 0}
             observer.state["events_count"] = before + len(emitted)

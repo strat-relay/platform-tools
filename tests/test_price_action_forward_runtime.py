@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from research.price_action_forward_runtime import _read_cached_symbol
+from research.price_action_forward_runtime import _causal_bars, _read_cached_symbol
 
 
 def _bars(start: int, count: int, step: int):
@@ -47,3 +47,13 @@ def test_runtime_source_has_no_direct_bridge_client():
     source = Path("research/price_action_forward_runtime.py").read_text()
     assert "Mt5ReadClient" not in source
     assert '"bridge_requests": 0' in source
+
+
+def test_h1_waits_until_completed_m15_constituents_are_available():
+    snapshot = {
+        "H1": [{"time": 3_600}, {"time": 7_200}],
+        "M15": [{"time": 6_300}, {"time": 7_200}],
+    }
+    h1, m15 = _causal_bars(snapshot)
+    assert [row["time"] for row in h1] == [3_600]
+    assert [row["time"] for row in m15] == [6_300, 7_200]
