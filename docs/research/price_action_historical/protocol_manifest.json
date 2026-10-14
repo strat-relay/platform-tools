@@ -1,0 +1,99 @@
+{
+  "cost_assumption": "not applied; no executable entry or broker-realized outcome",
+  "dataset_manifest_fingerprint": "13e31d2c866321d5cb2fd2ab4905730a83a14cf1d829179842826ca6ab5411da",
+  "entry_assumption": "research-only next M15 open observation; gap/geometry cancellation is retained",
+  "exposure_label": "retrospective historical evidence; untouched status is unknown",
+  "maximum_hold": "not applicable; outcome resolution blocked",
+  "no_post_performance_exclusions": true,
+  "outcome_policy": "do not construct a competing resolver; report detection/entry replay separately from outcomes",
+  "period": {
+    "common_evaluation_end": 1789765200,
+    "common_evaluation_end_utc": "2026-09-18T21:00:00+00:00",
+    "common_evaluation_start": 1787173200,
+    "common_evaluation_start_utc": "2026-08-19T21:00:00+00:00",
+    "warmup_start": 1786741200,
+    "warmup_start_utc": "2026-08-14T21:00:00+00:00",
+    "selection": "common 30-day calendar tail selected before replay",
+    "warmup_h1_bars": 120,
+    "warmup_m15_bars": 6
+  },
+  "schema": "price-action-research-protocol-freeze-v1",
+  "status": "FROZEN_BEFORE_REPLAY",
+  "strategies": {
+    "engulfing_continuation": {
+      "evaluator": "price-action-engulfing-continuation-v1-evaluator-1",
+      "parameters": {
+        "allow_same_candle_interaction_confirmation": false,
+        "context_timeframe": "H1",
+        "entry_gap_cancel_ticks": 8,
+        "execution_timeframe": "M15",
+        "max_pullback_bars": 6,
+        "minimum_engulfing_body_ticks": 4,
+        "minimum_planned_r": 1.5,
+        "stop_buffer_ticks": 2,
+        "swing_left_bars": 2,
+        "swing_right_bars": 2,
+        "zone_max_age_context_bars": 120,
+        "zone_tolerance_ticks": 8
+      },
+      "primitives": {
+        "price_action.engulfing@1": "strict-body-engulfing-minimum-body",
+        "price_action.zone_interaction@1": "execution-extreme-enters-known-structural-zone",
+        "risk.opposing_target@1": "nearest-known-opposing-level",
+        "risk.structural_stop@1": "pullback-extreme-plus-tick-buffer",
+        "structure.confirmed_swings@1": "strict-left-right-2-confirmed-on-right-close",
+        "structure.sr_levels@1": "confirmed-pivot-price-clusters-nearest-selection",
+        "structure.trend@1": "two-confirmed-higher-highs-and-higher-lows-or-lower-highs-and-lower-lows"
+      },
+      "version": "PRICE_ACTION_ENGULFING_CONTINUATION@V1"
+    },
+    "sr_retest": {
+      "evaluator": "price-action-sr-retest-v1-evaluator-1",
+      "parameters": {
+        "allow_retest_confirmation": false,
+        "break_buffer_ticks": 1,
+        "context_timeframe": "H1",
+        "entry_gap_cancel_ticks": 8,
+        "execution_timeframe": "M15",
+        "level_lookback_context_bars": 80,
+        "level_max_age_context_bars": 120,
+        "level_tolerance_ticks": 8,
+        "max_retest_bars": 4,
+        "minimum_planned_r": 1.5,
+        "rejection_close_location": 0.65,
+        "rejection_min_wick_body_ratio": 1.5,
+        "stop_buffer_ticks": 2,
+        "swing_left_bars": 2,
+        "swing_right_bars": 2
+      },
+      "primitives": {
+        "price_action.close_break@1": "close-beyond-level-with-tick-tolerance",
+        "price_action.engulfing@1": "strict-body-engulfing",
+        "price_action.rejection@1": "close-location-and-wick-ratio",
+        "price_action.retest@1": "subsequent-touch-and-role-hold",
+        "risk.opposing_target@1": "nearest-known-opposing-level",
+        "risk.structural_stop@1": "retest-extreme-plus-tick-buffer",
+        "structure.confirmed_swings@1": "strict-left-right-2-confirmed-on-right-close",
+        "structure.sr_levels@1": "confirmed-pivot-price-clusters-nearest-selection"
+      },
+      "version": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1"
+    }
+  },
+  "universe": [
+    "AUDJPY",
+    "AUDUSD",
+    "CADJPY",
+    "CHFJPY",
+    "EURGBP",
+    "EURJPY",
+    "EURUSD",
+    "GBPAUD",
+    "GBPCAD",
+    "GBPJPY",
+    "GBPUSD",
+    "NZDUSD",
+    "USDCAD",
+    "USDCHF",
+    "USDJPY"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "cost_policy": "GROSS_REFERENCE_PRICE_ONLY; no bid/ask, commission, or slippage adjustment",
+  "dataset_end_policy": "OPEN_AT_DATASET_END unless a supported terminal touch occurs before the last available candle",
+  "dataset_snapshot_id": "price-action-native-mt5-historical-freeze-v1",
+  "entry_policy": "accepted research observation at the next M15 candle open; no fill slippage inferred",
+  "evaluation_interval": {
+    "end": 1789765200,
+    "start": 1787173200
+  },
+  "maximum_hold_policy": "UNSPECIFIED_BY_FROZEN_V1; no time exit is invented",
+  "missing_path_policy": "DATA_GAP_UNRESOLVED; never bridge gaps",
+  "overlap_policy": "per-episode diagnostic only; no account-level portfolio drawdown",
+  "path_start": "first completed M15 candle after the accepted entry open; entry candle is included for touch audit",
+  "policy_hash": "42608097d629af110f8ab7339a367fce222f4808163b84ea7ca741a795a3bc40",
+  "resolver_selection": "blocked pending compatible resolver semantics",
+  "same_candle_policy": "AMBIGUOUS when both stop and target touch and no lower-timeframe evidence exists",
+  "schema": "price-action-theoretical-outcome-protocol-v1",
+  "source_protocol_fingerprint": "see ../protocol_manifest.json",
+  "status": "FROZEN_ADDITIVE_RESEARCH_ONLY",
+  "strategy_versions": [
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1",
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "schema": "stratrelay-price-action-activation-blocker-v1",
+  "observed_at": "2026-10-14T05:28:56Z",
+  "source_commit": "000df1d",
+  "target": {
+    "platform": "StratRelay Kubernetes/GitOps",
+    "gitops_checkout": "/Users/caleb/mt5-native-bridge/stratrelay-gitops-release",
+    "gitops_commit": "3cdfd1793dd94bacf97a70322b8430467ccf41a2",
+    "namespace": "trading",
+    "flux_source": "clusters/production/kustomization.yaml",
+    "expected_market_data_endpoint_from_existing_workloads": "http://10.10.10.100:22347/mcp",
+    "postgres_service": "trading-postgres.trading.svc:5432",
+    "persistence_contract": "platform PostgreSQL plus existing managed-runtime contracts"
+  },
+  "cluster_checks": [
+    {"context": "k3s-bliss", "server": "https://127.0.0.1:6443", "result": "BLOCKED", "evidence": "connection refused"},
+    {"context": "k3d-bliss-local", "server": "https://0.0.0.0:61696", "result": "BLOCKED", "evidence": "connection refused"}
+  ],
+  "gitops_checks": {
+    "namespace": "trading",
+    "flux_kustomization_includes_trading_platform": true,
+    "existing_price_action_observer_workloads": false,
+    "existing_price_action_observer_image": null,
+    "existing_runtime_image_digest": "ghcr.io/strat-relay/trading-platform-runtime@sha256:cbcf6ed3cbeb05e4204f183bbe4e4a5a0d07d575861480c271baa4f7e65fb4fe",
+    "observer_code_in_existing_digest": "not established",
+    "gitops_checkout_state": "behind origin/main by 15 commits; not modified"
+  },
+  "activation": {
+    "status": "NOT_ACTIVATED",
+    "activation_t0": null,
+    "managed_instance_ids": [],
+    "workloads": [],
+    "image_digests": [],
+    "post_t0_evaluations": 0
+  },
+  "why_stop": [
+    "The cluster API is unreachable, so namespace, database, migration ledger, existing workload health, and Flux reconciliation cannot be verified.",
+    "No deployable immutable image containing the Price Action forward observer has been built or published.",
+    "No existing managed observer workload or persistence contract for these evaluators was found in the GitOps desired state.",
+    "Creating a workload or migration without disposable-database validation and in-cluster endpoint verification would violate the requested deployment gates."
+  ],
+  "smallest_required_repair": "Restore authorized Kubernetes API access for the existing StratRelay cluster and provide/reconcile a verified runtime image build path. Then validate the existing PostgreSQL/migration ledger and cluster-reachable market-data endpoint from a disposable observer pod before preparing the additive GitOps workload and registration changes.",
+  "safety": {
+    "broker_orders": false,
+    "execution_routing": false,
+    "production_signal_publication": false,
+    "shared_infrastructure_changed": false,
+    "gitops_checkout_changed": false,
+    "activation_manifest_created": false
+  }
+}

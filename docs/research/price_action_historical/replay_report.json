@@ -1,0 +1,1582 @@
+{
+  "dataset_snapshot_id": "price-action-native-mt5-historical-freeze-v1",
+  "protocol_fingerprint": "e8841d2b76e25e33afb901a483a2183dbbdeb900a63ecef1815094f2709ae7ce",
+  "reports": {
+    "engulfing_continuation": [
+      {
+        "accepted_simulated_entry_count": 2,
+        "cancellation_count": 5,
+        "candidate_identity_count": 7,
+        "candidate_identity_duplicates": 7,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 20,
+            "ENTRY_GAP_CANCELLED": 6,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 2,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 11,
+            "NOT_TREND_DIRECTION_ENGULFING": 194,
+            "NO_CONFIRMED_TREND": 1009,
+            "NO_OPPOSING_TARGET": 1,
+            "PULLBACK_EXPIRED": 1138,
+            "RESEARCH_PROPOSAL_ONLY": 8
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2120,
+        "input_events": 3000,
+        "instrument": "AUDJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 15,
+          "ENTRY_GAP_CANCELLED": 5,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 2,
+          "INSUFFICIENT_PLANNED_R": 10,
+          "NOT_TREND_DIRECTION_ENGULFING": 159,
+          "NO_CONFIRMED_TREND": 789,
+          "NO_OPPOSING_TARGET": 1,
+          "PULLBACK_EXPIRED": 1132,
+          "RESEARCH_PROPOSAL_ONLY": 7
+        },
+        "research_proposal_count": 7,
+        "setup_candidate_count": 7,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 6,
+        "cancellation_count": 8,
+        "candidate_identity_count": 14,
+        "candidate_identity_duplicates": 14,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 53,
+            "ENTRY_GAP_CANCELLED": 8,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 6,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 21,
+            "NOT_TREND_DIRECTION_ENGULFING": 281,
+            "NO_CONFIRMED_TREND": 1073,
+            "NO_OPPOSING_TARGET": 1,
+            "PULLBACK_EXPIRED": 938,
+            "RESEARCH_PROPOSAL_ONLY": 14
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2127,
+        "input_events": 3000,
+        "instrument": "AUDUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 50,
+          "ENTRY_GAP_CANCELLED": 8,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 6,
+          "INSUFFICIENT_PLANNED_R": 21,
+          "NOT_TREND_DIRECTION_ENGULFING": 265,
+          "NO_CONFIRMED_TREND": 857,
+          "NO_OPPOSING_TARGET": 1,
+          "PULLBACK_EXPIRED": 905,
+          "RESEARCH_PROPOSAL_ONLY": 14
+        },
+        "research_proposal_count": 14,
+        "setup_candidate_count": 14,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 4,
+        "cancellation_count": 3,
+        "candidate_identity_count": 7,
+        "candidate_identity_duplicates": 7,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 28,
+            "ENTRY_GAP_CANCELLED": 3,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 4,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 15,
+            "NOT_TREND_DIRECTION_ENGULFING": 220,
+            "NO_CONFIRMED_TREND": 933,
+            "PULLBACK_EXPIRED": 1177,
+            "RESEARCH_PROPOSAL_ONLY": 7
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2119,
+        "input_events": 2999,
+        "instrument": "CADJPY",
+        "measured_events": 2641,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 25,
+          "ENTRY_GAP_CANCELLED": 3,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 4,
+          "INSUFFICIENT_PLANNED_R": 13,
+          "NOT_TREND_DIRECTION_ENGULFING": 198,
+          "NO_CONFIRMED_TREND": 837,
+          "PULLBACK_EXPIRED": 1032,
+          "RESEARCH_PROPOSAL_ONLY": 7
+        },
+        "research_proposal_count": 7,
+        "setup_candidate_count": 7,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 6,
+        "cancellation_count": 10,
+        "candidate_identity_count": 16,
+        "candidate_identity_duplicates": 16,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 32,
+            "ENTRY_GAP_CANCELLED": 10,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 7,
+            "INSUFFICIENT_CONTEXT": 18,
+            "INSUFFICIENT_PLANNED_R": 17,
+            "NOT_TREND_DIRECTION_ENGULFING": 344,
+            "NO_CONFIRMED_TREND": 952,
+            "NO_OPPOSING_TARGET": 1,
+            "PULLBACK_EXPIRED": 1015,
+            "RESEARCH_PROPOSAL_ONLY": 17
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2126,
+        "input_events": 2996,
+        "instrument": "CHFJPY",
+        "measured_events": 2639,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 25,
+          "ENTRY_GAP_CANCELLED": 10,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 6,
+          "INSUFFICIENT_PLANNED_R": 15,
+          "NOT_TREND_DIRECTION_ENGULFING": 311,
+          "NO_CONFIRMED_TREND": 784,
+          "PULLBACK_EXPIRED": 959,
+          "RESEARCH_PROPOSAL_ONLY": 16
+        },
+        "research_proposal_count": 16,
+        "setup_candidate_count": 16,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 357
+      },
+      {
+        "accepted_simulated_entry_count": 6,
+        "cancellation_count": 3,
+        "candidate_identity_count": 9,
+        "candidate_identity_duplicates": 9,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 115,
+            "ENTRY_GAP_CANCELLED": 3,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 7,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_ENTRY_R": 1,
+            "INSUFFICIENT_PLANNED_R": 21,
+            "NOT_TREND_DIRECTION_ENGULFING": 286,
+            "NO_CONFIRMED_TREND": 988,
+            "NO_OPPOSING_TARGET": 2,
+            "PULLBACK_EXPIRED": 958,
+            "RESEARCH_PROPOSAL_ONLY": 11
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2122,
+        "input_events": 3000,
+        "instrument": "EURGBP",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 109,
+          "ENTRY_GAP_CANCELLED": 2,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 6,
+          "INSUFFICIENT_ENTRY_R": 1,
+          "INSUFFICIENT_PLANNED_R": 20,
+          "NOT_TREND_DIRECTION_ENGULFING": 268,
+          "NO_CONFIRMED_TREND": 824,
+          "NO_OPPOSING_TARGET": 2,
+          "PULLBACK_EXPIRED": 881,
+          "RESEARCH_PROPOSAL_ONLY": 9
+        },
+        "research_proposal_count": 9,
+        "setup_candidate_count": 9,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 3,
+        "cancellation_count": 6,
+        "candidate_identity_count": 9,
+        "candidate_identity_duplicates": 9,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 29,
+            "ENTRY_GAP_CANCELLED": 6,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 3,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 14,
+            "NOT_TREND_DIRECTION_ENGULFING": 251,
+            "NO_CONFIRMED_TREND": 985,
+            "PULLBACK_EXPIRED": 1093,
+            "RESEARCH_PROPOSAL_ONLY": 9
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2122,
+        "input_events": 3000,
+        "instrument": "EURJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 28,
+          "ENTRY_GAP_CANCELLED": 6,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 3,
+          "INSUFFICIENT_PLANNED_R": 13,
+          "NOT_TREND_DIRECTION_ENGULFING": 226,
+          "NO_CONFIRMED_TREND": 829,
+          "PULLBACK_EXPIRED": 1008,
+          "RESEARCH_PROPOSAL_ONLY": 9
+        },
+        "research_proposal_count": 9,
+        "setup_candidate_count": 9,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 6,
+        "cancellation_count": 12,
+        "candidate_identity_count": 18,
+        "candidate_identity_duplicates": 18,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 48,
+            "ENTRY_GAP_CANCELLED": 12,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 6,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 19,
+            "NOT_TREND_DIRECTION_ENGULFING": 292,
+            "NO_CONFIRMED_TREND": 1072,
+            "NO_OPPOSING_TARGET": 1,
+            "PULLBACK_EXPIRED": 931,
+            "RESEARCH_PROPOSAL_ONLY": 18
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2131,
+        "input_events": 3000,
+        "instrument": "EURUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 45,
+          "ENTRY_GAP_CANCELLED": 12,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 6,
+          "INSUFFICIENT_PLANNED_R": 18,
+          "NOT_TREND_DIRECTION_ENGULFING": 278,
+          "NO_CONFIRMED_TREND": 856,
+          "NO_OPPOSING_TARGET": 1,
+          "PULLBACK_EXPIRED": 897,
+          "RESEARCH_PROPOSAL_ONLY": 18
+        },
+        "research_proposal_count": 18,
+        "setup_candidate_count": 18,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 1,
+        "cancellation_count": 4,
+        "candidate_identity_count": 5,
+        "candidate_identity_duplicates": 5,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 20,
+            "ENTRY_GAP_CANCELLED": 4,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 5,
+            "NOT_TREND_DIRECTION_ENGULFING": 215,
+            "NO_CONFIRMED_TREND": 940,
+            "PULLBACK_EXPIRED": 1196,
+            "RESEARCH_PROPOSAL_ONLY": 5
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2118,
+        "input_events": 3000,
+        "instrument": "GBPAUD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 20,
+          "ENTRY_GAP_CANCELLED": 4,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+          "INSUFFICIENT_PLANNED_R": 5,
+          "NOT_TREND_DIRECTION_ENGULFING": 205,
+          "NO_CONFIRMED_TREND": 744,
+          "PULLBACK_EXPIRED": 1134,
+          "RESEARCH_PROPOSAL_ONLY": 5
+        },
+        "research_proposal_count": 5,
+        "setup_candidate_count": 5,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 2,
+        "cancellation_count": 13,
+        "candidate_identity_count": 15,
+        "candidate_identity_duplicates": 15,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 41,
+            "ENTRY_GAP_CANCELLED": 18,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 2,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 25,
+            "NOT_TREND_DIRECTION_ENGULFING": 453,
+            "NO_CONFIRMED_TREND": 957,
+            "NO_OPPOSING_TARGET": 1,
+            "PULLBACK_EXPIRED": 882,
+            "RESEARCH_PROPOSAL_ONLY": 20
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2126,
+        "input_events": 2998,
+        "instrument": "GBPCAD",
+        "measured_events": 2640,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 40,
+          "ENTRY_GAP_CANCELLED": 13,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 2,
+          "INSUFFICIENT_PLANNED_R": 25,
+          "NOT_TREND_DIRECTION_ENGULFING": 382,
+          "NO_CONFIRMED_TREND": 837,
+          "NO_OPPOSING_TARGET": 1,
+          "PULLBACK_EXPIRED": 811,
+          "RESEARCH_PROPOSAL_ONLY": 15
+        },
+        "research_proposal_count": 15,
+        "setup_candidate_count": 15,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 2,
+        "cancellation_count": 4,
+        "candidate_identity_count": 6,
+        "candidate_identity_duplicates": 6,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 30,
+            "ENTRY_GAP_CANCELLED": 6,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 2,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 11,
+            "NOT_TREND_DIRECTION_ENGULFING": 240,
+            "NO_CONFIRMED_TREND": 817,
+            "PULLBACK_EXPIRED": 1275,
+            "RESEARCH_PROPOSAL_ONLY": 8
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2119,
+        "input_events": 3000,
+        "instrument": "GBPJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 23,
+          "ENTRY_GAP_CANCELLED": 4,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 2,
+          "INSUFFICIENT_PLANNED_R": 9,
+          "NOT_TREND_DIRECTION_ENGULFING": 203,
+          "NO_CONFIRMED_TREND": 709,
+          "PULLBACK_EXPIRED": 1163,
+          "RESEARCH_PROPOSAL_ONLY": 6
+        },
+        "research_proposal_count": 6,
+        "setup_candidate_count": 6,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 2,
+        "cancellation_count": 7,
+        "candidate_identity_count": 9,
+        "candidate_identity_duplicates": 9,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 31,
+            "ENTRY_GAP_CANCELLED": 7,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 3,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 21,
+            "NOT_TREND_DIRECTION_ENGULFING": 255,
+            "NO_CONFIRMED_TREND": 1084,
+            "NO_OPPOSING_TARGET": 1,
+            "PULLBACK_EXPIRED": 979,
+            "RESEARCH_PROPOSAL_ONLY": 10
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2122,
+        "input_events": 3000,
+        "instrument": "GBPUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 26,
+          "ENTRY_GAP_CANCELLED": 7,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 2,
+          "INSUFFICIENT_PLANNED_R": 20,
+          "NOT_TREND_DIRECTION_ENGULFING": 223,
+          "NO_CONFIRMED_TREND": 1000,
+          "NO_OPPOSING_TARGET": 1,
+          "PULLBACK_EXPIRED": 834,
+          "RESEARCH_PROPOSAL_ONLY": 9
+        },
+        "research_proposal_count": 9,
+        "setup_candidate_count": 9,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 8,
+        "cancellation_count": 5,
+        "candidate_identity_count": 13,
+        "candidate_identity_duplicates": 13,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 41,
+            "ENTRY_GAP_CANCELLED": 5,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 8,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 14,
+            "NOT_TREND_DIRECTION_ENGULFING": 259,
+            "NO_CONFIRMED_TREND": 956,
+            "PULLBACK_EXPIRED": 1098,
+            "RESEARCH_PROPOSAL_ONLY": 13
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2126,
+        "input_events": 3000,
+        "instrument": "NZDUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 40,
+          "ENTRY_GAP_CANCELLED": 5,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 8,
+          "INSUFFICIENT_PLANNED_R": 13,
+          "NOT_TREND_DIRECTION_ENGULFING": 250,
+          "NO_CONFIRMED_TREND": 792,
+          "PULLBACK_EXPIRED": 1005,
+          "RESEARCH_PROPOSAL_ONLY": 13
+        },
+        "research_proposal_count": 13,
+        "setup_candidate_count": 13,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 5,
+        "cancellation_count": 8,
+        "candidate_identity_count": 13,
+        "candidate_identity_duplicates": 13,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 21,
+            "ENTRY_GAP_CANCELLED": 8,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 6,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 17,
+            "NOT_TREND_DIRECTION_ENGULFING": 257,
+            "NO_CONFIRMED_TREND": 749,
+            "NO_OPPOSING_TARGET": 1,
+            "PULLBACK_EXPIRED": 1322,
+            "RESEARCH_PROPOSAL_ONLY": 14
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2126,
+        "input_events": 3000,
+        "instrument": "USDCAD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 20,
+          "ENTRY_GAP_CANCELLED": 8,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 5,
+          "INSUFFICIENT_PLANNED_R": 16,
+          "NOT_TREND_DIRECTION_ENGULFING": 237,
+          "NO_CONFIRMED_TREND": 621,
+          "NO_OPPOSING_TARGET": 1,
+          "PULLBACK_EXPIRED": 1205,
+          "RESEARCH_PROPOSAL_ONLY": 13
+        },
+        "research_proposal_count": 13,
+        "setup_candidate_count": 13,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 7,
+        "cancellation_count": 5,
+        "candidate_identity_count": 12,
+        "candidate_identity_duplicates": 12,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 43,
+            "ENTRY_GAP_CANCELLED": 7,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 8,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 19,
+            "NOT_TREND_DIRECTION_ENGULFING": 268,
+            "NO_CONFIRMED_TREND": 1129,
+            "NO_OPPOSING_TARGET": 4,
+            "PULLBACK_EXPIRED": 903,
+            "RESEARCH_PROPOSAL_ONLY": 15
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2125,
+        "input_events": 3000,
+        "instrument": "USDCHF",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 41,
+          "ENTRY_GAP_CANCELLED": 5,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 7,
+          "INSUFFICIENT_PLANNED_R": 19,
+          "NOT_TREND_DIRECTION_ENGULFING": 254,
+          "NO_CONFIRMED_TREND": 985,
+          "NO_OPPOSING_TARGET": 4,
+          "PULLBACK_EXPIRED": 798,
+          "RESEARCH_PROPOSAL_ONLY": 12
+        },
+        "research_proposal_count": 12,
+        "setup_candidate_count": 12,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 5,
+        "cancellation_count": 7,
+        "candidate_identity_count": 12,
+        "candidate_identity_duplicates": 12,
+        "diagnostics": {
+          "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+          "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+          "rejection_counts": {
+            "ENGULFING_BODY_TOO_SMALL": 20,
+            "ENTRY_GAP_CANCELLED": 7,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 5,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 12,
+            "NOT_TREND_DIRECTION_ENGULFING": 181,
+            "NO_CONFIRMED_TREND": 812,
+            "PULLBACK_EXPIRED": 1344,
+            "RESEARCH_PROPOSAL_ONLY": 12
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2125,
+        "input_events": 3000,
+        "instrument": "USDJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENGULFING_BODY_TOO_SMALL": 20,
+          "ENTRY_GAP_CANCELLED": 7,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 5,
+          "INSUFFICIENT_PLANNED_R": 12,
+          "NOT_TREND_DIRECTION_ENGULFING": 181,
+          "NO_CONFIRMED_TREND": 724,
+          "PULLBACK_EXPIRED": 1164,
+          "RESEARCH_PROPOSAL_ONLY": 12
+        },
+        "research_proposal_count": 12,
+        "setup_candidate_count": 12,
+        "strategy": "engulfing_continuation",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      }
+    ],
+    "sr_retest": [
+      {
+        "accepted_simulated_entry_count": 24,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 25,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 48,
+            "NO_CONFIRMED_LEVEL": 8,
+            "NO_OPPOSING_TARGET": 1,
+            "NO_SETUP": 2299,
+            "RESEARCH_PROPOSAL_ONLY": 25
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2137,
+        "input_events": 3000,
+        "instrument": "AUDJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 24,
+          "INSUFFICIENT_PLANNED_R": 47,
+          "NO_OPPOSING_TARGET": 1,
+          "NO_SETUP": 2041,
+          "RESEARCH_PROPOSAL_ONLY": 24
+        },
+        "research_proposal_count": 24,
+        "setup_candidate_count": 24,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 33,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 34,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 60,
+            "NO_CONFIRMED_LEVEL": 44,
+            "NO_OPPOSING_TARGET": 9,
+            "NO_SETUP": 2234,
+            "RESEARCH_PROPOSAL_ONLY": 34
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2146,
+        "input_events": 3000,
+        "instrument": "AUDUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 33,
+          "INSUFFICIENT_PLANNED_R": 59,
+          "NO_OPPOSING_TARGET": 8,
+          "NO_SETUP": 2013,
+          "RESEARCH_PROPOSAL_ONLY": 33
+        },
+        "research_proposal_count": 33,
+        "setup_candidate_count": 33,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 29,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 31,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 61,
+            "NO_CONFIRMED_LEVEL": 12,
+            "NO_OPPOSING_TARGET": 2,
+            "NO_SETUP": 2274,
+            "RESEARCH_PROPOSAL_ONLY": 31
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2141,
+        "input_events": 2999,
+        "instrument": "CADJPY",
+        "measured_events": 2641,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 29,
+          "INSUFFICIENT_PLANNED_R": 59,
+          "NO_OPPOSING_TARGET": 2,
+          "NO_SETUP": 2022,
+          "RESEARCH_PROPOSAL_ONLY": 29
+        },
+        "research_proposal_count": 29,
+        "setup_candidate_count": 29,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 17,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 22,
+            "INSUFFICIENT_CONTEXT": 18,
+            "INSUFFICIENT_PLANNED_R": 42,
+            "NO_CONFIRMED_LEVEL": 4,
+            "NO_OPPOSING_TARGET": 5,
+            "NO_SETUP": 2305,
+            "RESEARCH_PROPOSAL_ONLY": 22
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2127,
+        "input_events": 2996,
+        "instrument": "CHFJPY",
+        "measured_events": 2639,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 17,
+          "INSUFFICIENT_PLANNED_R": 38,
+          "NO_OPPOSING_TARGET": 3,
+          "NO_SETUP": 2052,
+          "RESEARCH_PROPOSAL_ONLY": 17
+        },
+        "research_proposal_count": 17,
+        "setup_candidate_count": 17,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 357
+      },
+      {
+        "accepted_simulated_entry_count": 32,
+        "cancellation_count": 1,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_GAP_CANCELLED": 1,
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 35,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 64,
+            "NO_CONFIRMED_LEVEL": 4,
+            "NO_OPPOSING_TARGET": 5,
+            "NO_SETUP": 2272,
+            "RESEARCH_PROPOSAL_ONLY": 36
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2146,
+        "input_events": 3000,
+        "instrument": "EURGBP",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_GAP_CANCELLED": 1,
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 32,
+          "INSUFFICIENT_PLANNED_R": 61,
+          "NO_OPPOSING_TARGET": 5,
+          "NO_SETUP": 2014,
+          "RESEARCH_PROPOSAL_ONLY": 33
+        },
+        "research_proposal_count": 33,
+        "setup_candidate_count": 33,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 16,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 21,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 58,
+            "NO_CONFIRMED_LEVEL": 8,
+            "NO_OPPOSING_TARGET": 3,
+            "NO_SETUP": 2291,
+            "RESEARCH_PROPOSAL_ONLY": 21
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2129,
+        "input_events": 3000,
+        "instrument": "EURJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 16,
+          "INSUFFICIENT_PLANNED_R": 55,
+          "NO_OPPOSING_TARGET": 3,
+          "NO_SETUP": 2039,
+          "RESEARCH_PROPOSAL_ONLY": 16
+        },
+        "research_proposal_count": 16,
+        "setup_candidate_count": 16,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 29,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 29,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 76,
+            "NO_CONFIRMED_LEVEL": 36,
+            "NO_OPPOSING_TARGET": 8,
+            "NO_SETUP": 2232,
+            "RESEARCH_PROPOSAL_ONLY": 29
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2142,
+        "input_events": 3000,
+        "instrument": "EURUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 29,
+          "INSUFFICIENT_PLANNED_R": 76,
+          "NO_OPPOSING_TARGET": 7,
+          "NO_SETUP": 2001,
+          "RESEARCH_PROPOSAL_ONLY": 29
+        },
+        "research_proposal_count": 29,
+        "setup_candidate_count": 29,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 25,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 26,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 54,
+            "NO_OPPOSING_TARGET": 8,
+            "NO_SETUP": 2293,
+            "RESEARCH_PROPOSAL_ONLY": 26
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2138,
+        "input_events": 3000,
+        "instrument": "GBPAUD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 25,
+          "INSUFFICIENT_PLANNED_R": 53,
+          "NO_OPPOSING_TARGET": 8,
+          "NO_SETUP": 2027,
+          "RESEARCH_PROPOSAL_ONLY": 25
+        },
+        "research_proposal_count": 25,
+        "setup_candidate_count": 25,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 29,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 32,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 57,
+            "NO_CONFIRMED_LEVEL": 8,
+            "NO_OPPOSING_TARGET": 7,
+            "NO_SETUP": 2275,
+            "RESEARCH_PROPOSAL_ONLY": 32
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2140,
+        "input_events": 2998,
+        "instrument": "GBPCAD",
+        "measured_events": 2640,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 29,
+          "INSUFFICIENT_PLANNED_R": 57,
+          "NO_OPPOSING_TARGET": 6,
+          "NO_SETUP": 2019,
+          "RESEARCH_PROPOSAL_ONLY": 29
+        },
+        "research_proposal_count": 29,
+        "setup_candidate_count": 29,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 22,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 26,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 55,
+            "NO_CONFIRMED_LEVEL": 4,
+            "NO_OPPOSING_TARGET": 5,
+            "NO_SETUP": 2291,
+            "RESEARCH_PROPOSAL_ONLY": 26
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2135,
+        "input_events": 3000,
+        "instrument": "GBPJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 22,
+          "INSUFFICIENT_PLANNED_R": 52,
+          "NO_OPPOSING_TARGET": 4,
+          "NO_SETUP": 2035,
+          "RESEARCH_PROPOSAL_ONLY": 22
+        },
+        "research_proposal_count": 22,
+        "setup_candidate_count": 22,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 29,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 33,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 45,
+            "NO_CONFIRMED_LEVEL": 8,
+            "NO_OPPOSING_TARGET": 8,
+            "NO_SETUP": 2287,
+            "RESEARCH_PROPOSAL_ONLY": 33
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2142,
+        "input_events": 3000,
+        "instrument": "GBPUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 29,
+          "INSUFFICIENT_PLANNED_R": 42,
+          "NO_OPPOSING_TARGET": 7,
+          "NO_SETUP": 2035,
+          "RESEARCH_PROPOSAL_ONLY": 29
+        },
+        "research_proposal_count": 29,
+        "setup_candidate_count": 29,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 36,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 38,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 42,
+            "NO_CONFIRMED_LEVEL": 8,
+            "NO_OPPOSING_TARGET": 8,
+            "NO_SETUP": 2285,
+            "RESEARCH_PROPOSAL_ONLY": 38
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2149,
+        "input_events": 3000,
+        "instrument": "NZDUSD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 36,
+          "INSUFFICIENT_PLANNED_R": 38,
+          "NO_OPPOSING_TARGET": 7,
+          "NO_SETUP": 2032,
+          "RESEARCH_PROPOSAL_ONLY": 36
+        },
+        "research_proposal_count": 36,
+        "setup_candidate_count": 36,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 30,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 31,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 37,
+            "NO_CONFIRMED_LEVEL": 4,
+            "NO_OPPOSING_TARGET": 16,
+            "NO_SETUP": 2293,
+            "RESEARCH_PROPOSAL_ONLY": 31
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2143,
+        "input_events": 3000,
+        "instrument": "USDCAD",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 30,
+          "INSUFFICIENT_PLANNED_R": 35,
+          "NO_OPPOSING_TARGET": 11,
+          "NO_SETUP": 2037,
+          "RESEARCH_PROPOSAL_ONLY": 30
+        },
+        "research_proposal_count": 30,
+        "setup_candidate_count": 30,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 34,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 45,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 62,
+            "NO_CONFIRMED_LEVEL": 28,
+            "NO_OPPOSING_TARGET": 6,
+            "NO_SETUP": 2240,
+            "RESEARCH_PROPOSAL_ONLY": 45
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2147,
+        "input_events": 3000,
+        "instrument": "USDCHF",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 34,
+          "INSUFFICIENT_PLANNED_R": 56,
+          "NO_OPPOSING_TARGET": 5,
+          "NO_SETUP": 2018,
+          "RESEARCH_PROPOSAL_ONLY": 34
+        },
+        "research_proposal_count": 34,
+        "setup_candidate_count": 34,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      },
+      {
+        "accepted_simulated_entry_count": 19,
+        "cancellation_count": 0,
+        "candidate_identity_count": 0,
+        "candidate_identity_duplicates": 0,
+        "diagnostics": {
+          "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+          "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+          "rejection_counts": {
+            "ENTRY_OBSERVED_RESEARCH_ONLY": 25,
+            "INSUFFICIENT_CONTEXT": 19,
+            "INSUFFICIENT_PLANNED_R": 44,
+            "NO_CONFIRMED_LEVEL": 12,
+            "NO_OPPOSING_TARGET": 6,
+            "NO_SETUP": 2294,
+            "RESEARCH_PROPOSAL_ONLY": 25
+          },
+          "research_only": true
+        },
+        "duplicate_suppression_count": 0,
+        "evaluated_interval": {
+          "end": 1789765200,
+          "end_utc": "2026-09-18T21:00:00+00:00",
+          "start": 1787173200,
+          "start_utc": "2026-08-19T21:00:00+00:00"
+        },
+        "evaluation_count": 2132,
+        "input_events": 3000,
+        "instrument": "USDJPY",
+        "measured_events": 2642,
+        "outcomes": {
+          "closed": 0,
+          "reason": "Evaluators emit no executable EntrySignal; no matching theoretical resolver was invoked.",
+          "status": "BLOCKED",
+          "unresolved": 0
+        },
+        "rejection_counts": {
+          "ENTRY_OBSERVED_RESEARCH_ONLY": 19,
+          "INSUFFICIENT_PLANNED_R": 44,
+          "NO_OPPOSING_TARGET": 5,
+          "NO_SETUP": 2045,
+          "RESEARCH_PROPOSAL_ONLY": 19
+        },
+        "research_proposal_count": 19,
+        "setup_candidate_count": 19,
+        "strategy": "sr_retest",
+        "unresolved_episode_count_at_end": 0,
+        "warmup_events": 358
+      }
+    ]
+  },
+  "reproducibility": {
+    "deterministic_report_fingerprint": "406bae092fb96a5909d9dc82a311bab9811ce81829ce018b7e17a375c94d4fd2",
+    "future_data_policy": "causal event order; completed H1 precedes equal-close M15",
+    "prefix_invariance_check": "implemented by test suite",
+    "strategy_status": "RESEARCH"
+  },
+  "schema": "price-action-historical-replay-report-v1"
+}

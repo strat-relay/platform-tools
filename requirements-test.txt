@@ -1,2 +1,3 @@
 # Test-only: in-process Redis with real Lua scripting, for the atomic reservation tests.
 fakeredis[lua]>=2.23,<3
+pytest>=8,<9

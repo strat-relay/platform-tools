@@ -1,0 +1,333 @@
+{
+  "cancellation_subtypes_by_strategy_instrument": {
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|AUDJPY|gap_breached": 5,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|AUDUSD|gap_breached": 8,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|CADJPY|gap_breached": 3,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|CHFJPY|gap_breached": 10,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURGBP|actual_entry_r_below_minimum": 1,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURGBP|gap_breached": 2,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURJPY|gap_breached": 6,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURUSD|gap_breached": 12,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPAUD|gap_breached": 4,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPCAD|gap_breached": 13,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPCAD|invalid_entry_geometry": 1,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPJPY|gap_breached": 4,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPUSD|gap_breached": 7,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|NZDUSD|gap_breached": 5,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDCAD|gap_breached": 8,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDCHF|gap_breached": 5,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDJPY|gap_breached": 7,
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|EURGBP|invalid_entry_geometry": 1
+  },
+  "cancellations_by_strategy_instrument_reason": {
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|AUDJPY|ENTRY_GAP_CANCELLED": 5,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|AUDUSD|ENTRY_GAP_CANCELLED": 8,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|CADJPY|ENTRY_GAP_CANCELLED": 3,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|CHFJPY|ENTRY_GAP_CANCELLED": 10,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURGBP|ENTRY_GAP_CANCELLED": 2,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURGBP|INSUFFICIENT_ENTRY_R": 1,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURJPY|ENTRY_GAP_CANCELLED": 6,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|EURUSD|ENTRY_GAP_CANCELLED": 12,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPAUD|ENTRY_GAP_CANCELLED": 4,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPCAD|ENTRY_GAP_CANCELLED": 13,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPJPY|ENTRY_GAP_CANCELLED": 4,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|GBPUSD|ENTRY_GAP_CANCELLED": 7,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|NZDUSD|ENTRY_GAP_CANCELLED": 5,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDCAD|ENTRY_GAP_CANCELLED": 8,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDCHF|ENTRY_GAP_CANCELLED": 5,
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|USDJPY|ENTRY_GAP_CANCELLED": 7,
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|EURGBP|ENTRY_GAP_CANCELLED": 1
+  },
+  "engulfing_gap_semantics_by_instrument": {
+    "AUDJPY": {
+      "actual_close_to_open_gap_abs_max": 0.0010000000000047748,
+      "actual_close_to_open_gap_abs_mean": 0.0008000000000009777,
+      "actual_close_to_open_gap_count": 4,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 5,
+      "structural_anchor_breach_count": 5,
+      "structural_anchor_distance_abs_mean": 0.1103999999999985,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "AUDUSD": {
+      "actual_close_to_open_gap_abs_max": 1.0000000000065512e-05,
+      "actual_close_to_open_gap_abs_mean": 4.999999999991123e-06,
+      "actual_close_to_open_gap_count": 4,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 8,
+      "structural_anchor_breach_count": 8,
+      "structural_anchor_distance_abs_mean": 0.0008375000000000188,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "CADJPY": {
+      "actual_close_to_open_gap_abs_max": 0.0010000000000047748,
+      "actual_close_to_open_gap_abs_mean": 0.00033333333333492493,
+      "actual_close_to_open_gap_count": 1,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 3,
+      "structural_anchor_breach_count": 3,
+      "structural_anchor_distance_abs_mean": 0.2543333333333351,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "CHFJPY": {
+      "actual_close_to_open_gap_abs_max": 0.0030000000000143245,
+      "actual_close_to_open_gap_abs_mean": 0.0009000000000042973,
+      "actual_close_to_open_gap_count": 6,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 10,
+      "structural_anchor_breach_count": 10,
+      "structural_anchor_distance_abs_mean": 0.4613500000000016,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "EURGBP": {
+      "actual_close_to_open_gap_abs_max": 2.0000000000020002e-05,
+      "actual_close_to_open_gap_abs_mean": 6.666666666673334e-06,
+      "actual_close_to_open_gap_count": 1,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 3,
+      "structural_anchor_breach_count": 2,
+      "structural_anchor_distance_abs_mean": 0.0003849999999999687,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "EURJPY": {
+      "actual_close_to_open_gap_abs_max": 0.002999999999985903,
+      "actual_close_to_open_gap_abs_mean": 0.000666666666660376,
+      "actual_close_to_open_gap_count": 2,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 6,
+      "structural_anchor_breach_count": 6,
+      "structural_anchor_distance_abs_mean": 0.22649999999999673,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "EURUSD": {
+      "actual_close_to_open_gap_abs_max": 2.999999999997449e-05,
+      "actual_close_to_open_gap_abs_mean": 9.166666666615697e-06,
+      "actual_close_to_open_gap_count": 7,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 12,
+      "structural_anchor_breach_count": 12,
+      "structural_anchor_distance_abs_mean": 0.0028225000000000424,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "GBPAUD": {
+      "actual_close_to_open_gap_abs_max": 2.0000000000131024e-05,
+      "actual_close_to_open_gap_abs_mean": 1.2500000000026379e-05,
+      "actual_close_to_open_gap_count": 3,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 4,
+      "structural_anchor_breach_count": 4,
+      "structural_anchor_distance_abs_mean": 0.001223749999999968,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "GBPCAD": {
+      "actual_close_to_open_gap_abs_max": 0.001060000000000061,
+      "actual_close_to_open_gap_abs_mean": 9.307692307698627e-05,
+      "actual_close_to_open_gap_count": 10,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 13,
+      "structural_anchor_breach_count": 13,
+      "structural_anchor_distance_abs_mean": 0.0026876923076923054,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "GBPJPY": {
+      "actual_close_to_open_gap_abs_max": 0.007000000000005002,
+      "actual_close_to_open_gap_abs_mean": 0.0025000000000048317,
+      "actual_close_to_open_gap_count": 2,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 4,
+      "structural_anchor_breach_count": 4,
+      "structural_anchor_distance_abs_mean": 0.3459999999999894,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "GBPUSD": {
+      "actual_close_to_open_gap_abs_max": 4.0000000000040004e-05,
+      "actual_close_to_open_gap_abs_mean": 1.4285714285712712e-05,
+      "actual_close_to_open_gap_count": 4,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 7,
+      "structural_anchor_breach_count": 7,
+      "structural_anchor_distance_abs_mean": 0.0008700000000000532,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "NZDUSD": {
+      "actual_close_to_open_gap_abs_max": 1.0000000000065512e-05,
+      "actual_close_to_open_gap_abs_mean": 2.0000000000131022e-06,
+      "actual_close_to_open_gap_count": 1,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 5,
+      "structural_anchor_breach_count": 5,
+      "structural_anchor_distance_abs_mean": 0.00024000000000001798,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "USDCAD": {
+      "actual_close_to_open_gap_abs_max": 2.0000000000131024e-05,
+      "actual_close_to_open_gap_abs_mean": 7.5000000000213785e-06,
+      "actual_close_to_open_gap_count": 4,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 8,
+      "structural_anchor_breach_count": 8,
+      "structural_anchor_distance_abs_mean": 0.003214166666666518,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "USDCHF": {
+      "actual_close_to_open_gap_abs_max": 9.99999999995449e-06,
+      "actual_close_to_open_gap_abs_mean": 1.999999999990898e-06,
+      "actual_close_to_open_gap_count": 1,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 5,
+      "structural_anchor_breach_count": 5,
+      "structural_anchor_distance_abs_mean": 0.0013120000000000464,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    },
+    "USDJPY": {
+      "actual_close_to_open_gap_abs_max": 0.0020000000000095497,
+      "actual_close_to_open_gap_abs_mean": 0.0007142857142891249,
+      "actual_close_to_open_gap_count": 4,
+      "anchor": "latest confirmed structural support for LONG or resistance for SHORT",
+      "cancellation_denominator": 7,
+      "structural_anchor_breach_count": 7,
+      "structural_anchor_distance_abs_mean": 0.161999999999998,
+      "threshold": "8 ticks from structural zone; price units = tick_size * 8"
+    }
+  },
+  "episode_ledger_fingerprint": "8c7b154566102410d275eb0cf3a375af9e4fec25b90ce35ea07f2b60b9a475a0",
+  "outcome_metrics": {
+    "accepted_entries": 469,
+    "ambiguous": 0,
+    "data_gap": 0,
+    "expectancy_r": null,
+    "maximum_drawdown_r": null,
+    "open_at_dataset_end": 0,
+    "profit_factor": null,
+    "resolved_denominator": 0,
+    "sl": 0,
+    "status": "BLOCKED_RESOLVER_SEMANTICS",
+    "time_exit": 0,
+    "tp": 0,
+    "unresolved_denominator": 469,
+    "win_rate": null
+  },
+  "protocol_hash": "00904769aec6d69607902c67ef1b0b32d55542cc9ea7534856e0c21c37a3060b",
+  "engulfing_gap_semantics": {
+    "anchor": "latest confirmed structural support/resistance zone, not confirmation close and not proposed entry reference",
+    "baseline_entry_gap_cancelled_count": 99,
+    "formula": "LONG cancels when next_open < structural_zone_price - 8*tick_size; SHORT cancels when next_open > structural_zone_price + 8*tick_size",
+    "interpretation": "The baseline gap reason is an anchor-distance/geometry gate; only the proposal-reference delta is a close-to-open movement diagnostic.",
+    "nonzero_proposal_reference_to_next_open_count": 54,
+    "structural_anchor_breach_count": 99,
+    "threshold_units": "price units derived from 8 ticks"
+  },
+  "representative_cancellations": {
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|ENTRY_GAP_CANCELLED": {
+      "actual_entry_r": 5.7234042553193225,
+      "cancellation_diagnostics": {
+        "actual_entry_r_below_minimum": false,
+        "gap_breached": true,
+        "gap_threshold": 0.008,
+        "invalid_entry_geometry": false,
+        "level_price": 114.347,
+        "measured_gap_against_level": 0.11899999999999977
+      },
+      "confirmation_time": 1787813100,
+      "direction": "SHORT",
+      "episode_id": "a6d45ae2f42f67716a0df21f",
+      "gap_threshold": 0.008,
+      "level_price": 114.347,
+      "measured_gap_against_level": 0.11899999999999977,
+      "next_open_price": 114.466,
+      "next_open_time": 1787813100,
+      "planned_r": 5.583333333334789,
+      "proposal_entry_reference": 114.465,
+      "reason": "ENTRY_GAP_CANCELLED",
+      "stop": 114.51299999999999,
+      "target": 114.197
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION@V1|INSUFFICIENT_ENTRY_R": {
+      "actual_entry_r": 1.3124999999998699,
+      "cancellation_diagnostics": {
+        "actual_entry_r_below_minimum": true,
+        "gap_breached": false,
+        "gap_threshold": 8e-05,
+        "invalid_entry_geometry": false,
+        "level_price": 0.85857,
+        "measured_gap_against_level": 6.999999999990347e-05
+      },
+      "confirmation_time": 1788886800,
+      "direction": "SHORT",
+      "episode_id": "94e96addf03a06a3006ef0b8",
+      "gap_threshold": 8e-05,
+      "level_price": 0.85857,
+      "measured_gap_against_level": 6.999999999990347e-05,
+      "next_open_price": 0.85864,
+      "next_open_time": 1788886800,
+      "planned_r": 1.642857142857256,
+      "proposal_entry_reference": 0.85866,
+      "reason": "INSUFFICIENT_ENTRY_R",
+      "stop": 0.8588,
+      "target": 0.8584299999999999
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1|ENTRY_GAP_CANCELLED": {
+      "actual_entry_r": null,
+      "cancellation_diagnostics": {
+        "actual_entry_r_below_minimum": false,
+        "gap_breached": false,
+        "gap_threshold": 8e-05,
+        "invalid_entry_geometry": true,
+        "level_price": 0.859155,
+        "measured_gap_against_level": 1.4999999999987246e-05
+      },
+      "confirmation_time": 1788735600,
+      "direction": "SHORT",
+      "episode_id": "eb855e03fc1d7686a820b050",
+      "gap_threshold": 8e-05,
+      "level_price": 0.859155,
+      "measured_gap_against_level": 1.4999999999987246e-05,
+      "next_open_price": 0.85917,
+      "next_open_time": 1788735600,
+      "planned_r": 13.300000000002,
+      "proposal_entry_reference": 0.85909,
+      "reason": "ENTRY_GAP_CANCELLED",
+      "stop": 0.85914,
+      "target": 0.858425
+    }
+  },
+  "resolver": {
+    "adapter_contract": "accepted episodes map to in-memory EntrySignal geometry only; no submit/consume/persistence call",
+    "adapter_identity": "price-action-research-entry-adapter-v1",
+    "compatible": false,
+    "minimal_extension_needed": "A research-only resolver API accepting initial-risk entries, configurable same-candle ambiguity, explicit no-max-hold, gap classification, and dataset-end censoring; it must remain outside production publication and broker reconciliation.",
+    "production_publication": false,
+    "production_writes": 0,
+    "reasons": [
+      "EntrySignal is an executable-shaped contract and must not be published; adapter keeps it in memory only.",
+      "SimulatedExecution applies CONSERVATIVE_STOP_FIRST when stop and target both touch one candle; frozen protocol requires AMBIGUOUS without lower-timeframe evidence.",
+      "SimulatedExecution has no explicit missing-path/data-gap classification.",
+      "Frozen V1 specifies no maximum hold; SimulatedExecution requires an invented expiry or leaves trades open.",
+      "CostModel cannot represent unavailable bid/ask/commission/slippage evidence without assumptions."
+    ],
+    "selected_existing_contract": "strategy_backtest.execution.SimulatedExecution"
+  },
+  "schema": "price-action-outcome-audit-report-v1",
+  "scope": {
+    "evaluation_end": 1789765200,
+    "evaluation_start": 1787173200,
+    "retrospective": true,
+    "warmup_start": 1786741200
+  },
+  "strategy_totals": {
+    "engulfing_continuation": {
+      "accepted_research_entries": 65,
+      "cancellations": 100,
+      "duplicate_or_unmatched_observations": 0,
+      "proposals": 165,
+      "unresolved_dataset_end": 0
+    },
+    "sr_retest": {
+      "accepted_research_entries": 404,
+      "cancellations": 1,
+      "duplicate_or_unmatched_observations": 0,
+      "proposals": 405,
+      "unresolved_dataset_end": 0
+    }
+  }
+}

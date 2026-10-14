@@ -1,0 +1,108 @@
+{
+  "activation": {
+    "reason": "manifest is frozen before any observer activation",
+    "status": "BLOCKED_PENDING_HEALTH_CHECK"
+  },
+  "availability_policy": {
+    "post_t0_missing": "record gap; do not fill",
+    "pre_t0": "warmup only; no new entries",
+    "reconstructed": "label as delayed/reconstructed; never call live",
+    "stale_or_forming": "reject"
+  },
+  "execution_isolation": {
+    "allowed_bridge_tools": [
+      "mt5_quote",
+      "mt5_rates",
+      "mt5_symbol_info"
+    ],
+    "broker_orders": false,
+    "execution_credentials": false,
+    "mode": "RESEARCH_READ_ONLY_LOCAL_PERSISTENCE",
+    "outbox": false,
+    "signal_publication": false
+  },
+  "freeze_status": "FROZEN_NOT_ACTIVATED",
+  "healthy_universe": [],
+  "instrument_mapping": "resolve only by read-only mt5_symbol_info/quote; no suffix guessing",
+  "manifest_hash": "fed969b18a9be3164603b1e57468f75be0a1362cb4ffe62c2cd6f4664653583b",
+  "minimum_review_sample_per_strategy": 100,
+  "observer_version": "price-action-forward-observer-v1",
+  "outcome_policy": {
+    "costs": "gross/reference only; no spread, commission, slippage, or net P&L",
+    "max_hold": "none",
+    "policy_version": "price-action-research-outcome-policy-v1",
+    "resolver_version": "shared-research-outcome-resolver-v1",
+    "same_candle": "ambiguous without lower timeframe evidence"
+  },
+  "schema": "price-action-forward-observer-v1",
+  "source_hash": "8957845dca2c04cf3a6d1a90fc27f44df7e1f61a89d4807a519e0803a742ba47",
+  "strategies": {
+    "engulfing_continuation": {
+      "dependency_manifest_hash": "5786003d7f6545dd24aedc02ed003eda172f278f850fae1845bac1a6edf1230f",
+      "evaluator_version": "price-action-engulfing-continuation-v1-evaluator-1",
+      "parameter_hash": "e39630114425a73aea70ea8768273cba4eb3fd834cef6593a1d84618004127a1",
+      "parameters": {
+        "allow_same_candle_interaction_confirmation": false,
+        "context_timeframe": "H1",
+        "entry_gap_cancel_ticks": 8,
+        "execution_timeframe": "M15",
+        "max_pullback_bars": 6,
+        "minimum_engulfing_body_ticks": 4,
+        "minimum_planned_r": 1.5,
+        "stop_buffer_ticks": 2,
+        "swing_left_bars": 2,
+        "swing_right_bars": 2,
+        "zone_max_age_context_bars": 120,
+        "zone_tolerance_ticks": 8
+      },
+      "strategy_version": "PRICE_ACTION_ENGULFING_CONTINUATION@V1"
+    },
+    "sr_retest": {
+      "dependency_manifest_hash": "8a8356159ee0c3407ee915ab0d5d1213e3ca2fa6979e42e9ebd385e01ab42c6a",
+      "evaluator_version": "price-action-sr-retest-v1-evaluator-1",
+      "parameter_hash": "572a9be2cc48bdbcf07004a832803e7cd3cc4e1ffa0e4e0b11d3de60a5789e90",
+      "parameters": {
+        "allow_retest_confirmation": false,
+        "break_buffer_ticks": 1,
+        "context_timeframe": "H1",
+        "entry_gap_cancel_ticks": 8,
+        "execution_timeframe": "M15",
+        "level_lookback_context_bars": 80,
+        "level_max_age_context_bars": 120,
+        "level_tolerance_ticks": 8,
+        "max_retest_bars": 4,
+        "minimum_planned_r": 1.5,
+        "rejection_close_location": 0.65,
+        "rejection_min_wick_body_ratio": 1.5,
+        "stop_buffer_ticks": 2,
+        "swing_left_bars": 2,
+        "swing_right_bars": 2
+      },
+      "strategy_version": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1"
+    }
+  },
+  "t0": "2026-10-14T04:38:01.680419Z",
+  "timeframes": {
+    "context": "H1",
+    "execution": "M15"
+  },
+  "timestamp_semantics": "UTC candle-open; evaluator information cutoff is completed candle close; accepted entry is next completed M15 candle open",
+  "universe_requested": [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "USDCHF",
+    "USDCAD",
+    "AUDUSD",
+    "NZDUSD",
+    "EURJPY",
+    "GBPJPY",
+    "EURGBP",
+    "AUDJPY",
+    "CADJPY",
+    "CHFJPY",
+    "GBPAUD",
+    "GBPCAD"
+  ],
+  "window_days": 30
+}

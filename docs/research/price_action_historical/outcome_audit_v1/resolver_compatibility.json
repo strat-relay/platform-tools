@@ -1,0 +1,16 @@
+{
+  "adapter_contract": "accepted episodes map to in-memory EntrySignal geometry only; no submit/consume/persistence call",
+  "adapter_identity": "price-action-research-entry-adapter-v1",
+  "compatible": false,
+  "minimal_extension_needed": "A research-only resolver API accepting initial-risk entries, configurable same-candle ambiguity, explicit no-max-hold, gap classification, and dataset-end censoring; it must remain outside production publication and broker reconciliation.",
+  "production_publication": false,
+  "production_writes": 0,
+  "reasons": [
+    "EntrySignal is an executable-shaped contract and must not be published; adapter keeps it in memory only.",
+    "SimulatedExecution applies CONSERVATIVE_STOP_FIRST when stop and target both touch one candle; frozen protocol requires AMBIGUOUS without lower-timeframe evidence.",
+    "SimulatedExecution has no explicit missing-path/data-gap classification.",
+    "Frozen V1 specifies no maximum hold; SimulatedExecution requires an invented expiry or leaves trades open.",
+    "CostModel cannot represent unavailable bid/ask/commission/slippage evidence without assumptions."
+  ],
+  "selected_existing_contract": "strategy_backtest.execution.SimulatedExecution"
+}
