@@ -158,8 +158,12 @@ def freeze(*, t0: str | None = None, output: Path = MANIFEST) -> dict[str, Any]:
 
 
 class Observer:
-    def __init__(self, state_dir: Path = DEFAULT_STATE, manifest: Path = MANIFEST):
+    def __init__(self, state_dir: Path = DEFAULT_STATE, manifest: Path = MANIFEST,
+                 strategy_filter: str | None = None):
         self.dir = state_dir; self.manifest_path = manifest
+        if strategy_filter is not None and strategy_filter not in {"sr_retest", "engulfing_continuation"}:
+            raise ValueError(f"unknown strategy filter: {strategy_filter}")
+        self.strategy_filter = strategy_filter
         self.manifest = json.loads(manifest.read_text())
         self.state_path = state_dir / "state.json"; self.events_path = state_dir / "events.jsonl"; self.outcomes_path = state_dir / "outcomes.jsonl"
         if self.state_path.exists(): self.state = json.loads(self.state_path.read_text())
@@ -195,7 +199,8 @@ class Observer:
         new_events.sort(key=lambda e: (e.close_timestamp, 0 if e.timeframe == "H1" else 1))
         first_seen = not cursor
         emitted = []
-        for strategy in ("sr_retest", "engulfing_continuation"):
+        strategies = (self.strategy_filter,) if self.strategy_filter else ("sr_retest", "engulfing_continuation")
+        for strategy in strategies:
             key, evaluator = self._evaluator(strategy, instrument)
             if first_seen:
                 for event in new_events: evaluator.consume_market_event(event)
@@ -217,7 +222,9 @@ class Observer:
             self._refresh_outcomes(strategy, instrument, snapshot_id)
         self.state["cursors"][instrument] = {tf: max((int(x["time"]) for x in vals), default=cursor.get(tf, -1)) for tf, vals in rows.items()}
         self.state["health"][instrument] = {"broker_symbol": broker_symbol, "last_observed_at": observed_at, "last_completed_open": {tf: (vals[-1]["time"] if vals else None) for tf, vals in rows.items()}, "rejections": h1_rej + m15_rej, "new_event_count": len(new_events), "first_snapshot_reconstructed": first_seen}
-        self._save(); return {"instrument": instrument, "first_snapshot_reconstructed": first_seen, "new_events": len(new_events), "emitted_evaluations": len(emitted), "rejections": h1_rej + m15_rej}
+        self._save(); return {"instrument": instrument, "first_snapshot_reconstructed": first_seen,
+                              "new_events": len(new_events), "emitted_evaluations": len(emitted),
+                              "emitted": emitted, "rejections": h1_rej + m15_rej}
 
     def _refresh_outcomes(self, strategy: str, instrument: str, snapshot_id: str) -> None:
         bars = self.state["bars"].get(instrument, {}).get("M15", [])
@@ -249,7 +256,10 @@ class Observer:
         append_jsonl(self.outcomes_path, {"type": "ENTRY_ACCEPTED_SIMULATED", "entry": entry.__dict__, "recorded_at": now_iso()})
 
     def health(self) -> dict[str, Any]:
-        return {"schema": SCHEMA, "status": self.state.get("status"), "observer_running_is_not_health": True, "manifest_hash": self.manifest["manifest_hash"], "health": self.state.get("health", {}), "entry_count": len(self.state.get("entries", {})), "execution_isolation": self.manifest["execution_isolation"]}
+        return {"schema": SCHEMA, "status": self.state.get("status"), "observer_running_is_not_health": True,
+                "strategy_filter": self.strategy_filter, "manifest_hash": self.manifest["manifest_hash"],
+                "health": self.state.get("health", {}), "entry_count": len(self.state.get("entries", {})),
+                "execution_isolation": self.manifest["execution_isolation"]}
 
 
 def audit_order_isolation() -> dict[str, Any]:
