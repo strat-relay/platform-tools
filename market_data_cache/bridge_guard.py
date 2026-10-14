@@ -95,8 +95,13 @@ class BridgeCircuitBreaker:
 
     def probe_due(self) -> bool:
         with self._lock:
-            return self.state == self.HALF_OPEN or (self.state == self.OPEN and
-                                                     self.clock() >= float(self.next_probe_at or 0))
+            if self.state == self.HALF_OPEN:
+                # A half-open circuit permits only the configured number of
+                # probe requests. Once that permit is consumed, do not let
+                # every collector tick attempt another local rejection while
+                # the real probe is still in flight.
+                return self._half_open_probes_used < self.half_open_probes
+            return self.state == self.OPEN and self.clock() >= float(self.next_probe_at or 0)
 
     def record_success(self, operation: str) -> None:
         with self._lock:

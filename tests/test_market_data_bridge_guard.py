@@ -49,6 +49,21 @@ class BridgeGuardTests(unittest.TestCase):
         self.assertEqual(self.breaker.state, "OPEN")
         self.assertGreater(self.breaker.next_probe_at, self.now[0])
 
+    def test_half_open_probe_is_not_retried_after_probe_permit_is_consumed(self):
+        for _ in range(3):
+            self.breaker.record_failure(TimeoutError("timeout"), "mt5_symbol_snapshot")
+        self.now[0] = self.breaker.next_probe_at + 0.01
+
+        self.assertTrue(self.breaker.probe_due())
+        self.breaker.allow("mt5_terminal_info")
+        self.assertFalse(self.breaker.probe_due())
+
+        # A concurrent/non-probe request is still rejected, but the breaker
+        # remains waiting for the in-flight probe to record its result.
+        with self.assertRaises(BridgeCircuitOpen):
+            self.breaker.allow("mt5_symbol_snapshot")
+        self.assertEqual(self.breaker.state, "HALF_OPEN")
+
     def test_request_gate_bounds_concurrency(self):
         active = [0]
         maximum = [0]
