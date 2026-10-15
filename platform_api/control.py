@@ -21,6 +21,14 @@ from .instrument_membership import (DEFAULT_INSTANCE_BY_STRATEGY, InstrumentMemb
                                      MembershipConflict, UnsupportedInstrument)
 from .strategy_catalog import MembershipRefused
 
+
+# strategy_mgmt keeps dedicated frozen family keys, while the legacy
+# /api/v1/strategies contract uses canonical operational identifiers.
+MANAGED_FAMILY_TO_CANONICAL: dict[str, str] = {
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST_V1": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST",
+    "PRICE_ACTION_ENGULFING_CONTINUATION_V1": "PRICE_ACTION_ENGULFING_CONTINUATION",
+}
+
 SCHEMA_VERSION = "012"
 TRADE_MANAGEMENT_SCHEMA_VERSION = "013"
 BROKER_POSITION_SCHEMA_VERSION = "022"
@@ -779,7 +787,7 @@ class PlatformControlApi:
         """
         grouped: dict[str, dict[str, Any]] = {}
         for row in rows:
-            family = row["family_key"]
+            family = MANAGED_FAMILY_TO_CANONICAL.get(row["family_key"], row["family_key"])
             item = grouped.setdefault(family, {
                 "strategy_id": family,
                 "strategy_version": row.get("version_label"),

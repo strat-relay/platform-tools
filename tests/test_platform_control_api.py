@@ -23,6 +23,29 @@ class FakeStrategyMgmtApi:
         return None
 
 
+def test_registry_summary_maps_price_action_family_to_canonical_id():
+    row = {
+        "family_key": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST_V1",
+        "name": "Support/Resistance Retest V1",
+        "description": "research",
+        "version_label": "V1",
+        "evaluator_key": "price_action_sr_retest_v1",
+        "instance_id": "sr-instance",
+        "instance_display_name": "Support/Resistance Retest V1 observer",
+        "online": True,
+        "execution_eligible": False,
+        "instruments": [],
+        "attributes": {},
+    }
+
+    [summary] = PlatformControlApi._registry_summary([row])
+
+    assert summary["strategy_id"] == "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST"
+    assert summary["instances"][0]["strategy_id"] == "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST"
+    assert summary["instances"][0]["execution"]["strategy_ref"] == \
+        "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1"
+
+
 def _v3_registry_row(instance_uuid="e5f7a9b1-c3d5-4e7f-a1b3-5c7e9f1b3d5e") -> dict:
     return {
         "definition_id": "7f3a9c10-b4e2-4d8a-9c15-2e6f8b3a1d05",
