@@ -122,6 +122,8 @@ SELECT coalesce(v.attributes->>'instance_id', v.id::text) AS instance_id,
        CASE sv.evaluator_key
          WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
          WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+         WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+         WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
          ELSE upper(sv.evaluator_key)
        END AS strategy_id,
        v.display_name, v.online AS enabled, v.attributes,
@@ -140,6 +142,8 @@ JOIN strategy_mgmt.strategy_version sv ON sv.id = v.strategy_version_id
 LEFT JOIN platform.strategy_definition pd ON pd.strategy_id = CASE sv.evaluator_key
   WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
   WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+  WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+  WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
   ELSE upper(sv.evaluator_key) END
 LEFT JOIN LATERAL (
     SELECT count(*) AS signals,
@@ -148,6 +152,8 @@ LEFT JOIN LATERAL (
     WHERE s.strategy_id = CASE sv.evaluator_key
       WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
       WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+      WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
       ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) sig ON TRUE
 LEFT JOIN LATERAL (
@@ -159,6 +165,8 @@ LEFT JOIN LATERAL (
     WHERE s.strategy_id = CASE sv.evaluator_key
       WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
       WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+      WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
       ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) o ON TRUE
 LEFT JOIN LATERAL (
@@ -186,6 +194,9 @@ LEFT JOIN LATERAL (
         FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
         WHERE s.strategy_id = CASE sv.evaluator_key
           WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+          WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+          WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+          WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
           ELSE upper(sv.evaluator_key) END
           AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
           AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
@@ -194,10 +205,12 @@ LEFT JOIN LATERAL (
     SELECT coalesce(s.source_provenance ->> 'config_fingerprint', s.source_provenance ->> 'source_config_hash') AS fingerprint,
            s.signal_emitted_at AS at
     FROM strategy.entry_signals s
-    WHERE s.strategy_id = CASE sv.evaluator_key
-      WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
-      WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
-      ELSE upper(sv.evaluator_key) END
+        WHERE s.strategy_id = CASE sv.evaluator_key
+          WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
+          WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+          WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+          WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
+          ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
     ORDER BY s.signal_emitted_at DESC NULLS LAST LIMIT 1) obs ON TRUE
 WHERE NOT EXISTS (
@@ -205,6 +218,8 @@ WHERE NOT EXISTS (
     WHERE legacy.strategy_id = CASE sv.evaluator_key
       WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
       WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+      WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
       ELSE upper(sv.evaluator_key) END
       AND legacy.instance_id = coalesce(v.attributes->>'instance_id', v.id::text))
 ORDER BY strategy_id, instance_id"""
