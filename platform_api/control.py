@@ -842,6 +842,8 @@ class PlatformControlApi:
                               "allow_listed": bool(row.get("execution_eligible")),
                               "eligible": bool(row.get("execution_eligible")),
                               "strategy_ref": f"{family}@{row.get('version_label')}"},
+                "runtime": {"parent_strategy_enabled": bool(row.get("online")),
+                            "effective": bool(row.get("online"))},
                 "registry_source": "strategy_mgmt",
             }
             item["instances"].append(instance)
