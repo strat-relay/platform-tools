@@ -13,9 +13,18 @@ from typing import Any
 
 from orchestration.models import StrategySignal, stable_id
 
-STRATEGY_ID = "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST"
-INSTANCE_ID = "7f1d6e5a-5ab3-4b59-8d2f-0c6f9e3d0104"
+SR_RETEST_STRATEGY_ID = "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST"
+SR_RETEST_INSTANCE_ID = "7f1d6e5a-5ab3-4b59-8d2f-0c6f9e3d0104"
+SR_RETEST_STRATEGY_KEY = "sr_retest"
+
+ENGULFING_STRATEGY_ID = "PRICE_ACTION_ENGULFING_CONTINUATION"
+ENGULFING_INSTANCE_ID = "7f1d6e5a-5ab3-4b59-8d2f-0c6f9e3d0204"
+ENGULFING_STRATEGY_KEY = "engulfing_continuation"
+
 ACCEPTED_REASON = "ENTRY_OBSERVED_RESEARCH_ONLY"
+# Outcome contract max hold — no built-in exit policy in the frozen V1 evaluators, so
+# the resolver uses this bound to time-exit unresolved signals rather than leaving them open.
+MAX_HOLD_MINUTES = 1440
 
 
 def _iso_epoch(value: Any) -> str:
@@ -23,12 +32,16 @@ def _iso_epoch(value: Any) -> str:
 
 
 class PriceActionObserverAdapter:
-    strategy_id = STRATEGY_ID
     strategy_version = "V1"
 
-    def __init__(self, conn: Any, instance_id: str = INSTANCE_ID) -> None:
+    def __init__(self, conn: Any, *,
+                 strategy_id: str = SR_RETEST_STRATEGY_ID,
+                 instance_id: str = SR_RETEST_INSTANCE_ID,
+                 strategy_key: str = SR_RETEST_STRATEGY_KEY) -> None:
         self.conn = conn
+        self.strategy_id = strategy_id
         self.instance_id = instance_id
+        self.strategy_key = strategy_key
 
     def discover_new_signals(self, seen_signal_ids: set[str]) -> list[StrategySignal]:
         with self.conn.cursor() as cur:
@@ -36,10 +49,10 @@ class PriceActionObserverAdapter:
                 """SELECT event_id, instrument, payload, observed_at
                      FROM research.price_action_observer_evaluation
                     WHERE instance_id=%s
-                      AND strategy_key='sr_retest'
+                      AND strategy_key=%s
                       AND payload->'event'->'provenance'->>'rejection_reason'=%s
                     ORDER BY observed_at, event_id""",
-                (self.instance_id, ACCEPTED_REASON),
+                (self.instance_id, self.strategy_key, ACCEPTED_REASON),
             )
             rows = cur.fetchall()
         result: list[StrategySignal] = []
@@ -48,7 +61,7 @@ class PriceActionObserverAdapter:
             provenance = event.get("provenance") or {}
             if provenance.get("entry_cancelled") is True:
                 continue
-            signal_id = stable_id("SIG", {"strategy_id": STRATEGY_ID, "strategy_version": self.strategy_version,
+            signal_id = stable_id("SIG", {"strategy_id": self.strategy_id, "strategy_version": self.strategy_version,
                                            "strategy_instance_id": self.instance_id, "source_event_id": event_id})
             if signal_id in seen_signal_ids:
                 continue
@@ -62,7 +75,7 @@ class PriceActionObserverAdapter:
             reward = abs(target - entry)
             result.append(StrategySignal(
                 signal_id=signal_id, schema_version="strategy-signal-v1",
-                strategy_id=STRATEGY_ID, strategy_version=self.strategy_version,
+                strategy_id=self.strategy_id, strategy_version=self.strategy_version,
                 strategy_instance_id=self.instance_id,
                 source_event_id=f"price-action-observer:{event_id}", market_event_id=None,
                 setup_id=event.get("candidate_id"), entry_opportunity_id=event.get("candidate_id"),
@@ -85,6 +98,7 @@ class PriceActionObserverAdapter:
                         "price_basis": "THEORETICAL_TOUCH",
                         "same_candle_priority": "AMBIGUOUS_INTRABAR",
                         "time_exit_priority": "AFTER_PRICE",
+                        "max_hold_minutes": MAX_HOLD_MINUTES,
                     },
                 },
                 provenance={
@@ -101,5 +115,5 @@ class PriceActionObserverAdapter:
     def after_publish_hook(self, signal_id: str, conn: Any) -> None:
         from observability.strategy_audit import audit
         audit("signal_published_to_orchestrator", runner="signal-orchestrator",
-              strategy_id=STRATEGY_ID, signal_id=signal_id,
+              strategy_id=self.strategy_id, signal_id=signal_id,
               outcome_writer="UNIFIED_OUTCOME_RESOLVER", research_only=True)
