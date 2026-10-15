@@ -601,8 +601,11 @@ class StrategyCatalogRepository:
                 return None
             page = rows[0]
             scope = (strategy_id, instance_id)
-            parent = self._rows(cur, "SELECT display_name, strategy_version, trade_management FROM platform.strategy_definition "
-                                     "WHERE strategy_id = %s", (strategy_id,))[0]
+            parent_rows = self._rows(cur, "SELECT display_name, strategy_version, trade_management FROM platform.strategy_definition "
+                                         "WHERE strategy_id = %s", (strategy_id,))
+            if not parent_rows:
+                return None
+            parent = parent_rows[0]
             membership = self._rows(cur, """SELECT m.canonical_instrument, m.state, m.revision, m.updated_at,
                     m.updated_by, p.provider_symbol, p.asset_class
                 FROM strategy.instrument_membership m

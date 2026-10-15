@@ -213,6 +213,17 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
             if conn is not None:
                 from orchestration.adapters.price_action_observer import PriceActionObserverAdapter
                 adapters.append(PriceActionObserverAdapter(conn))
+        elif record["strategy_id"] == "PRICE_ACTION_ENGULFING_CONTINUATION":
+            if conn is not None:
+                from orchestration.adapters.price_action_observer import (
+                    PriceActionObserverAdapter, ENGULFING_STRATEGY_ID,
+                    ENGULFING_INSTANCE_ID, ENGULFING_STRATEGY_KEY)
+                adapters.append(PriceActionObserverAdapter(
+                    conn,
+                    strategy_id=ENGULFING_STRATEGY_ID,
+                    instance_id=ENGULFING_INSTANCE_ID,
+                    strategy_key=ENGULFING_STRATEGY_KEY,
+                ))
         elif record["strategy_id"] == "KOJO_STRUCTURE_RECLAIM_V1":
             # Pipeline-created instances from strategy_instance_v2.
             # Only ONLINE instances are present in config["instances"] (loaded by
