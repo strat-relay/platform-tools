@@ -38,6 +38,9 @@ class ContextStructureRetraceAdapter:
         # producer symbol before applying the runtime filter.
         self.active_instruments = {self._canonical_instrument(symbol)
                                    for symbol in self.instance.get("active_instruments") or []}
+        # instance_id for published signals; "phase6" is the V1 default and also kept in the
+        # stable_id identity dict so existing signal hashes remain valid for deduplication.
+        self.instance_id = (instance or {}).get("instance_id") or "phase6"
         # Phase6's active producer writes the compact runtime.  Do not fall
         # back to the removed legacy full-state file: doing so hides a live
         # source failure as an empty/old pipeline.
@@ -90,7 +93,7 @@ class ContextStructureRetraceAdapter:
                 if (self.max_signal_age_seconds is not None and
                         signal_age_seconds > self.max_signal_age_seconds):
                     trace_emit("SIGNAL_STALE_SKIPPED", signal_id=signal_id,
-                               strategy_id=self.strategy_id, strategy_instance_id="phase6",
+                               strategy_id=self.strategy_id, strategy_instance_id=self.instance_id,
                                instrument=self._canonical_instrument(setup.get("symbol") or position.get("symbol")),
                                decision_time=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                                signal_age_seconds=round(signal_age_seconds, 3),
@@ -98,7 +101,7 @@ class ContextStructureRetraceAdapter:
                                reason="CONTEXT_SOURCE_OPPORTUNITY_STALE")
                     audit("context_signal_stale_skipped", runner="signal-orchestrator",
                           strategy_id=self.strategy_id, signal_id=signal_id,
-                          strategy_instance_id="phase6", signal_age_seconds=round(signal_age_seconds, 3),
+                          strategy_instance_id=self.instance_id, signal_age_seconds=round(signal_age_seconds, 3),
                           max_signal_age_seconds=self.max_signal_age_seconds,
                           reason="CONTEXT_SOURCE_OPPORTUNITY_STALE")
                     continue
@@ -119,7 +122,7 @@ class ContextStructureRetraceAdapter:
                 position_provenance = position.get("provenance") or {}
                 gap_recovery = position_provenance.get("gap_recovery", source_provenance.get("gap_recovery"))
                 result.append(StrategySignal(signal_id=signal_id, schema_version="strategy-signal-v1",
-                    strategy_id=self.strategy_id, strategy_version=self.strategy_version, strategy_instance_id="phase6",
+                    strategy_id=self.strategy_id, strategy_version=self.strategy_version, strategy_instance_id=self.instance_id,
                     source_event_id=source_event_id, market_event_id=setup.get("market_event_id"), setup_id=setup.get("setup_id"),
                     entry_opportunity_id=position.get("entry_opportunity_id"), economic_position_id=position.get("economic_position_id"),
                     created_at=created, signal_timestamp=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
