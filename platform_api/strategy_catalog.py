@@ -177,6 +177,8 @@ LEFT JOIN LATERAL (
     WHERE m.strategy_id = CASE sv.evaluator_key
       WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
       WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+      WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+      WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
       ELSE upper(sv.evaluator_key) END
       AND m.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) mem ON TRUE
 LEFT JOIN LATERAL (
@@ -187,6 +189,8 @@ LEFT JOIN LATERAL (
         WHERE s.strategy_id = CASE sv.evaluator_key
           WHEN 'kojo_structure_reclaim_v3' THEN 'KOJO_STRUCTURE_RECLAIM_V3'
           WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
+          WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
+          WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
           ELSE upper(sv.evaluator_key) END
           AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
         UNION ALL
