@@ -209,6 +209,10 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                 except Exception as exc:
                     audit("liquidity_live_adapter_failed", runner="signal-orchestrator",
                           error=str(exc), error_type=type(exc).__name__)
+        elif record["strategy_id"] == "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST":
+            if conn is not None:
+                from orchestration.adapters.price_action_observer import PriceActionObserverAdapter
+                adapters.append(PriceActionObserverAdapter(conn))
         elif record["strategy_id"] == "KOJO_STRUCTURE_RECLAIM_V1":
             # Pipeline-created instances from strategy_instance_v2.
             # Only ONLINE instances are present in config["instances"] (loaded by
