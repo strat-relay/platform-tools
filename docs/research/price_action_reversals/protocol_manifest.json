@@ -1,0 +1,54 @@
+{
+  "schema": "price-action-reversal-protocol-v1",
+  "status": "FROZEN_RESEARCH_ONLY",
+  "execution_eligible": false,
+  "universe": {
+    "selection": "common universe from the audited historical Price Action dataset when raw source is reacquired",
+    "instruments": ["AUDJPY", "GBPUSD", "USDJPY", "XAUUSD"],
+    "mapping": "canonical symbol equals validated native MT5 export symbol; broker aliases must be recorded before replay"
+  },
+  "timeframes": {
+    "context": "H1",
+    "execution": "M15",
+    "timestamps": "UTC candle-open timestamps; candle close is open plus timeframe duration",
+    "completed_only": true,
+    "htf_rule": "H1 swings and levels are usable only after the strict left/right confirmation closes"
+  },
+  "causal_protocol": {
+    "prior_move": "strict monotonic completed M15 closes over prior_move_bars",
+    "entry": "next completed M15 event supplies the next candle open; no later OHLC may enter the proposal",
+    "entry_gap": "cancel when adverse next-open displacement exceeds entry_gap_cancel_ticks",
+    "stop": "pattern extreme plus stop_buffer_ticks",
+    "target": "nearest known opposing H1 level at pattern cutoff",
+    "outcome": "research proposal and paper-entry observations only; no outcome resolver is invoked without a compatible frozen outcome protocol",
+    "costs": "not applied to detector proposals; any later outcome report must declare spread, commission, and slippage assumptions"
+  },
+  "definitions": [
+    {
+      "strategy_version_id": "PRICE_ACTION_ENGULFING_REVERSAL@V1",
+      "evaluator_key": "PRICE_ACTION_ENGULFING_REVERSAL_V1_RESEARCH",
+      "evaluator_version": "price-action-engulfing-reversal-v1-evaluator-1",
+      "parameters": {"context_timeframe":"H1","execution_timeframe":"M15","swing_left_bars":2,"swing_right_bars":2,"level_lookback_context_bars":80,"zone_tolerance_ticks":8,"zone_max_age_context_bars":120,"prior_move_bars":3,"minimum_engulfing_body_ticks":4,"stop_buffer_ticks":2,"minimum_planned_r":1.5,"entry_gap_cancel_ticks":8},
+      "pattern": "strict opposing body engulfing with close beyond prior body extreme"
+    },
+    {
+      "strategy_version_id": "PRICE_ACTION_STAR_REVERSAL@V1",
+      "evaluator_key": "PRICE_ACTION_STAR_REVERSAL_V1_RESEARCH",
+      "evaluator_version": "price-action-star-reversal-v1-evaluator-1",
+      "parameters": {"context_timeframe":"H1","execution_timeframe":"M15","swing_left_bars":2,"swing_right_bars":2,"level_lookback_context_bars":80,"zone_tolerance_ticks":8,"zone_max_age_context_bars":120,"prior_move_bars":3,"minimum_first_body_ticks":4,"minimum_third_body_ticks":4,"middle_body_max_fraction_first":0.25,"third_recovery_fraction":0.5,"require_exchange_gap":false,"stop_buffer_ticks":2,"minimum_planned_r":1.5,"entry_gap_cancel_ticks":8},
+      "pattern": "three-candle star; minimum first/third bodies; bounded middle body; third candle recovers the frozen fraction; exchange gap optional and explicitly false"
+    },
+    {
+      "strategy_version_id": "PRICE_ACTION_PIN_BAR_REVERSAL@V1",
+      "evaluator_key": "PRICE_ACTION_PIN_BAR_REVERSAL_V1_RESEARCH",
+      "evaluator_version": "price-action-pin-bar-reversal-v1-evaluator-1",
+      "parameters": {"context_timeframe":"H1","execution_timeframe":"M15","swing_left_bars":2,"swing_right_bars":2,"level_lookback_context_bars":80,"zone_tolerance_ticks":8,"zone_max_age_context_bars":120,"prior_move_bars":3,"minimum_range_ticks":8,"minimum_wick_body_ratio":2.0,"maximum_opposite_wick_body_ratio":0.5,"minimum_close_location":0.7,"stop_buffer_ticks":2,"minimum_planned_r":1.5,"entry_gap_cancel_ticks":8},
+      "pattern": "directional rejection candle with minimum range, wick/body ratio, opposite-wick cap, and close-location threshold; zero-body and zero-range rejected"
+    }
+  ],
+  "reporting": {
+    "required_dimensions": ["strategy", "instrument", "evaluated_interval", "coverage", "candidate_count", "rejection_counts", "proposal_count", "paper_entry_count", "cancellation_count", "duplicate_count", "unresolved_count"],
+    "evidence_classes": ["synthetic_fixture", "retrospective_historical", "untouched_holdout", "forward"],
+    "performance_claims": "forbidden until raw dataset is reacquired, replayed, and outcome semantics are proven compatible"
+  }
+}

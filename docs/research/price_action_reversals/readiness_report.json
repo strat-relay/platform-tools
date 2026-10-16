@@ -1,0 +1,19 @@
+{
+  "schema": "price-action-reversal-readiness-v1",
+  "status": "BLOCKED_FOR_HISTORICAL_REPLAY",
+  "checked_checkout": "/Users/caleb/mt5-native-bridge/platform-liquidity-mapping",
+  "existing_manifest": "docs/research/price_action_historical/dataset_manifest.json",
+  "expected_source_root": "artifacts/research/multitimeframe_structure_sniper/paged_native_full",
+  "source_root_present_in_checkout": false,
+  "raw_source_files_verified": false,
+  "reason": "The prior manifest references native H1/M15 exports and hashes, but the referenced raw files are absent from this checkout. Filenames and historical manifest metadata are not sufficient evidence to replay the three new definitions.",
+  "required_acquisition": [
+    "AUDJPY, GBPUSD, USDJPY, XAUUSD native completed H1 and M15 exports covering the frozen protocol interval",
+    "source file content and SHA-256 hashes",
+    "broker/canonical symbol mapping and UTC open/close semantics",
+    "duplicate, revision, ordering, and gap validation output",
+    "availability/revision timestamps if supplied by the source"
+  ],
+  "evidence_produced": {"synthetic_fixture": true, "historical_replay": false, "outcome_resolution": false, "performance_metrics": false},
+  "do_not_claim": ["validated historical edge", "untouched holdout evidence", "forward evidence", "resolved expectancy", "strategy graduation"]
+}

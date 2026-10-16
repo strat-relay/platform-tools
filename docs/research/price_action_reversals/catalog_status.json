@@ -1,0 +1,12 @@
+{
+  "schema": "price-action-definition-catalog-status-v1",
+  "catalog_status": "five-definition-family; three-new-definitions-in-review",
+  "definitions": [
+    {"strategy_version_id": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST@V1", "status": "FROZEN_RESEARCH", "implementation": "existing", "historical_evidence": "audited-artifacts-reference-raw-source-not-in-checkout"},
+    {"strategy_version_id": "PRICE_ACTION_ENGULFING_CONTINUATION@V1", "status": "FROZEN_RESEARCH", "implementation": "existing", "historical_evidence": "audited-artifacts-reference-raw-source-not-in-checkout"},
+    {"strategy_version_id": "PRICE_ACTION_ENGULFING_REVERSAL@V1", "status": "RESEARCH_REVIEW", "implementation": "new", "historical_evidence": "not-run; raw-source-blocked"},
+    {"strategy_version_id": "PRICE_ACTION_STAR_REVERSAL@V1", "status": "RESEARCH_REVIEW", "implementation": "new", "historical_evidence": "not-run; raw-source-blocked"},
+    {"strategy_version_id": "PRICE_ACTION_PIN_BAR_REVERSAL@V1", "status": "RESEARCH_REVIEW", "implementation": "new", "historical_evidence": "not-run; raw-source-blocked"}
+  ],
+  "activation": {"registered": false, "active_instances": false, "execution_enabled": false, "deployment_changed": false}
+}
