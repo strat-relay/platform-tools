@@ -1,8 +1,13 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import unittest
+from unittest.mock import MagicMock, patch
 
-from platform_api.library_observation import observation_status
+from platform_api.library_observation import observation_status as assess
+
+ASSETS={"XAUUSD":"METAL", "USDJPY":"FX", "BTCUSD":"CRYPTO"}
+def observation_status(state,key,*,now):
+    return assess(state,key,now=now,asset_classes=ASSETS)
 from platform_api.library_market_schedule import expected_weekend
 
 
@@ -24,6 +29,40 @@ def state_at(close, now):
 
 
 class WeekendDisplayTests(unittest.TestCase):
+    def test_read_model_takes_asset_classes_from_active_mt5_catalog(self):
+        from platform_api.library_observation import load_observation
+        cur=MagicMock()
+        state={'health':{'streams':[{'key':'k','instrument':'EURUSD'}]}}
+        cur.fetchone.side_effect=[(state,),(3,0)]
+        cur.fetchall.return_value=[('EURUSD','FX')]
+        with patch('platform_api.library_observation.observation_status',return_value={'status':'MARKET_CLOSED'}) as assess_status:
+            result=load_observation(cur,{'library_key':'k','orchestrator_run_id':'r'})
+        self.assertEqual(assess_status.call_args.kwargs['asset_classes'],{'EURUSD':'FX'})
+        mapping_call=cur.execute.call_args_list[1]
+        self.assertIn("provider='MT5' AND state='ACTIVE'",mapping_call.args[0])
+        self.assertEqual(mapping_call.args[1],(['EURUSD'],))
+        self.assertEqual(result['evaluations'],3)
+
+    def test_any_catalog_forex_or_metal_is_supported_without_a_symbol_whitelist(self):
+        now=epoch('2026-10-16T22:47:00');close=epoch('2026-10-16T21:00:00')
+        for instrument,asset in [('EURUSD','FX'),('GBPJPY','FX'),('XAGUSD','METAL'),('XPTUSD','METAL')]:
+            state=state_at(close,now)
+            state['health']['streams']=[{'key':'k','instrument':instrument,'status':'BLOCKED','error_type':'ValueError'}]
+            state['streams']['k:'+instrument]=state['streams']['k:XAUUSD']
+            with self.subTest(instrument=instrument):
+                result=assess(state,'k',now=now,asset_classes={instrument:asset})
+                self.assertEqual(result['status'],'MARKET_CLOSED')
+                self.assertEqual(result['closed_instruments'],[instrument])
+
+    def test_crypto_and_unclassified_instruments_do_not_inherit_fx_calendar(self):
+        now=epoch('2026-10-16T22:47:00');close=epoch('2026-10-16T21:00:00')
+        state=state_at(close,now)
+        state['health']['streams']=state['health']['streams'][:1]
+        for asset in ('CRYPTO','INDEX','OTHER',None):
+            with self.subTest(asset=asset):
+                self.assertEqual(assess(state,'k',now=now,asset_classes={'XAUUSD':asset})['status'],'DEGRADED')
+        self.assertEqual(assess(state,'k',now=now)['status'],'DEGRADED')
+
     def test_friday_closure_does_not_degrade_healthy_btc(self):
         now=epoch('2026-10-16T22:47:00');close=epoch('2026-10-16T21:00:00')
         state=state_at(close,now);before=deepcopy(state)
@@ -45,7 +84,7 @@ class WeekendDisplayTests(unittest.TestCase):
         state=state_at(close,now)
         state['health']['streams'][-1]['status']='BLOCKED'
         self.assertEqual(observation_status(state,'k',now=now)['status'],'DEGRADED')
-        self.assertIsNone(expected_weekend('BTCUSD',now,state['streams']['k:BTCUSD']))
+        self.assertIsNone(expected_weekend('CRYPTO',now,state['streams']['k:BTCUSD']))
 
     def test_preclose_outage_and_incomplete_coverage_are_not_hidden(self):
         now=epoch('2026-10-16T22:47:00');close=epoch('2026-10-16T21:00:00')
@@ -83,5 +122,5 @@ class WeekendDisplayTests(unittest.TestCase):
         before=epoch('2026-03-08T20:59:59')
         after=epoch('2026-03-08T21:00:00')
         stored=state_at(close,before)['streams']['k:XAUUSD']
-        self.assertIsNotNone(expected_weekend('XAUUSD',before,stored))
-        self.assertIsNone(expected_weekend('XAUUSD',after,stored))
+        self.assertIsNotNone(expected_weekend('METAL',before,stored))
+        self.assertIsNone(expected_weekend('METAL',after,stored))

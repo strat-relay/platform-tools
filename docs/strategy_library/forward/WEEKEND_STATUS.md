@@ -10,12 +10,14 @@ file, its artifact binding, image, state, evaluator, entry rules, freshness chec
 signals or outcomes. Kubernetes readiness still follows the original frozen
 observer health contract; this change does not make a NotReady pod Ready.
 
-`library-exness-weekend-display.v1` covers only XAUUSD and USDJPY in the common
+`library-mt5-fx-metal-weekend-display.v1` covers all active MT5 catalog instruments
+classified FX or METAL in the common
 weekend window Friday 17:00 through Sunday 17:00 America/New_York. This is a
 conservative expected-closure policy, not live broker-session confirmation.
 Broker session metadata is unavailable. Daily rollover, holidays, unknown symbols
-and later symbol-specific Sunday reopening are not inferred. BTC never inherits
-this policy. The policy accounts for US DST using the packaged timezone database.
+and later symbol-specific Sunday reopening are not inferred. CRYPTO and missing
+or unknown asset classifications never inherit this policy. No symbol whitelist or
+pair-name heuristic is used. The policy accounts for US DST using the packaged timezone database.
 
 References reviewed 2026-10-16:
 - https://get.exness.help/hc/en-us/articles/4405235684498-Instrument-trading-hours
