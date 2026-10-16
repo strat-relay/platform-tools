@@ -1266,7 +1266,10 @@ class PlatformControlApi:
                             registry = self._registry_summary(self.strategy_mgmt_api.registry_rows())
                         except Exception:
                             registry = []
-                        summary = next((item for item in registry if item["strategy_id"] == parts[0]), None)
+                        _canonical = MANAGED_FAMILY_TO_CANONICAL.get(parts[0], parts[0])
+                        summary = next((item for item in registry
+                                        if item["strategy_id"] == parts[0]
+                                        or item["strategy_id"] == _canonical), None)
                         if summary is None:
                             return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
                         instance = next((item for item in summary["instances"]
@@ -1274,7 +1277,7 @@ class PlatformControlApi:
                                          or item.get("registry_instance_id") == parts[2]), None)
                         if instance is None:
                             return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
-                        page = {**summary, **instance}
+                        page = {**summary, **instance, "strategy_id": parts[0]}
                     return 200, self._body(page, source="canonical_postgres")
                 report_config = STRATEGY_REPORT_REGISTRY.get(parts[0]) if parts else None
                 if len(parts) == 4 and parts[1] == "instances" and parts[3] == "report" and report_config:

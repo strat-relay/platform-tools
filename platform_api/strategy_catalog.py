@@ -758,6 +758,54 @@ class StrategyCatalogRepository:
         return self._run(lambda cur: self._instances(
             cur, "WHERE i.strategy_id = %s AND i.instance_id = %s", (strategy_id, instance_id))[0])
 
+    def strategy_page(self, strategy_id: str) -> dict[str, Any] | None:
+        return self._run(lambda cur: self._page(cur, strategy_id))
+
+    def _page(self, cur: Any, strategy_id: str) -> dict[str, Any] | None:
+        rows = self._rows(cur, _SUMMARY_SQL.format(where="WHERE d.strategy_id = %s"), (strategy_id,))
+        if not rows:
+            return None
+        page = _summary(rows[0])
+        self._attach_instances(page, self._instances(cur, "WHERE i.strategy_id = %s", (strategy_id,)))
+        page["manifest"] = self._manifest_status(cur, strategy_id, page["instances"])
+        out = page["outcomes"]
+
+        series_rows = self._rows(cur, """SELECT (o.exit_timestamp AT TIME ZONE 'UTC')::date AS day,
+                sum(o.realized_r) AS realized_r, count(*) AS closed
+            FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
+            WHERE s.strategy_id = %s AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL
+              AND o.realized_r IS NOT NULL
+            GROUP BY 1 ORDER BY 1""", (strategy_id,))
+        cumulative, series = 0.0, []
+        for r in series_rows:
+            cumulative += float(r["realized_r"] or 0)
+            day = r["day"].isoformat() if isinstance(r["day"], (date, datetime)) else str(r["day"])
+            series.append({"date": day, "realized_r": float(r["realized_r"] or 0),
+                           "cumulative_realized_r": cumulative, "closed": int(r["closed"])})
+
+        by_instrument = self._rows(cur, """SELECT s.instrument, count(*) AS signals,
+                count(*) FILTER (WHERE o.status = 'OPEN') AS open,
+                count(*) FILTER (WHERE o.status = 'TARGET_HIT') AS target_hits,
+                count(*) FILTER (WHERE o.status = 'STOPPED') AS stops,
+                sum(o.realized_r) FILTER (WHERE o.status <> 'OPEN') AS realized_r
+            FROM strategy.entry_signals s LEFT JOIN strategy.entry_signal_outcomes o USING (signal_id)
+            WHERE s.strategy_id = %s GROUP BY 1 ORDER BY 1""", (strategy_id,))
+
+        observations = self._rows(cur, """SELECT s.signal_id AS id, s.instrument AS symbol, s.direction,
+                s.terminal_state AS stage, s.decision_time AS opened_at, coalesce(o.status, 'UNTRACKED') AS status,
+                s.entry_price AS simulated_entry, s.stop_price AS simulated_stop, s.target_price AS simulated_target,
+                s.target_r AS simulated_rr, o.realized_r, o.exit_timestamp
+            FROM strategy.entry_signals s LEFT JOIN strategy.entry_signal_outcomes o USING (signal_id)
+            WHERE s.strategy_id = %s
+            ORDER BY (coalesce(o.status, '') = 'OPEN') DESC, s.decision_time DESC LIMIT %s""",
+                                  (strategy_id, RECENT_LIMIT))
+
+        events = self._rows(cur, """SELECT * FROM (
+                SELECT s.signal_id || ':created' AS id, s.signal_emitted_at AS timestamp, 'SIGNAL_CREATED' AS type,
+                       s.direction || ' ' || s.instrument || ' @ ' || s.entry_price AS message, s.instrument AS symbol
+                FROM strategy.entry_signals s WHERE s.strategy_id = %s
+                UNION ALL
+                SELECT o.signal_id || ':' || o.status, o.exit_timestamp, o.status,
                        s.instrument || ' ' || o.status || coalesce(' ' || round(o.realized_r::numeric, 2) || 'R', ''), s.instrument
                 FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
                 WHERE s.strategy_id = %s AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
