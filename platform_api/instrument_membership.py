@@ -148,6 +148,7 @@ class InstrumentMembershipRepository:
                         WHERE strategy_instance_id = %s AND canonical_instrument = %s
                         FOR UPDATE""", (instance_id, canonical))
                     row = cur.fetchone()
+                    previous_state = None
                     if row is None:
                         if expected_revision not in (None, 0):
                             raise MembershipConflict("membership does not exist")
