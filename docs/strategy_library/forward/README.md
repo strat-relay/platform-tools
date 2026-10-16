@@ -126,3 +126,26 @@ User-supplied DB snapshot 2026-10-16T17:24Z lists migration 062 and only existin
 research tables. Migration versions are text; the DESC LIMIT output is lexical and
 does not prove a new slot is free. A full numeric slot check is required before
 assigning the candidate SQL to an automatic migration. No migration was added or run.
+
+
+## Verified provisioning preflight
+
+The user-supplied 2026-10-16T17:35Z preflight reports no numeric migration version
+>=063, no matching canary definitions, neither proposed ledger table, and no
+strategy_library_observer role. Slot 063 is a candidate, not reserved: recheck it
+before promoting any SQL into the automatic migration directory.
+
+`provisioning_candidate.sql` combines schema, three offline registrations and
+research-table grants in one explicit transaction. The role is a NOLOGIN group
+with no administrative flags and no grants on canonical/execution tables. It
+creates no passwords, Secret or login and grants no existing user membership.
+Provision a dedicated login bound only to that group separately before activation;
+existing broad trading_app credentials are not the intended observer credentials.
+Registration is catalog preparation only; online=false and execution_mode=OFF.
+The bundle is outside postgres/migrations and has not been executed.
+
+Next release sequence: pass latest PR CI and review/merge #191; obtain the immutable
+runtime image; promote the reviewed provisioning SQL with a freshly checked slot
+through the normal migration flow; provision dedicated credentials privately;
+prepare a standalone GitOps workload pinned to that digest and immutable run/T0;
+review that concrete workload before activation. Do not repin unrelated workloads.

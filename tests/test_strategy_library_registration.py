@@ -23,3 +23,12 @@ class RegistrationCandidateTests(unittest.TestCase):
         self.assertEqual(len({r['definition_id'] for r in rows}), 3)
         self.assertEqual(len({r['catalog_key'] for r in rows}), 3)
         with self.assertRaises(ValueError): candidate_sql(CANARY + CANARY)
+
+    def test_provisioning_bundle_is_atomic_and_matches_candidates(self):
+        root = Path(__file__).resolve().parents[1] / 'docs/strategy_library/forward'
+        bundle = (root/'provisioning_candidate.sql').read_text()
+        for name in ('schema_candidate.sql', 'registration_candidate.sql', 'observer_role_candidate.sql'):
+            self.assertIn((root/name).read_text(), bundle)
+        self.assertIn('\nBEGIN;\n', bundle)
+        self.assertTrue(bundle.endswith('COMMIT;\n'))
+        self.assertFalse((root.parents[2]/'postgres/migrations/063_strategy_library_forward.sql').exists())

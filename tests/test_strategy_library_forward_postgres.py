@@ -95,3 +95,12 @@ class ForwardLedgerPostgresTests(unittest.TestCase):
                         (row['definition_id'], 'conflict-'+self.run_id))
             with self.assertRaises(psycopg.errors.RaiseException):
                 cur.execute(candidate_sql())
+
+    def test_observer_group_has_research_writes_without_delete_or_canonical_writes(self):
+        sql = Path(__file__).resolve().parents[1] / 'docs/strategy_library/forward/observer_role_candidate.sql'
+        with self.conn.cursor() as cur:
+            cur.execute(sql.read_text())
+            cur.execute("SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls FROM pg_roles WHERE rolname='strategy_library_observer'")
+            self.assertEqual(cur.fetchone(), (False,False,False,False,False,False))
+            cur.execute("SELECT has_table_privilege('strategy_library_observer','research.strategy_library_forward_event','INSERT'),has_table_privilege('strategy_library_observer','research.strategy_library_forward_event','DELETE'),has_table_privilege('strategy_library_observer','strategy.entry_signals','INSERT')")
+            self.assertEqual(cur.fetchone(), (True,False,False))
