@@ -13,6 +13,7 @@ from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 
 AUDIT_SCHEMA_VERSION = "061"
+PIP_SIZE_SCHEMA_VERSION = "062"
 
 
 class InstrumentAnalyticsRepository:
@@ -64,19 +65,37 @@ class InstrumentAnalyticsRepository:
     def _population_sql(population: str) -> str:
         # Classification uses persisted evidence only.  A retrospective signal emitted after
         # its theoretical exit is not timely forward performance.
-        classification = "CASE WHEN o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION' THEN 'BROKER_EXECUTED' " \
-            "WHEN lower(COALESCE(s.evidence_class, '') || ' ' || COALESCE(s.source_provenance->>'classification', '')) " \
-            "LIKE ANY (ARRAY['%research%', '%retro%', '%backfill%']) THEN 'RETROSPECTIVE' " \
-            "WHEN lower(COALESCE(s.evidence_class, '') || ' ' || COALESCE(s.source_provenance->>'classification', '')) " \
-            "LIKE ANY (ARRAY['%canonical_runtime%', '%forward%', '%prospective%', '%paper%']) THEN 'FORWARD_PAPER' " \
-            "ELSE 'UNKNOWN' END"
+        # source_provenance_text: combines legacy 'classification' key and KOJO V3's
+        # 'signal_emission_class' key so both strategies classify correctly.
+        prov_text = (
+            "lower(COALESCE(s.evidence_class, '') || ' '"
+            "|| COALESCE(s.source_provenance->>'classification', '') || ' '"
+            "|| COALESCE(s.source_provenance->'provenance'->>'signal_emission_class', '') || ' '"
+            "|| COALESCE(s.source_provenance->>'signal_emission_class', ''))"
+        )
+        classification = (
+            f"CASE WHEN o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION' THEN 'BROKER_EXECUTED' "
+            # psycopg3 treats percent sequences in a parameterized query as
+            # placeholders. Escape the SQL LIKE wildcards so patterns such as
+            # ``%research%`` are sent to PostgreSQL as literal percent signs
+            # instead of being parsed as the unsupported ``%r`` format.
+            f"WHEN {prov_text} LIKE ANY (ARRAY['%%research%%', '%%retro%%', '%%backfill%%']) THEN 'RETROSPECTIVE' "
+            f"WHEN {prov_text} LIKE ANY (ARRAY['%%canonical_runtime%%', '%%forward%%', '%%prospective%%', '%%paper%%']) THEN 'FORWARD_PAPER' "
+            f"ELSE 'UNKNOWN' END"
+        )
         if population == "THEORETICAL":
             return "(o.outcome_kind IS DISTINCT FROM 'BROKER_REALIZED' AND o.source_kind IS DISTINCT FROM 'BROKER_EXECUTION')"
         if population == "BROKER_EXECUTED": return "(o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION')"
         if population == "RETROSPECTIVE": return f"({classification}) = 'RETROSPECTIVE'"
         if population == "UNKNOWN": return f"({classification}) = 'UNKNOWN'"
         if population == "FORWARD_PAPER":
-            return f"({classification}) = 'FORWARD_PAPER' AND NOT (COALESCE(s.evidence_class, '') ILIKE '%RETRO%' AND o.exit_timestamp IS NOT NULL AND s.signal_emitted_at > o.exit_timestamp)"
+            # Exclude signals where the emission timestamp post-dates the exit timestamp
+            # (emitted-after-outcome, e.g. pod-restart replay signals).
+            return (
+                f"({classification}) = 'FORWARD_PAPER' AND NOT ("
+                f"{prov_text} LIKE ANY (ARRAY['%%retro%%']) "
+                f"AND o.exit_timestamp IS NOT NULL AND s.signal_emitted_at > o.exit_timestamp)"
+            )
         return "TRUE"
 
     def read(self, strategy_id: str, instance_id: str, query: dict[str, list[str]]) -> dict[str, Any]:
@@ -96,14 +115,17 @@ class InstrumentAnalyticsRepository:
         try:
             with self._connect(readonly=True) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s", ("028",))
-                    if cur.fetchone() is None: raise CanonicalSourceUnavailable("schema 028 is required")
+                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s", (PIP_SIZE_SCHEMA_VERSION,))
+                    if cur.fetchone() is None: raise CanonicalSourceUnavailable("schema 062 is required for planned pip metrics")
                     cur.execute(f"""WITH scoped AS (
                         SELECT s.signal_id, s.instrument, s.direction, s.strategy_version, s.parameter_set_ref,
-                               s.signal_emitted_at, o.status, o.realized_r, o.exit_timestamp, o.outcome_kind,
+                               s.signal_emitted_at, s.entry_price, s.stop_price, s.target_price, p.pip_size,
+                               o.status, o.realized_r, o.exit_timestamp, o.outcome_kind,
                                o.source_kind, o.resolution_state, o.exit_price, o.activation_price,
                                o.resolution_evidence, {self._population_sql('ALL')} AS all_population
                         FROM strategy.entry_signals s LEFT JOIN strategy.entry_signal_outcomes o USING(signal_id)
+                        LEFT JOIN platform.instrument_provider_mapping p
+                          ON p.provider = 'MT5' AND p.state = 'ACTIVE' AND p.canonical_instrument = s.instrument
                         WHERE {where} AND {pop}
                     ), closed AS (SELECT * FROM scoped WHERE status <> 'OPEN' AND realized_r IS NOT NULL)
                     SELECT instrument, count(*) FILTER (WHERE status IS NULL) AS untracked,
@@ -115,6 +137,13 @@ class InstrumentAnalyticsRepository:
                            COALESCE(sum(realized_r) FILTER (WHERE status <> 'OPEN'), 0) AS net_r,
                            COALESCE(sum(realized_r) FILTER (WHERE realized_r > 0), 0) AS gross_win,
                            COALESCE(sum(realized_r) FILTER (WHERE realized_r < 0), 0) AS gross_loss,
+                           avg(abs(target_price - entry_price) / NULLIF(pip_size, 0))
+                               FILTER (WHERE target_price IS NOT NULL AND entry_price IS NOT NULL AND pip_size IS NOT NULL)
+                               AS planned_target_pips,
+                           avg(abs(stop_price - entry_price) / NULLIF(pip_size, 0))
+                               FILTER (WHERE stop_price IS NOT NULL AND entry_price IS NOT NULL AND pip_size IS NOT NULL)
+                               AS planned_stop_pips,
+                           max(pip_size) AS pip_size,
                            min(signal_emitted_at) AS first_signal_at, max(exit_timestamp) AS last_exit_at
                     FROM scoped GROUP BY instrument ORDER BY {sort_sql} LIMIT %s OFFSET %s""", params + [limit, offset])
                     rows = [_row_dict(cur, row) for row in cur.fetchall()]
@@ -172,7 +201,7 @@ class InstrumentAnalyticsRepository:
                         WHERE s.strategy_id = %s AND s.strategy_instance_id = %s AND s.instrument = COALESCE(NULLIF(%s,''), s.instrument)""",
                                 (strategy_id, instance_id, (query.get("instrument") or [""])[0].upper()))
                     exposure = _row_dict(cur, cur.fetchone())
-                    cur.execute("""SELECT canonical_instrument, provider_symbol, asset_class
+                    cur.execute("""SELECT canonical_instrument, provider_symbol, asset_class, pip_size
                         FROM platform.instrument_provider_mapping WHERE provider = 'MT5' AND state = 'ACTIVE'
                         AND canonical_instrument = ANY(%s)""", ([r["instrument"] for r in rows],))
                     mapping = {_row_dict(cur, r)["canonical_instrument"]: _row_dict(cur, r) for r in cur.fetchall()}
@@ -216,7 +245,7 @@ class InstrumentAnalyticsRepository:
                                   "broker_positions": {"status": "READ_ONLY_BRIDGE_REQUIRED"}},
                     "data_quality": {"authoritative": True, "partial_exit_policy": "OUTCOME_ROWS_ONLY_UNLESS_EXECUTION_FACTS_EXIST",
                                      "pip_point_policy": "CANONICAL_MAPPING_REQUIRED",
-                                     "pip_point_status": "NOT_AVAILABLE_FROM_CANONICAL_MAPPING" if rows else "NO_ROWS",
+                                     "pip_point_status": "PLANNED_ONLY" if rows else "NO_ROWS",
                                      "classification_uncertain": uncertain_count,
                                      "sample_sufficient": any(int(x["closed"] or 0) >= 10 for x in rows)}}
         except (CanonicalSourceUnavailable, ValueError): raise
