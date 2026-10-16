@@ -100,6 +100,7 @@ class InstrumentMembershipRepository:
                     row = cur.fetchone()
                     changed = row is not None
                     if row is None:
+                        previous_state = None
                         cur.execute("""SELECT canonical_instrument, provider, provider_symbol, asset_class, display_name,
                                               state, revision FROM platform.instrument_provider_mapping
                                        WHERE provider = %s AND canonical_instrument = %s""", (provider, canonical))
@@ -123,7 +124,11 @@ class InstrumentMembershipRepository:
             ORDER BY canonical_instrument""", (instance_id,))
 
     def save_membership(self, strategy_id: str, instance_id: str, canonical: str,
-                        state: str, expected_revision: int | None, actor: str) -> dict[str, Any]:
+                        state: str, expected_revision: int | None, actor: str,
+                        *, reason: str = "membership change", selected_period: str | None = None,
+                        provenance_filter: str | None = None, strategy_version: str | None = None,
+                        parameter_set_ref: str | None = None,
+                        performance_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
         canonical = canonical.strip().upper()
         state = state.upper()
         if not canonical or state not in {"ACTIVE", "DISABLED"}:
@@ -151,6 +156,7 @@ class InstrumentMembershipRepository:
                                     (instance_id, strategy_id, canonical, state, actor))
                     else:
                         current = _row_dict(cur, row)
+                        previous_state = current["state"]
                         if expected_revision is not None and int(current["revision"]) != expected_revision:
                             raise MembershipConflict(f"revision conflict: expected {expected_revision}, current {current['revision']}")
                         cur.execute("""UPDATE strategy.instrument_membership
@@ -161,6 +167,16 @@ class InstrumentMembershipRepository:
                                       revision, created_at, updated_at, updated_by""",
                                     (state, strategy_id, actor, instance_id, canonical))
                     result = _row_dict(cur, cur.fetchone())
+                    cur.execute("""INSERT INTO strategy.instrument_membership_audit
+                        (strategy_instance_id, strategy_id, canonical_instrument, previous_state, new_state,
+                         actor, reason, selected_period, provenance_filter, strategy_version, parameter_set_ref,
+                         performance_snapshot)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)""",
+                        (instance_id, strategy_id, canonical,
+                         previous_state,
+                         result["state"], actor, reason.strip() or "membership change", selected_period,
+                         provenance_filter, strategy_version, parameter_set_ref,
+                         json.dumps(performance_snapshot or {}, default=str)))
                 conn.commit()
                 return result
         except (MembershipConflict, UnsupportedInstrument, CanonicalSourceUnavailable):
