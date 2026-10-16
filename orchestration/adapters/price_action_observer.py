@@ -108,6 +108,8 @@ class PriceActionObserverAdapter:
                     "source_read_health": True, "gap_recovery": False,
                     "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",
                     "orchestrator_freeze_timestamp": decision_time,
+                    # Broker symbol for resolver candle lookup (m-suffix Exness convention).
+                    "provider_symbol": f"{instrument}m",
                 }, decision_time=decision_time, signal_emitted_at=emitted_at,
             ))
         return result
