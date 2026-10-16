@@ -144,9 +144,11 @@ class ForwardObserver:
             raise ValueError('unhealthy canonical cache')
         if not math.isfinite(snapshot.cache_age_seconds) or not 0 <= snapshot.cache_age_seconds <= self.config.max_age_seconds:
             raise ValueError('stale canonical cache')
-        tick = snapshot.symbol_info.get('trade_tick_size')
+        # The canonical bridge cache exports tick_size. Do not infer it from
+        # point/digits, which describe display precision rather than tick rules.
+        tick = snapshot.symbol_info.get('tick_size')
         if isinstance(tick, bool) or not isinstance(tick, (int, float)) or not math.isfinite(tick) or tick <= 0:
-            raise ValueError('explicit positive trade_tick_size required')
+            raise ValueError('explicit positive canonical tick_size required')
         stream_id = key + ':' + instrument
         stored = self.state['streams'].get(stream_id)
         if stored and observed_at < stored['last_observed_at']:

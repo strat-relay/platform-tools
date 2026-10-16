@@ -16,7 +16,7 @@ from strategy_backtest.library.runtime import STEPS
 def cached(d, bars, context, now):
     series = {d.context: context, d.execution: bars}
     return SimpleNamespace(
-        symbol_info={'trade_tick_size': .01}, cache_age_seconds=1,
+        symbol_info={'tick_size': .01}, cache_age_seconds=1,
         gap_status='NONE', recovery_status='NONE', continuity_status='CONTINUOUS',
         bars={tf: SimpleNamespace(bars=[{'time': b.open_timestamp, 'open': b.open,
               'high': b.high, 'low': b.low, 'close': b.close, 'tick_volume': 10}
@@ -177,3 +177,12 @@ class LibraryForwardTests(unittest.TestCase):
         for other in (ForwardObserver(observer.config, artifact='changed'),
                       ForwardObserver(replace(observer.config, activation_time=1), artifact='frozen')):
             with self.assertRaises(ValueError): other.restore(observer.state)
+
+    def test_canonical_tick_size_does_not_use_display_point(self):
+        observer, d, bars, context, symbol = self.observer()
+        now = bars[-2].close_timestamp+1
+        view = cached(d, bars[:-1], context, now)
+        view.symbol_info = {'tick_size': .01, 'point': .001, 'trade_tick_size': None}
+        observer.process(d.key, symbol, view, observed_at=now)
+        runtime = observer.state['streams'][d.key+':'+symbol]['runtime']
+        self.assertEqual(runtime['state']['tick_sizes'][symbol], .01)

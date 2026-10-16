@@ -45,7 +45,7 @@ an explicit reviewed calendar policy; it is not a collector outage by definition
 Current cache supports M5/M15/H1/H4. Four definitions requiring D1 are explicitly
 blocked: Daily Channel Breakout, Daily EMA Pullback, Weekly Range Break + Retest,
 and H4 Momentum Continuation. H4 Structure Pullback requires H1/H4 cache coverage.
-VWAP hypotheses require usable tick volume. A positive `trade_tick_size` must be
+VWAP hypotheses require usable tick volume. A positive canonical `tick_size` must be
 available; there is no price-digit-derived guess or silent point fallback.
 Every stream requires at least the manifest's 320 requested cache bars for both
 roles. Actual series lengths, revision consistency, completed timestamps,
