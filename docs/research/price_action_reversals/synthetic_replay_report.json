@@ -1,0 +1,204 @@
+{
+  "count_reconciliation": {
+    "PRICE_ACTION_ENGULFING_REVERSAL@V1": true,
+    "PRICE_ACTION_PIN_BAR_REVERSAL@V1": true,
+    "PRICE_ACTION_STAR_REVERSAL@V1": true
+  },
+  "evidence_class": "synthetic_fixture",
+  "historical_claim": false,
+  "lifecycle_by_strategy": {
+    "PRICE_ACTION_ENGULFING_REVERSAL@V1": {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "episode_ids": [
+        "f1df9cc4f5be8a05a6bacd75",
+        "7790e40e5d79c6dfd6642073",
+        "fb448302b0df1b523d8bb002",
+        "cd21d25e313d5f0b6dcc6cf7",
+        "9037252f9fa8c38f887b98ce",
+        "ac61e972c285e5d16c6fc1d7",
+        "ac61e972c285e5d16c6fc1d7",
+        "436f28f2313723bf94cc5ef8"
+      ],
+      "evaluations": 8,
+      "pending_episodes": 0,
+      "proposals": 1,
+      "rejection_counts": {
+        "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+        "INSUFFICIENT_EXECUTION_WARMUP": 5,
+        "PATTERN_NOT_CONFIRMED": 1,
+        "RESEARCH_PROPOSAL_ONLY": 1
+      }
+    },
+    "PRICE_ACTION_PIN_BAR_REVERSAL@V1": {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "episode_ids": [
+        "a718738392e9ac6ca83c0c0b",
+        "da87e5fbbdf1455792002d6d",
+        "03af2da635922826d12b9f43",
+        "df49d8ae950ef6fc0d7a7260",
+        "5117f58bbb2d93c38ce000da",
+        "b2651cde21eeed99bf9ece7e",
+        "b2651cde21eeed99bf9ece7e",
+        "909d8e299fcfcf9b59244f96"
+      ],
+      "evaluations": 8,
+      "pending_episodes": 0,
+      "proposals": 1,
+      "rejection_counts": {
+        "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+        "INSUFFICIENT_EXECUTION_WARMUP": 5,
+        "PIN_BAR_GEOMETRY_NOT_CONFIRMED": 1,
+        "RESEARCH_PROPOSAL_ONLY": 1
+      }
+    },
+    "PRICE_ACTION_STAR_REVERSAL@V1": {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "episode_ids": [
+        "846f2f6e967a6a71e960b13f",
+        "0db1be7467456a404488ab46",
+        "b317b01f5edb8859f5f920d0",
+        "76c321ba8bf4ba1afce7e667",
+        "cd2ec5a02fe9cfeeb56cd529",
+        "d19cfc1b9cf156713c4b2ecb",
+        "d19cfc1b9cf156713c4b2ecb",
+        "57d8c6e53be7c8d915500ee9"
+      ],
+      "evaluations": 8,
+      "pending_episodes": 0,
+      "proposals": 1,
+      "rejection_counts": {
+        "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+        "INSUFFICIENT_EXECUTION_WARMUP": 5,
+        "PATTERN_NOT_CONFIRMED": 1,
+        "RESEARCH_PROPOSAL_ONLY": 1
+      }
+    }
+  },
+  "schema": "price-action-reversal-synthetic-replay-v1",
+  "strategies": [
+    {
+      "accepted_pattern_count": 0,
+      "episodes": [
+        {
+          "classification": "accepted_pattern",
+          "episode_id": "PRICE_ACTION_ENGULFING_REVERSAL:accepted",
+          "pattern": null
+        },
+        {
+          "classification": "rejected_pattern",
+          "episode_id": "PRICE_ACTION_ENGULFING_REVERSAL:rejected",
+          "pattern": null
+        }
+      ],
+      "rejected_pattern_count": 1,
+      "strategy_version_id": "PRICE_ACTION_ENGULFING_REVERSAL@V1"
+    },
+    {
+      "accepted_pattern_count": 1,
+      "episodes": [
+        {
+          "classification": "accepted_pattern",
+          "episode_id": "PRICE_ACTION_STAR_REVERSAL:accepted",
+          "pattern": {
+            "constituent_candle_ids": [
+              0,
+              900,
+              1800
+            ],
+            "direction": "LONG",
+            "observed": {
+              "exchange_gap_required": false,
+              "first": {
+                "close": 89.5,
+                "close_timestamp": 900,
+                "high": 91.2,
+                "index": 0,
+                "low": 88.9,
+                "open": 91,
+                "open_timestamp": 0
+              },
+              "middle": {
+                "close": 89.7,
+                "close_timestamp": 1800,
+                "high": 90,
+                "index": 1,
+                "low": 89.2,
+                "open": 89.5,
+                "open_timestamp": 900
+              },
+              "recovery_above_first_body_midpoint": true,
+              "third": {
+                "close": 91.2,
+                "close_timestamp": 2700,
+                "high": 91.5,
+                "index": 2,
+                "low": 88.8,
+                "open": 89.5,
+                "open_timestamp": 1800
+              }
+            },
+            "pattern_end_index": 2,
+            "pattern_high": 91.5,
+            "pattern_low": 88.8,
+            "pattern_start_index": 0,
+            "primitive_id": "price_action.star_reversal@1"
+          }
+        },
+        {
+          "classification": "rejected_pattern",
+          "episode_id": "PRICE_ACTION_STAR_REVERSAL:rejected",
+          "pattern": null
+        }
+      ],
+      "rejected_pattern_count": 1,
+      "strategy_version_id": "PRICE_ACTION_STAR_REVERSAL@V1"
+    },
+    {
+      "accepted_pattern_count": 1,
+      "episodes": [
+        {
+          "classification": "accepted_pattern",
+          "episode_id": "PRICE_ACTION_PIN_BAR_REVERSAL:accepted",
+          "pattern": {
+            "constituent_candle_ids": [
+              0
+            ],
+            "direction": "LONG",
+            "observed": {
+              "bar": {
+                "close": 89.3,
+                "close_timestamp": 900,
+                "high": 89.35,
+                "index": 0,
+                "low": 88.6,
+                "open": 89.1,
+                "open_timestamp": 0
+              },
+              "close_location": 0.9333333333333371,
+              "opposite_wick_body_ratio": 0.24999999999998224,
+              "wick_body_ratio": 2.4999999999999645,
+              "zero_body_policy": "reject"
+            },
+            "pattern_end_index": 0,
+            "pattern_high": 89.35,
+            "pattern_low": 88.6,
+            "pattern_start_index": 0,
+            "primitive_id": "price_action.pin_bar@1"
+          }
+        },
+        {
+          "classification": "rejected_pattern",
+          "episode_id": "PRICE_ACTION_PIN_BAR_REVERSAL:rejected",
+          "pattern": {
+            "rejection_reason": "PIN_BAR_GEOMETRY_NOT_CONFIRMED"
+          }
+        }
+      ],
+      "rejected_pattern_count": 1,
+      "strategy_version_id": "PRICE_ACTION_PIN_BAR_REVERSAL@V1"
+    }
+  ]
+}

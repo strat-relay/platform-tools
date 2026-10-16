@@ -137,6 +137,33 @@ def default_reason_codes() -> ReasonCodeRegistry:
         ("DATA_UNAVAILABLE", "runtime", "Required input data was unavailable", True),
         ("REVIEW_REQUIRED", "review", "A human review gate remains unresolved", False),
         ("LEGACY_TRACE_LIMITED", "trace", "Legacy runtime cannot expose complete stage evidence", False),
+        # Versioned Price Action research lifecycle reasons.  These are shared
+        # registry entries so traces never collapse distinct failures into the
+        # generic NO_VALID_ENTRY_SIGNAL code.
+        ("INSUFFICIENT_CONTEXT", "data", "Confirmed higher-timeframe context is not warm", True),
+        ("INSUFFICIENT_EXECUTION_WARMUP", "data", "Execution history is not warm", True),
+        ("NO_CONFIRMED_LEVEL", "structure", "No confirmed structural level was available", True),
+        ("PATTERN_NOT_CONFIRMED", "pattern", "The reversal pattern was not confirmed", True),
+        ("ZERO_RANGE_INVALID", "pattern", "Pattern candle has zero range", True),
+        ("ZERO_BODY_UNSUPPORTED", "pattern", "Pattern candle has zero body", True),
+        ("RANGE_BELOW_MINIMUM", "pattern", "Pattern range is below the frozen minimum", True),
+        ("PIN_BAR_GEOMETRY_NOT_CONFIRMED", "pattern", "Pin-bar geometry was not confirmed", True),
+        ("NO_PRIOR_DIRECTIONAL_MOVE", "structure", "Required prior directional move was absent", True),
+        ("INVALID_STRUCTURAL_LOCATION", "structure", "Pattern did not reject from a valid structural zone", True),
+        ("NO_KNOWN_OPPOSING_TARGET", "risk", "No known opposing target was available", True),
+        ("INVALID_PLANNED_GEOMETRY", "risk", "Planned stop and target geometry was invalid", True),
+        ("INSUFFICIENT_PLANNED_R", "risk", "Planned reward-to-risk was below the frozen minimum", True),
+        ("RESEARCH_PROPOSAL_ONLY", "research", "Research proposal is not an executable signal", True),
+        ("ENTRY_GAP_CANCELLED", "entry", "The next open exceeded the adverse gap limit", True),
+        ("STRUCTURAL_INVALIDATION", "entry", "The next open structurally invalidated the setup", True),
+        ("INVALID_ACTUAL_ENTRY_GEOMETRY", "entry", "Actual next-open geometry was invalid", True),
+        ("INSUFFICIENT_ACTUAL_ENTRY_R", "entry", "Actual next-open reward-to-risk was below minimum", True),
+        ("ENTRY_OBSERVED_RESEARCH_ONLY", "entry", "Next-open paper entry was observed for research only", True),
+        ("MISSING_EXPECTED_NEXT_CANDLE", "entry", "The exact expected next candle was unavailable", True),
+        ("DUPLICATE_EPISODE", "deduplication", "Candidate episode was already consumed", True),
+        ("PATTERN_IDENTITY_INVALID", "data", "Pattern constituent identity was invalid", True),
+        ("PATTERN_DATA_GAP", "data", "Pattern constituents were separated by an unsupported gap", True),
+        ("CONTEXT_UNAVAILABLE_TIMEOUT", "data", "Event-time boundary expired without confirmed H1 context coverage", True),
     )
     return ReasonCodeRegistry({(code, "v1"): ReasonCode(code, "v1", category, description, terminal)
                                for code, category, description, terminal in definitions})
