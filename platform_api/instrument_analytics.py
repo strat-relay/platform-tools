@@ -56,7 +56,7 @@ class InstrumentAnalyticsRepository:
     @staticmethod
     def _population(query: dict[str, list[str]]) -> str:
         value = (query.get("provenance") or ["THEORETICAL"])[0].upper()
-        allowed = {"THEORETICAL", "RETROSPECTIVE", "FORWARD_PAPER", "BROKER_EXECUTED", "ALL"}
+        allowed = {"THEORETICAL", "RETROSPECTIVE", "FORWARD_PAPER", "BROKER_EXECUTED", "UNKNOWN", "ALL"}
         if value not in allowed: raise ValueError("provenance is invalid")
         return value
 
@@ -67,11 +67,14 @@ class InstrumentAnalyticsRepository:
         classification = "CASE WHEN o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION' THEN 'BROKER_EXECUTED' " \
             "WHEN lower(COALESCE(s.evidence_class, '') || ' ' || COALESCE(s.source_provenance->>'classification', '')) " \
             "LIKE ANY (ARRAY['%research%', '%retro%', '%backfill%']) THEN 'RETROSPECTIVE' " \
-            "ELSE 'FORWARD_PAPER' END"
+            "WHEN lower(COALESCE(s.evidence_class, '') || ' ' || COALESCE(s.source_provenance->>'classification', '')) " \
+            "LIKE ANY (ARRAY['%canonical_runtime%', '%forward%', '%prospective%', '%paper%']) THEN 'FORWARD_PAPER' " \
+            "ELSE 'UNKNOWN' END"
         if population == "THEORETICAL":
             return "(o.outcome_kind IS DISTINCT FROM 'BROKER_REALIZED' AND o.source_kind IS DISTINCT FROM 'BROKER_EXECUTION')"
         if population == "BROKER_EXECUTED": return "(o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION')"
         if population == "RETROSPECTIVE": return f"({classification}) = 'RETROSPECTIVE'"
+        if population == "UNKNOWN": return f"({classification}) = 'UNKNOWN'"
         if population == "FORWARD_PAPER":
             return f"({classification}) = 'FORWARD_PAPER' AND NOT (COALESCE(s.evidence_class, '') ILIKE '%RETRO%' AND o.exit_timestamp IS NOT NULL AND s.signal_emitted_at > o.exit_timestamp)"
         return "TRUE"
@@ -134,7 +137,7 @@ class InstrumentAnalyticsRepository:
                                count(*) FILTER (WHERE status <> 'OPEN' AND realized_r IS NOT NULL) AS closed
                         FROM scoped GROUP BY 1 ORDER BY 1""", params)
                     monthly_trend = [_row_dict(cur, row) for row in cur.fetchall()]
-                    cur.execute(f"""SELECT COALESCE(o.exit_timestamp, s.signal_emitted_at, s.decision_time) AS at,
+                    cur.execute(f"""SELECT s.instrument, COALESCE(o.exit_timestamp, s.signal_emitted_at, s.decision_time) AS at,
                         o.realized_r FROM strategy.entry_signals s LEFT JOIN strategy.entry_signal_outcomes o USING(signal_id)
                         WHERE {where} AND {pop} AND o.status <> 'OPEN' AND o.realized_r IS NOT NULL
                         ORDER BY at, s.signal_id""", params)
@@ -157,6 +160,11 @@ class InstrumentAnalyticsRepository:
                         LEFT JOIN strategy.entry_signal_outcomes o USING(signal_id) WHERE {where} AND {pop})
                         SELECT count(*) AS total FROM scoped""", params)
                     total = int(cur.fetchone()[0] or 0)
+                    classification_expr = self._population_sql("UNKNOWN")
+                    cur.execute(f"""SELECT count(*) FROM strategy.entry_signals s
+                        LEFT JOIN strategy.entry_signal_outcomes o USING(signal_id)
+                        WHERE {where} AND {classification_expr}""", params)
+                    uncertain_count = int(cur.fetchone()[0] or 0)
                     cur.execute(f"""SELECT count(*) FILTER (WHERE o.status = 'OPEN') AS theoretical_open,
                         count(*) FILTER (WHERE i.status IN ('PENDING','CLAIMED')) AS pending_execution_intents
                         FROM strategy.entry_signals s LEFT JOIN strategy.entry_signal_outcomes o USING(signal_id)
@@ -172,10 +180,21 @@ class InstrumentAnalyticsRepository:
             for r in rows:
                 closed = int(r["closed"] or 0); wins = int(r["wins"] or 0); loss = int(r["losses"] or 0)
                 gross_loss = float(r["gross_loss"] or 0); net = float(r["net_r"] or 0)
+                instrument_trades = [t for t in trade_rows if t["instrument"] == r["instrument"]]
+                instrument_rs = [float(t["realized_r"] or 0) for t in instrument_trades]
+                instrument_cum = 0.0; instrument_peak = 0.0; instrument_dd = 0.0
+                for value in instrument_rs:
+                    instrument_cum += value; instrument_peak = max(instrument_peak, instrument_cum)
+                    instrument_dd = max(instrument_dd, instrument_peak - instrument_cum)
+                wins_r = [value for value in instrument_rs if value > 0]
+                losses_r = [value for value in instrument_rs if value < 0]
                 metrics.append({**r, "untracked": int(r["untracked"] or 0), "tracked": int(r["tracked"] or 0), "closed": closed, "wins": wins, "losses": loss,
                     "net_r": net, "expectancy_r": net / closed if closed else None,
                     "profit_factor": abs(float(r["gross_win"] or 0) / gross_loss) if gross_loss else None,
                     "win_rate": wins / (wins + loss) if wins + loss else None,
+                    "average_win_r": sum(wins_r) / len(wins_r) if wins_r else None,
+                    "average_loss_r": sum(losses_r) / len(losses_r) if losses_r else None,
+                    "max_drawdown_r": instrument_dd,
                     "assessment": "INSUFFICIENT_DATA" if closed < 10 else ("UNDERPERFORMING" if net <= 0 else "ADVISORY_POSITIVE"),
                     "instrument_metadata": mapping.get(r["instrument"], {"status": "UNAVAILABLE"})})
             trend_with_cumulative = []
@@ -198,6 +217,7 @@ class InstrumentAnalyticsRepository:
                     "data_quality": {"authoritative": True, "partial_exit_policy": "OUTCOME_ROWS_ONLY_UNLESS_EXECUTION_FACTS_EXIST",
                                      "pip_point_policy": "CANONICAL_MAPPING_REQUIRED",
                                      "pip_point_status": "NOT_AVAILABLE_FROM_CANONICAL_MAPPING" if rows else "NO_ROWS",
+                                     "classification_uncertain": uncertain_count,
                                      "sample_sufficient": any(int(x["closed"] or 0) >= 10 for x in rows)}}
         except (CanonicalSourceUnavailable, ValueError): raise
         except Exception as exc: raise CanonicalSourceUnavailable(f"instrument analytics unavailable: {exc}") from exc

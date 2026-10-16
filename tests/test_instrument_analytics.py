@@ -14,7 +14,7 @@ def test_period_contract_supports_standard_and_custom_ranges():
     assert key == "CUSTOM" and end > start
 
 
-@pytest.mark.parametrize("value", ["BROKER_EXECUTED", "RETROSPECTIVE", "FORWARD_PAPER", "THEORETICAL", "ALL"])
+@pytest.mark.parametrize("value", ["BROKER_EXECUTED", "RETROSPECTIVE", "FORWARD_PAPER", "THEORETICAL", "UNKNOWN", "ALL"])
 def test_populations_are_explicit(value):
     repo = InstrumentAnalyticsRepository()
     assert repo._population({"provenance": [value]}) == value
@@ -25,6 +25,12 @@ def test_retroactive_signal_is_not_forward_paper_population():
     sql = repo._population_sql("FORWARD_PAPER")
     assert "s.signal_emitted_at > o.exit_timestamp" in sql
     assert "RETRO" in sql
+
+
+def test_missing_provenance_is_not_assumed_forward():
+    repo = InstrumentAnalyticsRepository()
+    sql = repo._population_sql("FORWARD_PAPER")
+    assert "UNKNOWN" in sql
 
 
 def test_invalid_period_and_sort_fail_closed():
