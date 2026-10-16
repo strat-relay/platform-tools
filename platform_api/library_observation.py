@@ -1,19 +1,33 @@
 """Read-only library observer facts, independent of publication/execution gates."""
 from datetime import datetime, timezone
+from copy import deepcopy
+from .library_market_schedule import expected_weekend
 
 
 def observation_status(state, key, *, now=None):
     health = (state or {}).get('health', {})
     observed = health.get('observed_at')
-    streams = [s for s in health.get('streams', []) if s.get('key') == key]
+    streams = [deepcopy(s) for s in health.get('streams', []) if s.get('key') == key]
     now = datetime.now(timezone.utc).timestamp() if now is None else now
     fresh = isinstance(observed, (float,int)) and 0 <= now-observed <= 330
+    for stream in streams:
+        stored = (state or {}).get('streams', {}).get(key+':'+str(stream.get('instrument')), {})
+        closure = expected_weekend(stream.get('instrument'), now, stored) if fresh else None
+        if stream.get('status') == 'BLOCKED' and stream.get('error_type') == 'ValueError' and closure:
+            stream.update(raw_status=stream['status'], status='MARKET_CLOSED', schedule=closure,
+                          last_finalized_close=stored.get('last_close'))
+    all_closed = bool(streams) and all(s.get('status') == 'MARKET_CLOSED' for s in streams)
     status = ('NOT_OBSERVED' if observed is None else 'STALE' if not fresh else
-              'RUNNING' if streams and all(s.get('status') == 'OK' for s in streams) else 'DEGRADED')
-    finalized = [s['last_finalized_close'] for s in streams if s.get('last_finalized_close') is not None]
+              'MARKET_CLOSED' if all_closed else
+              'RUNNING' if streams and any(s.get('status') == 'OK' for s in streams)
+              and all(s.get('status') in {'OK','MARKET_CLOSED'} for s in streams) else 'DEGRADED')
+    finalized = [s['last_finalized_close'] for s in streams
+                 if s.get('last_finalized_close') is not None and (all_closed or s.get('status') == 'OK')]
     return {'status': status, 'observed_at': observed,
             'last_finalized_close': min(finalized) if finalized else None,
-            'streams': streams, 'execution_eligible': False}
+            'streams': streams, 'execution_eligible': False,
+            'raw_status':health.get('status'),
+            'closed_instruments':sorted({s['instrument'] for s in streams if s.get('status') == 'MARKET_CLOSED'})}
 
 
 def load_observation(cur, attributes):
