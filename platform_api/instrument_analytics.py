@@ -74,8 +74,12 @@ class InstrumentAnalyticsRepository:
         )
         classification = (
             f"CASE WHEN o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION' THEN 'BROKER_EXECUTED' "
-            f"WHEN {prov_text} LIKE ANY (ARRAY['%research%', '%retro%', '%backfill%']) THEN 'RETROSPECTIVE' "
-            f"WHEN {prov_text} LIKE ANY (ARRAY['%canonical_runtime%', '%forward%', '%prospective%', '%paper%']) THEN 'FORWARD_PAPER' "
+            # psycopg3 treats percent sequences in a parameterized query as
+            # placeholders. Escape the SQL LIKE wildcards so patterns such as
+            # ``%research%`` are sent to PostgreSQL as literal percent signs
+            # instead of being parsed as the unsupported ``%r`` format.
+            f"WHEN {prov_text} LIKE ANY (ARRAY['%%research%%', '%%retro%%', '%%backfill%%']) THEN 'RETROSPECTIVE' "
+            f"WHEN {prov_text} LIKE ANY (ARRAY['%%canonical_runtime%%', '%%forward%%', '%%prospective%%', '%%paper%%']) THEN 'FORWARD_PAPER' "
             f"ELSE 'UNKNOWN' END"
         )
         if population == "THEORETICAL":
@@ -88,7 +92,7 @@ class InstrumentAnalyticsRepository:
             # (emitted-after-outcome, e.g. pod-restart replay signals).
             return (
                 f"({classification}) = 'FORWARD_PAPER' AND NOT ("
-                f"{prov_text} LIKE ANY (ARRAY['%retro%']) "
+                f"{prov_text} LIKE ANY (ARRAY['%%retro%%']) "
                 f"AND o.exit_timestamp IS NOT NULL AND s.signal_emitted_at > o.exit_timestamp)"
             )
         return "TRUE"
