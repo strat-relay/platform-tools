@@ -581,6 +581,13 @@ class PlatformControlRepository:
             observability_version="entry-outcomes.v1",
         )
 
+    def kojo_v3_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "KOJO_STRUCTURE_RECLAIM_V3", "ENTRY_ONLY", instance_id,
+            display_name="Kojo Structure Reclaim V3",
+            observability_version="entry-outcomes.v1",
+        )
+
 
 STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
     "CONTEXT_STRUCTURE_RETRACE_V1": {
@@ -590,6 +597,10 @@ STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
     "LIQUIDITY_DISPLACEMENT_SCALP_V1": {
         "reader": "liquidity_entry_outcome_report",
         "outcome_type": "LIQUIDITY_ENTRY",
+    },
+    "KOJO_STRUCTURE_RECLAIM_V3": {
+        "reader": "kojo_v3_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
     },
     "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST": {
         "reader": "pa_sr_retest_entry_outcome_report",
