@@ -4,7 +4,12 @@
   "execution_eligible": false,
   "universe": {
     "selection": "common universe from the audited historical Price Action dataset when raw source is reacquired",
-    "instruments": ["AUDJPY", "GBPUSD", "USDJPY", "XAUUSD"],
+    "instruments": [
+      "AUDJPY",
+      "GBPUSD",
+      "USDJPY",
+      "XAUUSD"
+    ],
     "mapping": "canonical symbol equals validated native MT5 export symbol; broker aliases must be recorded before replay"
   },
   "timeframes": {
@@ -13,12 +18,12 @@
     "timestamps": "UTC candle-open timestamps; candle close is open plus timeframe duration",
     "completed_only": true,
     "htf_rule": "H1 swings and levels are usable only after the strict left/right confirmation closes",
-    "synchronization": "M15 evaluations buffer until the per-instrument context_watermark_timestamp covers the M15 close cutoff; finalize_context(timeout=true) records explicit unavailable-context timeouts"
+    "synchronization": "M15 cutoff T requires completed H1 coverage through floor(T/3600)*3600; no future H1 is required. Only delivered H1 candles establish healthy coverage. Gaps in the retained H1 window fail closed; no closure calendar is inferred. Explicit timeout boundaries cancel affected pending episodes and suppress later replay of expired decisions without advancing healthy coverage."
   },
   "causal_protocol": {
     "prior_move": "strict monotonic completed M15 closes over prior_move_bars",
     "entry": "the exact next M15 candle is identified by open_timestamp equal to pattern completion close_timestamp; later observations are delayed reconstruction/cancellation only",
-    "entry_provenance": "completed-candle next-open reconstruction records intended timestamp, reference open timestamp/price, data availability timestamp, processing observation timestamp, and unknown observation when unavailable",
+    "entry_provenance": "All completed-candle entries are reconstructed; completed_candle_reconstruction is true. next_candle_mismatch describes reference identity only. Observation and availability timestamps remain unknown unless supplied.",
     "entry_gap": "cancel when adverse next-open displacement exceeds entry_gap_cancel_ticks",
     "stop": "pattern extreme plus stop_buffer_ticks",
     "target": "nearest known opposing H1 level at pattern cutoff",
@@ -33,28 +38,101 @@
       "strategy_version_id": "PRICE_ACTION_ENGULFING_REVERSAL@V1",
       "evaluator_key": "PRICE_ACTION_ENGULFING_REVERSAL_V1_RESEARCH",
       "evaluator_version": "price-action-engulfing-reversal-v1-evaluator-1",
-      "parameters": {"context_timeframe":"H1","execution_timeframe":"M15","swing_left_bars":2,"swing_right_bars":2,"level_lookback_context_bars":80,"zone_tolerance_ticks":8,"zone_max_age_context_bars":120,"prior_move_bars":3,"minimum_engulfing_body_ticks":4,"stop_buffer_ticks":2,"minimum_planned_r":1.5,"entry_gap_cancel_ticks":8},
+      "parameters": {
+        "context_timeframe": "H1",
+        "execution_timeframe": "M15",
+        "swing_left_bars": 2,
+        "swing_right_bars": 2,
+        "level_lookback_context_bars": 80,
+        "zone_tolerance_ticks": 8,
+        "zone_max_age_context_bars": 120,
+        "prior_move_bars": 3,
+        "minimum_engulfing_body_ticks": 4,
+        "stop_buffer_ticks": 2,
+        "minimum_planned_r": 1.5,
+        "entry_gap_cancel_ticks": 8
+      },
       "pattern": "strict opposing body engulfing with close beyond prior body extreme"
     },
     {
       "strategy_version_id": "PRICE_ACTION_STAR_REVERSAL@V1",
       "evaluator_key": "PRICE_ACTION_STAR_REVERSAL_V1_RESEARCH",
       "evaluator_version": "price-action-star-reversal-v1-evaluator-1",
-      "parameters": {"context_timeframe":"H1","execution_timeframe":"M15","swing_left_bars":2,"swing_right_bars":2,"level_lookback_context_bars":80,"zone_tolerance_ticks":8,"zone_max_age_context_bars":120,"prior_move_bars":3,"minimum_first_body_ticks":4,"minimum_third_body_ticks":4,"middle_body_max_fraction_first":0.25,"third_recovery_fraction":0.5,"require_exchange_gap":false,"stop_buffer_ticks":2,"minimum_planned_r":1.5,"entry_gap_cancel_ticks":8},
+      "parameters": {
+        "context_timeframe": "H1",
+        "execution_timeframe": "M15",
+        "swing_left_bars": 2,
+        "swing_right_bars": 2,
+        "level_lookback_context_bars": 80,
+        "zone_tolerance_ticks": 8,
+        "zone_max_age_context_bars": 120,
+        "prior_move_bars": 3,
+        "minimum_first_body_ticks": 4,
+        "minimum_third_body_ticks": 4,
+        "middle_body_max_fraction_first": 0.25,
+        "third_recovery_fraction": 0.5,
+        "require_exchange_gap": false,
+        "stop_buffer_ticks": 2,
+        "minimum_planned_r": 1.5,
+        "entry_gap_cancel_ticks": 8
+      },
       "pattern": "three-candle star; minimum first/third bodies; bounded middle body; third candle recovers the frozen fraction; exchange gap optional and explicitly false"
     },
     {
       "strategy_version_id": "PRICE_ACTION_PIN_BAR_REVERSAL@V1",
       "evaluator_key": "PRICE_ACTION_PIN_BAR_REVERSAL_V1_RESEARCH",
       "evaluator_version": "price-action-pin-bar-reversal-v1-evaluator-1",
-      "parameters": {"context_timeframe":"H1","execution_timeframe":"M15","swing_left_bars":2,"swing_right_bars":2,"level_lookback_context_bars":80,"zone_tolerance_ticks":8,"zone_max_age_context_bars":120,"prior_move_bars":3,"minimum_range_ticks":8,"minimum_wick_body_ratio":2.0,"maximum_opposite_wick_body_ratio":0.5,"minimum_close_location":0.7,"stop_buffer_ticks":2,"minimum_planned_r":1.5,"entry_gap_cancel_ticks":8},
+      "parameters": {
+        "context_timeframe": "H1",
+        "execution_timeframe": "M15",
+        "swing_left_bars": 2,
+        "swing_right_bars": 2,
+        "level_lookback_context_bars": 80,
+        "zone_tolerance_ticks": 8,
+        "zone_max_age_context_bars": 120,
+        "prior_move_bars": 3,
+        "minimum_range_ticks": 8,
+        "minimum_wick_body_ratio": 2.0,
+        "maximum_opposite_wick_body_ratio": 0.5,
+        "minimum_close_location": 0.7,
+        "stop_buffer_ticks": 2,
+        "minimum_planned_r": 1.5,
+        "entry_gap_cancel_ticks": 8
+      },
       "pattern": "directional rejection candle with minimum range, wick/body ratio, opposite-wick cap, and close-location threshold; zero-body and zero-range rejected"
     }
   ],
   "reporting": {
-    "required_dimensions": ["strategy", "instrument", "evaluated_interval", "coverage", "candidate_count", "rejection_counts", "proposal_count", "paper_entry_count", "cancellation_count", "duplicate_count", "unresolved_count"],
-    "evidence_classes": ["synthetic_fixture", "retrospective_historical", "untouched_holdout", "forward"],
+    "required_dimensions": [
+      "strategy",
+      "instrument",
+      "evaluated_interval",
+      "coverage",
+      "candidate_count",
+      "rejection_counts",
+      "proposal_count",
+      "paper_entry_count",
+      "cancellation_count",
+      "duplicate_count",
+      "unresolved_count"
+    ],
+    "evidence_classes": [
+      "synthetic_fixture",
+      "retrospective_historical",
+      "untouched_holdout",
+      "forward"
+    ],
     "performance_claims": "forbidden until raw dataset is reacquired, replayed, and outcome semantics are proven compatible"
   },
-  "checkpoint": {"schema": "price-action-reversal-checkpoint-v2", "binding": ["strategy_version_id", "parameter_hash", "dependency_manifest_hash", "evaluator_key", "evaluator_version", "engine_version"]}
+  "checkpoint": {
+    "schema": "price-action-reversal-checkpoint-v3",
+    "binding": [
+      "strategy_version_id",
+      "parameter_hash",
+      "dependency_manifest_hash",
+      "evaluator_key",
+      "evaluator_version",
+      "engine_version"
+    ]
+  }
 }

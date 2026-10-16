@@ -27,7 +27,7 @@ def _bar(index: int, timeframe: str, open_: float, high: float, low: float, clos
     step = 3600 if timeframe == "H1" else 900
     provenance = {"tick_size": 0.01, "snapshot_id": "price-action-reversal-synthetic-v1"}
     if timeframe == "H1":
-        provenance["context_watermark_timestamp"] = 10_000_000 if index == 10 else (index + 1) * step
+        provenance["context_watermark_timestamp"] = (index + 1) * step
     return MarketEvent("TEST", timeframe, index * step, (index + 1) * step,
                        open_, high, low, close, provenance=provenance)
 
@@ -37,7 +37,8 @@ def _context() -> list[MarketEvent]:
         (100, 103, 98, 101), (101, 105, 96, 103), (103, 108, 94, 106),
         (106, 108, 92, 98), (98, 104, 95, 101), (101, 110, 93, 104),
         (104, 104, 89, 96), (96, 108, 94, 103), (103, 107, 95, 101),
-        (101, 110, 96, 105), (105, 106, 98, 102)))]
+        (101, 110, 96, 105), (105, 106, 98, 102),
+        (102, 105, 97, 102), (102, 105, 97, 102), (102, 105, 97, 102)))]
 
 
 def _lifecycle(evaluator, version, parameters, execution: list[MarketEvent]) -> dict:

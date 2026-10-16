@@ -20,7 +20,7 @@ from .models import MarketEvent, ParameterSet, StrategyVersion
 from .price_action_primitives import Candle, confirmed_swings, construct_levels, opposing_target, validate_candle
 
 TIMEFRAME_SECONDS = {"H1": 3600, "M15": 900}
-CHECKPOINT_SCHEMA = "price-action-reversal-checkpoint-v2"
+CHECKPOINT_SCHEMA = "price-action-reversal-checkpoint-v3"
 
 
 def _reason(code: str) -> ReasonCode:
@@ -53,6 +53,7 @@ class ReversalEvaluator:
         self.candle_content: dict[tuple[str, str, int, int], str] = {}
         self.last_series_open: dict[tuple[str, str], int] = {}
         self.context_watermarks: dict[str, int] = {}
+        self.context_timeouts: dict[str, int] = {}
         self.buffered_execution: dict[str, dict[int, MarketEvent]] = {}
         self.rejection_counts: dict[str, int] = {}
         self.pending: dict[str, dict[str, Any]] = {}
@@ -187,7 +188,8 @@ class ReversalEvaluator:
             "actual_entry_observation_time": event.provenance.get("processing_time"),
             "observation_timestamp_unknown": event.provenance.get("processing_time") is None,
             "reconstruction_classification": "COMPLETED_CANDLE_NEXT_OPEN_RECONSTRUCTION",
-            "delayed_reconstruction": delayed,
+            "completed_candle_reconstruction": True,
+            "next_candle_mismatch": delayed,
             "pattern_event_time": pending["pattern_event_time"], "confirmation_time": pending["confirmation_time"],
             "candidate_id": pending["candidate_id"], "level": pending["level_payload"],
             "entry_gap_distance": abs(entry - pending["pattern_close"]),
@@ -327,8 +329,8 @@ class ReversalEvaluator:
         context_watermark = None
         if event.timeframe == self.values["context_timeframe"]:
             context_watermark = event.provenance.get("context_watermark_timestamp", event.close_timestamp)
-            if not isinstance(context_watermark, int) or context_watermark < event.close_timestamp:
-                raise ValueError("context_watermark_timestamp must cover the completed H1 event")
+            if not isinstance(context_watermark, int) or context_watermark != event.close_timestamp:
+                raise ValueError("context_watermark_timestamp must equal the completed H1 close")
         self.candle_content[identity] = content_id
         self.last_series_open[series] = event.open_timestamp
         self.seen_events.add(event_id)
@@ -365,14 +367,28 @@ class ReversalEvaluator:
             unique.append(item)
         return unique
 
+    def _context_covered(self, instrument: str, cutoff: int) -> bool:
+        required = cutoff // 3600 * 3600
+        context = self._context(instrument, cutoff)
+        if not context or context[-1].close_timestamp != required:
+            return False
+        # No market calendar is pinned for these definitions yet. Missing H1
+        # observations fail closed instead of being declared market closures.
+        window = context[-self.values["level_lookback_context_bars"]:]
+        return all(b.open_timestamp == a.close_timestamp for a, b in zip(window, window[1:]))
+
     def _drain_ready(self, instrument: str) -> list[Evaluation]:
         watermark = self.context_watermarks.get(instrument, 0)
         ready = [event for event in self.buffered_execution.get(instrument, {}).values()
-                 if event.close_timestamp <= watermark]
+                 if instrument in self.context_watermarks
+                 and event.close_timestamp // 3600 * 3600 <= watermark
+                 and self._context_covered(instrument, event.close_timestamp)]
         ready.sort(key=lambda item: (item.close_timestamp, item.open_timestamp))
         outputs: list[Evaluation] = []
         for event in ready:
             self.buffered_execution[instrument].pop(event.close_timestamp, None)
+            if event.close_timestamp <= self.context_timeouts.get(instrument, -1):
+                continue
             outputs.extend(self._process_execution_event(event))
         return outputs
 
@@ -382,10 +398,26 @@ class ReversalEvaluator:
             raise RuntimeError("evaluator is not initialized")
         if not isinstance(watermark_timestamp, int) or watermark_timestamp < self.context_watermarks.get(instrument, 0):
             raise ValueError("context watermark must be a monotonic integer timestamp")
-        self.context_watermarks[instrument] = watermark_timestamp
         if not timeout:
+            # Coverage is established by delivered H1 data, never by a caller
+            # asserting an arbitrary future watermark.
+            required = watermark_timestamp // 3600 * 3600
+            if required > self.context_watermarks.get(instrument, 0):
+                raise ValueError("context coverage requires completed H1 data")
             return tuple(self._drain_ready(instrument))
+        self.context_timeouts[instrument] = max(
+            self.context_timeouts.get(instrument, -1), watermark_timestamp)
         outputs: list[Evaluation] = []
+        pending = self.pending.get(instrument)
+        if pending is not None and pending["expected_next_open_timestamp"] <= watermark_timestamp:
+            self.pending.pop(instrument)
+            source = next(event for event in reversed(self._execution_events[instrument])
+                          if event.close_timestamp == pending["confirmation_time"])
+            outputs.append(self._evaluation(source, Decision.REJECT, (), "CONTEXT_UNAVAILABLE_TIMEOUT", {
+                "candidate_id": pending["candidate_id"], "direction": pending["direction"],
+                "entry_cancelled": True, "intended_entry_time": pending["expected_next_open_timestamp"],
+                "timeout_boundary": watermark_timestamp,
+            }))
         for event in sorted(self.buffered_execution.get(instrument, {}).values(), key=lambda item: item.close_timestamp):
             if event.close_timestamp <= watermark_timestamp:
                 self.buffered_execution[instrument].pop(event.close_timestamp, None)
@@ -406,6 +438,7 @@ class ReversalEvaluator:
                 "consumed_candidates": sorted(self.consumed_candidates),
                 "rejection_counts": dict(self.rejection_counts),
                 "pending": deepcopy(self.pending), "context_watermarks": deepcopy(self.context_watermarks),
+                "context_timeouts": deepcopy(self.context_timeouts),
                 "buffered_execution": {instrument: [asdict(event) for event in events.values()]
                                        for instrument, events in self.buffered_execution.items()},
                 "candle_content": [{"identity": list(key), "content": value} for key, value in self.candle_content.items()],
@@ -431,6 +464,7 @@ class ReversalEvaluator:
         self.rejection_counts = dict(deepcopy(state.get("rejection_counts", {})))
         self.pending = deepcopy(state.get("pending", {}))
         self.context_watermarks = dict(deepcopy(state.get("context_watermarks", {})))
+        self.context_timeouts = dict(deepcopy(state.get("context_timeouts", {})))
         self.buffered_execution = {
             instrument: {event.close_timestamp: event for event in
                          (MarketEvent(**item) for item in events)}
