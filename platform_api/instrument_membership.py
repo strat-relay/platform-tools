@@ -10,6 +10,7 @@ from .signals import CanonicalSourceUnavailable, _row_dict
 
 MEMBERSHIP_SCHEMA_VERSION = "025"
 MAPPING_SCHEMA_VERSION = "027"
+PIP_SIZE_SCHEMA_VERSION = "062"
 DEFAULT_INSTANCE_BY_STRATEGY = {"CONTEXT_STRUCTURE_RETRACE_V1": "phase6"}
 
 
@@ -28,6 +29,7 @@ class CatalogInstrument:
     provider_symbol: str
     display_name: str
     asset_class: str = "OTHER"
+    pip_size: float | None = None
 
 
 DEFAULT_PROVIDER = "MT5"
@@ -60,13 +62,14 @@ class InstrumentMembershipRepository:
         """The instrument catalog: canonical instruments with an ACTIVE mapping for `provider`
         (platform.instrument_provider_mapping, migration 027). The database is the only source;
         nothing is guessed from provider symbol conventions."""
-        rows = self._read_versioned(MAPPING_SCHEMA_VERSION, """SELECT canonical_instrument, provider,
-            provider_symbol, coalesce(display_name, canonical_instrument) AS display_name, asset_class
+        rows = self._read_versioned(PIP_SIZE_SCHEMA_VERSION, """SELECT canonical_instrument, provider,
+            provider_symbol, coalesce(display_name, canonical_instrument) AS display_name, asset_class, pip_size
             FROM platform.instrument_provider_mapping
             WHERE provider = %s AND state = 'ACTIVE'
             ORDER BY asset_class, canonical_instrument""", (provider,))
         return [CatalogInstrument(r["canonical_instrument"], r["provider"], r["provider_symbol"],
-                                  r["display_name"], r["asset_class"]) for r in rows]
+                                  r["display_name"], r["asset_class"],
+                                  float(r["pip_size"]) if r["pip_size"] is not None else None) for r in rows]
 
     def save_mapping(self, canonical: str, provider_symbol: str, asset_class: str, *,
                      display_name: str | None = None, state: str = "ACTIVE",

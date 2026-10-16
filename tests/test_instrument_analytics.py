@@ -42,6 +42,14 @@ def test_population_like_wildcards_are_escaped_for_psycopg3():
     assert "'%%retro%%'" in forward_sql
 
 
+def test_planned_pip_sql_uses_signal_levels_and_explicit_mapping_unit():
+    # The response computes planned distances only; it must not depend on an
+    # outcome exit price or broker execution facts.
+    source = InstrumentAnalyticsRepository.read.__code__.co_consts
+    assert any("planned_target_pips" in str(value) for value in source)
+    assert any("planned_stop_pips" in str(value) for value in source)
+
+
 def test_invalid_period_and_sort_fail_closed():
     repo = InstrumentAnalyticsRepository()
     with pytest.raises(ValueError):

@@ -13,6 +13,7 @@ from postgres.db import connect
 from .signals import CanonicalSourceUnavailable, _row_dict
 
 AUDIT_SCHEMA_VERSION = "061"
+PIP_SIZE_SCHEMA_VERSION = "062"
 
 
 class InstrumentAnalyticsRepository:
@@ -114,14 +115,17 @@ class InstrumentAnalyticsRepository:
         try:
             with self._connect(readonly=True) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s", ("028",))
-                    if cur.fetchone() is None: raise CanonicalSourceUnavailable("schema 028 is required")
+                    cur.execute("SELECT version FROM platform.schema_migrations WHERE version = %s", (PIP_SIZE_SCHEMA_VERSION,))
+                    if cur.fetchone() is None: raise CanonicalSourceUnavailable("schema 062 is required for planned pip metrics")
                     cur.execute(f"""WITH scoped AS (
                         SELECT s.signal_id, s.instrument, s.direction, s.strategy_version, s.parameter_set_ref,
-                               s.signal_emitted_at, o.status, o.realized_r, o.exit_timestamp, o.outcome_kind,
+                               s.signal_emitted_at, s.entry_price, s.stop_price, s.target_price, p.pip_size,
+                               o.status, o.realized_r, o.exit_timestamp, o.outcome_kind,
                                o.source_kind, o.resolution_state, o.exit_price, o.activation_price,
                                o.resolution_evidence, {self._population_sql('ALL')} AS all_population
                         FROM strategy.entry_signals s LEFT JOIN strategy.entry_signal_outcomes o USING(signal_id)
+                        LEFT JOIN platform.instrument_provider_mapping p
+                          ON p.provider = 'MT5' AND p.state = 'ACTIVE' AND p.canonical_instrument = s.instrument
                         WHERE {where} AND {pop}
                     ), closed AS (SELECT * FROM scoped WHERE status <> 'OPEN' AND realized_r IS NOT NULL)
                     SELECT instrument, count(*) FILTER (WHERE status IS NULL) AS untracked,
@@ -133,6 +137,13 @@ class InstrumentAnalyticsRepository:
                            COALESCE(sum(realized_r) FILTER (WHERE status <> 'OPEN'), 0) AS net_r,
                            COALESCE(sum(realized_r) FILTER (WHERE realized_r > 0), 0) AS gross_win,
                            COALESCE(sum(realized_r) FILTER (WHERE realized_r < 0), 0) AS gross_loss,
+                           avg(abs(target_price - entry_price) / NULLIF(pip_size, 0))
+                               FILTER (WHERE target_price IS NOT NULL AND entry_price IS NOT NULL AND pip_size IS NOT NULL)
+                               AS planned_target_pips,
+                           avg(abs(stop_price - entry_price) / NULLIF(pip_size, 0))
+                               FILTER (WHERE stop_price IS NOT NULL AND entry_price IS NOT NULL AND pip_size IS NOT NULL)
+                               AS planned_stop_pips,
+                           max(pip_size) AS pip_size,
                            min(signal_emitted_at) AS first_signal_at, max(exit_timestamp) AS last_exit_at
                     FROM scoped GROUP BY instrument ORDER BY {sort_sql} LIMIT %s OFFSET %s""", params + [limit, offset])
                     rows = [_row_dict(cur, row) for row in cur.fetchall()]
@@ -234,7 +245,7 @@ class InstrumentAnalyticsRepository:
                                   "broker_positions": {"status": "READ_ONLY_BRIDGE_REQUIRED"}},
                     "data_quality": {"authoritative": True, "partial_exit_policy": "OUTCOME_ROWS_ONLY_UNLESS_EXECUTION_FACTS_EXIST",
                                      "pip_point_policy": "CANONICAL_MAPPING_REQUIRED",
-                                     "pip_point_status": "NOT_AVAILABLE_FROM_CANONICAL_MAPPING" if rows else "NO_ROWS",
+                                     "pip_point_status": "PLANNED_ONLY" if rows else "NO_ROWS",
                                      "classification_uncertain": uncertain_count,
                                      "sample_sufficient": any(int(x["closed"] or 0) >= 10 for x in rows)}}
         except (CanonicalSourceUnavailable, ValueError): raise
