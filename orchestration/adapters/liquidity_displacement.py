@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,19 @@ class LiquidityDisplacementAdapter:
         self.root = root
         self.freeze_timestamp = freeze_timestamp
         self.state_path = root / "liquidity_displacement_forward_state.json"
+        # Publication eligibility age gate: prevent a pod restart from converting stale
+        # paper fills into actionable forward signals.  Stale signals are published as
+        # RETROSPECTIVE_RESEARCH_EVIDENCE for historical auditing rather than suppressed.
+        # Default: 600s (2 × M5 bar duration).  Set to 0 to disable.
+        # Override with LIQUIDITY_SIGNAL_MAX_AGE_SECONDS.
+        _age_raw = os.environ.get("LIQUIDITY_SIGNAL_MAX_AGE_SECONDS", "600").strip()
+        try:
+            self.max_signal_age_s: float | None = float(_age_raw) if _age_raw else None
+        except (ValueError, TypeError) as _exc:
+            raise ValueError(
+                f"LIQUIDITY_SIGNAL_MAX_AGE_SECONDS must be a numeric value in seconds (got {_age_raw!r}). "
+                "Fix the environment variable or remove it to restore the 600s default."
+            ) from _exc
 
     @staticmethod
     def _float(value: Any, default: float = 0.0) -> float:
@@ -51,6 +66,35 @@ class LiquidityDisplacementAdapter:
             signal_id = stable_id("SIG", identity)
             if signal_id in seen_signal_ids:
                 continue
+            fill_epoch = self._epoch(fill_timestamp)
+            signal_age_s = max(0.0, time.time() - fill_epoch)
+            if self.max_signal_age_s is not None and self.max_signal_age_s > 0 and signal_age_s > self.max_signal_age_s:
+                signal_emission_class = "RETROSPECTIVE_RESEARCH_EVIDENCE"
+                classification = "RETROSPECTIVE_RESEARCH_EVIDENCE"
+                from observability.strategy_audit import audit as _audit
+                from execution_v2.trace import emit as trace_emit
+                _audit(
+                    "liquidity_signal_research_evidence",
+                    runner="signal-orchestrator",
+                    strategy_id=self.strategy_id,
+                    signal_id=signal_id,
+                    setup_id=record.get("setup_id"),
+                    signal_age_s=round(signal_age_s, 3),
+                    max_signal_age_s=self.max_signal_age_s,
+                    reason="LIQUIDITY_FILL_BAR_CLOSED",
+                )
+                trace_emit(
+                    "SIGNAL_RESEARCH_EVIDENCE",
+                    signal_id=signal_id,
+                    strategy_id=self.strategy_id,
+                    strategy_instance_id="forward-paper",
+                    signal_age_s=round(signal_age_s, 3),
+                    max_signal_age_s=self.max_signal_age_s,
+                    reason="LIQUIDITY_FILL_BAR_CLOSED",
+                )
+            else:
+                signal_emission_class = "PROSPECTIVE"
+                classification = "PROSPECTIVE_ORCHESTRATOR_SIGNAL"
             entry = self._float(record.get("entry_realistic"), self._float(record.get("entry_theoretical")))
             stop = self._float(record.get("stop_loss"))
             target = self._float(record.get("target_theoretical"))
@@ -74,6 +118,8 @@ class LiquidityDisplacementAdapter:
                 entry_mechanism=(str(record.get("fill_confirmation") or "COMPLETED_CANDLE_RETRACEMENT"),),
                 strategy_metadata={
                     "source": record.get("source"), "classification": record.get("classification"),
+                    "signal_emission_class": signal_emission_class,
+                    "signal_age_s": round(signal_age_s, 1),
                     "sweep_timestamp": record.get("sweep_timestamp"),
                     "reclaim_timestamp": record.get("reclaim_timestamp"),
                     "displacement_timestamp": record.get("displacement_timestamp"),
@@ -83,7 +129,8 @@ class LiquidityDisplacementAdapter:
                 provenance={"source_process": "liquidity_displacement_forward.py",
                             "source_state_reference": str(self.state_path),
                             "source_strategy_fingerprint": record.get("version"),
-                            "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",
+                            "classification": classification,
+                            "signal_emission_class": signal_emission_class,
                             "orchestrator_freeze_timestamp": self.freeze_timestamp,
                             "paper_only": True},
             ))

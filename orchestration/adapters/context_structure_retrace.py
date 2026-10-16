@@ -31,7 +31,13 @@ class ContextStructureRetraceAdapter:
         # orchestrator restart cannot convert backlog into executable work.
         if max_signal_age_seconds is ...:
             configured_age = os.environ.get("CONTEXT_SIGNAL_MAX_AGE_SECONDS", "60").strip()
-            max_signal_age_seconds = float(configured_age) if configured_age else None
+            try:
+                max_signal_age_seconds = float(configured_age) if configured_age else None
+            except (ValueError, TypeError) as _exc:
+                raise ValueError(
+                    f"CONTEXT_SIGNAL_MAX_AGE_SECONDS must be a numeric value in seconds (got {configured_age!r}). "
+                    "Fix the environment variable or remove it to restore the 60s default."
+                ) from _exc
         self.max_signal_age_seconds = max_signal_age_seconds
         # Membership rows are canonical (BTCUSD), while the forward producer's state uses
         # provider symbols (BTCUSDm). Store the membership set canonically and normalize the
@@ -121,6 +127,16 @@ class ContextStructureRetraceAdapter:
                 source_provenance = setup.get("provenance") or {}
                 position_provenance = position.get("provenance") or {}
                 gap_recovery = position_provenance.get("gap_recovery", source_provenance.get("gap_recovery"))
+                signal_fill_ts = fill_ts
+                signal_emission_latency_s = max(0.0, time.time() - signal_fill_ts)
+                # Classify prospective vs retrospective for provenance traceability.
+                # The Context Retrace max_signal_age_seconds gate (default 60s) is much
+                # tighter than KOJO V3 so any signal passing the gate is prospective.
+                signal_emission_class = (
+                    "PROSPECTIVE" if (self.max_signal_age_seconds is None or
+                                      signal_emission_latency_s <= self.max_signal_age_seconds)
+                    else "RETROSPECTIVE_RESEARCH_EVIDENCE"
+                )
                 result.append(StrategySignal(signal_id=signal_id, schema_version="strategy-signal-v1",
                     strategy_id=self.strategy_id, strategy_version=self.strategy_version, strategy_instance_id=self.instance_id,
                     source_event_id=source_event_id, market_event_id=setup.get("market_event_id"), setup_id=setup.get("setup_id"),
@@ -175,6 +191,8 @@ class ContextStructureRetraceAdapter:
                                 "instance_policy_revision": self.policy.get("revision", 0),
                                 "instance_policy_fingerprint": self.policy.get("fingerprint"),
                                 "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",
+                                "signal_emission_class": signal_emission_class,
+                                "emission_latency_s": round(signal_emission_latency_s, 1),
                                 "orchestrator_freeze_timestamp": self.freeze_timestamp,
                                 # These fields are copied when supplied by a
                                 # producer/outbox event; absence is unsafe for

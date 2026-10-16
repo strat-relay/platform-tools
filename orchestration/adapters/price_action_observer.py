@@ -8,6 +8,8 @@ the theoretical outcome lifecycle.
 """
 from __future__ import annotations
 
+import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,6 +27,19 @@ ACCEPTED_REASON = "ENTRY_OBSERVED_RESEARCH_ONLY"
 # Outcome contract max hold — no built-in exit policy in the frozen V1 evaluators, so
 # the resolver uses this bound to time-exit unresolved signals rather than leaving them open.
 MAX_HOLD_MINUTES = 1440
+
+# Maximum age of an accepted PA observation before it is published as research evidence
+# rather than a prospective forward signal.  PA signals originate from a frozen evaluator;
+# an observation older than this threshold indicates the orchestrator was down when the
+# entry was detected.  Default: 86400s (1 day).  Set to 0 to disable.
+_PA_MAX_AGE_RAW = os.environ.get("PA_SIGNAL_MAX_AGE_S", "86400").strip()
+try:
+    PA_SIGNAL_MAX_AGE_S: float | None = float(_PA_MAX_AGE_RAW) if _PA_MAX_AGE_RAW else None
+except (ValueError, TypeError) as _pa_age_exc:
+    raise ValueError(
+        f"PA_SIGNAL_MAX_AGE_S must be a numeric value in seconds (got {_PA_MAX_AGE_RAW!r}). "
+        "Fix the environment variable or remove it to restore the 86400s default."
+    ) from _pa_age_exc
 
 
 def _iso_epoch(value: Any) -> str:
@@ -55,6 +70,7 @@ class PriceActionObserverAdapter:
                 (self.instance_id, self.strategy_key, ACCEPTED_REASON),
             )
             rows = cur.fetchall()
+        now_wall = time.time()
         result: list[StrategySignal] = []
         for event_id, instrument, payload, observed_at in rows:
             event = payload.get("event") or {}
@@ -73,6 +89,17 @@ class PriceActionObserverAdapter:
             emitted_at = observed_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
             risk = abs(entry - stop)
             reward = abs(target - entry)
+
+            # Age gate: classify based on how long ago the information_cutoff was.
+            decision_epoch = int(provenance["information_cutoff"])
+            signal_age_s = max(0.0, now_wall - decision_epoch)
+            if PA_SIGNAL_MAX_AGE_S is not None and PA_SIGNAL_MAX_AGE_S > 0 and signal_age_s > PA_SIGNAL_MAX_AGE_S:
+                signal_emission_class = "RETROSPECTIVE_RESEARCH_EVIDENCE"
+                classification = "RETROSPECTIVE_RESEARCH_EVIDENCE"
+            else:
+                signal_emission_class = "PROSPECTIVE"
+                classification = "PROSPECTIVE_ORCHESTRATOR_SIGNAL"
+
             result.append(StrategySignal(
                 signal_id=signal_id, schema_version="strategy-signal-v1",
                 strategy_id=self.strategy_id, strategy_version=self.strategy_version,
@@ -90,6 +117,8 @@ class PriceActionObserverAdapter:
                 entry_mechanism=("RESEARCH_ENTRY_OBSERVED",),
                 strategy_metadata={
                     "research_only": True, "execution_eligible": False,
+                    "signal_emission_class": signal_emission_class,
+                    "signal_age_s": round(signal_age_s, 1),
                     "parameter_hash": provenance.get("parameter_hash"),
                     "data_snapshot_id": provenance.get("data_snapshot_id"),
                     "outcome_contract": {
@@ -106,7 +135,8 @@ class PriceActionObserverAdapter:
                     "source_strategy_fingerprint": provenance.get("parameter_hash"),
                     "source_market_data_timestamp": emitted_at, "source_data_age": 0,
                     "source_read_health": True, "gap_recovery": False,
-                    "classification": "PROSPECTIVE_ORCHESTRATOR_SIGNAL",
+                    "classification": classification,
+                    "signal_emission_class": signal_emission_class,
                     "orchestrator_freeze_timestamp": decision_time,
                     # Broker symbol for resolver candle lookup (m-suffix Exness convention).
                     "provider_symbol": f"{instrument}m",

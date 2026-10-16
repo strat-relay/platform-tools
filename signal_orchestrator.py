@@ -542,17 +542,23 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     audit("strategies_loaded", runner="signal-orchestrator",
           strategies=[getattr(adapter, "strategy_id", adapter.__class__.__name__) for adapter in adapters])
     adapter_failures: list[str] = []
+    _adapter_timing_ms: dict[str, float] = {}
     for adapter in adapters:
         strategy_id = getattr(adapter, "strategy_id", adapter.__class__.__name__)
         before = len(discovered)
+        t_adapter = time.perf_counter()
         try:
             discovered.extend(adapter.discover_new_signals(seen))
+            elapsed_ms = round((time.perf_counter() - t_adapter) * 1000, 3)
+            _adapter_timing_ms[strategy_id] = elapsed_ms
             audit("strategy_scan_completed", runner="signal-orchestrator", strategy_id=strategy_id,
                   decision="SIGNALS_FOUND" if len(discovered) > before else "NO_SIGNAL",
-                  signal_count=len(discovered) - before)
+                  signal_count=len(discovered) - before, elapsed_ms=elapsed_ms)
         except Exception as exc:
+            elapsed_ms = round((time.perf_counter() - t_adapter) * 1000, 3)
+            _adapter_timing_ms[strategy_id] = elapsed_ms
             audit("strategy_scan_failed", runner="signal-orchestrator", strategy_id=strategy_id,
-                  decision="ERROR", error=str(exc))
+                  decision="ERROR", error=str(exc), elapsed_ms=elapsed_ms)
             adapter_failures.append(strategy_id)
             # Per-adapter fault isolation: one broken adapter must not crash signal
             # generation for all other strategies.  The failure is recorded above and
@@ -578,6 +584,19 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                 discovered.append(StrategySignal(**{
                     k: row[k] for k in StrategySignal.__dataclass_fields__ if k in row
                 }))
+    # Aggregate per-cycle latency observability for LIVE_ENTRY / BAR_CLOSE split.
+    _entry_source_counts: dict[str, int] = {}
+    _emission_latencies: list[float] = []
+    for signal in discovered:
+        _meta = signal.strategy_metadata or {}
+        _src = str(_meta.get("entry_source") or "UNKNOWN")
+        _entry_source_counts[_src] = _entry_source_counts.get(_src, 0) + 1
+        _lat = _meta.get("emission_latency_s")
+        if _lat is not None:
+            try:
+                _emission_latencies.append(float(_lat))
+            except (TypeError, ValueError):
+                pass
     for signal in discovered:
         trace_emit("SIGNAL_ORCHESTRATOR_RECEIVED", signal_id=signal.signal_id,
                    decision_time=signal.decision_time or signal.signal_timestamp,
@@ -664,8 +683,22 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
         total += 1
     state["processed_signal_ids"] = sorted(seen); state["last_poll_at"] = now(); state["status"] = "ACTIVE"; store.save_state(state)
     atomic(HEARTBEAT, {"pid": os.getpid(), "status": "ACTIVE", "timestamp": now(), "signals_seen": len(seen)})
+    _latency_stats: dict[str, float] = {}
+    if _emission_latencies:
+        _sorted = sorted(_emission_latencies)
+        _n = len(_sorted)
+        _latency_stats = {
+            "count": _n,
+            "min_s": round(_sorted[0], 3),
+            "median_s": round(_sorted[_n // 2], 3),
+            "p95_s": round(_sorted[int(_n * 0.95)], 3),
+            "max_s": round(_sorted[-1], 3),
+        }
     audit("runner_cycle_completed", runner="signal-orchestrator", processed=total,
-          signals_seen=len(seen), orchestration_mode=orchestration_mode)
+          signals_seen=len(seen), orchestration_mode=orchestration_mode,
+          adapter_timing_ms=_adapter_timing_ms,
+          entry_source_counts=_entry_source_counts,
+          emission_latency_stats=_latency_stats)
     return total
 
 
@@ -1017,16 +1050,21 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
             # Management proposals follow the same central authority as entry
             # signals. This creates only typed management intents; the REAL
             # consumer remains the sole broker-write boundary.
-            except Exception as exc: atomic(HEARTBEAT, {"pid": os.getpid(), "status": "DEGRADED", "mode": orchestration_mode, "timestamp": now(), "error": str(exc)})
+            except Exception as exc: atomic(HEARTBEAT, {"pid": os.getpid(), "status": "DEGRADED", "mode": orchestration_mode,
+                                                               "timestamp": now(), "error": str(exc),
+                                                               "cycle_elapsed_s": round(time.monotonic() - cycle_started, 3)})
             else:
                 # Keep the lifecycle health contract explicit so downstream
                 # services cannot mistake a shadow heartbeat for REAL mode.
                 signal_count = (len(canonical_publisher.existing_signal_ids())
                                 if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY and canonical_publisher
                                 else len(store.rows("signals")))
+                cycle_elapsed_s = round(time.monotonic() - cycle_started, 3)
                 heartbeat = {"pid": os.getpid(), "status": "ACTIVE", "mode": orchestration_mode,
                              "signal_authority_mode": signal_authority_mode.value,
-                             "timestamp": now(), "signals_seen": signal_count}
+                             "timestamp": now(), "signals_seen": signal_count,
+                             "cycle_elapsed_s": cycle_elapsed_s,
+                             "interval_s": max(0.25, float(args.interval))}
                 atomic(HEARTBEAT, heartbeat)
             if orchestration_mode != "PRIMARY":
                 try:
@@ -1071,6 +1109,9 @@ def main() -> None:
     real_start = sub.add_parser("real-start"); real_start.add_argument("--interval", type=float, default=1)
     startup_audit_cmd = sub.add_parser("startup-audit")
     startup_audit_cmd.add_argument("--mode", choices=("SHADOW", "PRIMARY", "REAL_EXECUTION"))
+    liveness_cmd = sub.add_parser("liveness-check", help="exit 0 if heartbeat is fresh, 1 if stale (for k8s livenessProbe)")
+    liveness_cmd.add_argument("--max-age", type=float, default=90, dest="max_age",
+                               help="maximum heartbeat age in seconds before reporting unhealthy (default: 90)")
     for name in ("shadow-stop", "primary-stop", "real-stop", "status", "health", "account", "report", "signals", "decisions", "distribution", "audit-order-isolation", "freeze", "live-audit", "live-enable", "live-status"):
         sub.add_parser(name)
     args = p.parse_args(); config = load_config(); store = OrchestrationStore(RUNTIME)
@@ -1099,6 +1140,24 @@ def main() -> None:
     if args.command == "shadow-stop": STOP.write_text(now()); print("Shadow orchestrator stop requested"); return
     if args.command == "primary-stop": PRIMARY_STOP.write_text(now()); print("Primary orchestrator stop requested"); return
     if args.command == "real-stop": REAL_STOP.write_text(now()); print("Real orchestrator stop requested"); return
+    if args.command == "liveness-check":
+        import sys as _sys
+        max_age = getattr(args, "max_age", 90)
+        if not HEARTBEAT.exists():
+            print("UNHEALTHY: heartbeat file missing", file=_sys.stderr)
+            _sys.exit(1)
+        try:
+            hb = json.loads(HEARTBEAT.read_text())
+            ts = datetime.fromisoformat(hb["timestamp"].replace("Z", "+00:00"))
+            age_s = (datetime.now(timezone.utc) - ts).total_seconds()
+            if age_s > max_age:
+                print(f"UNHEALTHY: heartbeat is {age_s:.0f}s old (max {max_age}s)", file=_sys.stderr)
+                _sys.exit(1)
+            print(f"HEALTHY: heartbeat {age_s:.0f}s old, status={hb.get('status')}")
+            _sys.exit(0)
+        except Exception as exc:
+            print(f"UNHEALTHY: {exc}", file=_sys.stderr)
+            _sys.exit(1)
     if args.command in ("status", "health"):
         state = store.load_state(); value = {"version": VERSION, "status": state.get("status"),
             "pid": json.loads(PID.read_text())["pid"] if PID.exists() else None,

@@ -598,7 +598,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         try:
-            query = parse_qs(parsed.query, strict_parsing=True)
+            # Python 3.9 raises ValueError on an empty string with strict_parsing=True;
+            # skip parsing when there are no query parameters.
+            query = parse_qs(parsed.query, strict_parsing=True) if parsed.query else {}
         except ValueError:
             status, body = 400, {"error": "MALFORMED_QUERY"}
         else:
