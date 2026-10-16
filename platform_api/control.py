@@ -20,6 +20,7 @@ from .signals import CanonicalSourceUnavailable, _row_dict
 from .instrument_membership import (DEFAULT_INSTANCE_BY_STRATEGY, InstrumentMembershipRepository,
                                      MembershipConflict, UnsupportedInstrument)
 from .strategy_catalog import MembershipRefused
+from .instrument_analytics import InstrumentAnalyticsRepository
 
 
 # strategy_mgmt keeps dedicated frozen family keys, while the legacy
@@ -655,6 +656,7 @@ class PlatformControlApi:
                  strategy_mgmt_api: Any | None = None):
         self.repository = repository or PlatformControlRepository()
         self.instrument_membership = InstrumentMembershipRepository()
+        self.instrument_analytics = InstrumentAnalyticsRepository()
         from .strategy_catalog import StrategyCatalogRepository
         self.strategy_catalog = StrategyCatalogRepository()
         self.environ = os.environ if environ is None else environ
@@ -995,6 +997,20 @@ class PlatformControlApi:
             except CanonicalSourceUnavailable as exc:
                 return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
                                        error="SOURCE_UNAVAILABLE", message=str(exc))
+        # Server-side instrument read models.  The query contract is deliberately distinct from
+        # the capped strategy report so 200+ instruments never require client-side aggregation.
+        if path.startswith("/api/v1/strategies/") and "/instances/" in path and "/instruments" in path:
+            parts = [unquote(p) for p in path[len("/api/v1/strategies/"):].strip("/").split("/")]
+            if len(parts) >= 3 and parts[1] == "instances":
+                strategy_id, instance_id = parts[0], parts[2]
+                query_values = parse_qs(parsed.query, keep_blank_values=True)
+                try:
+                    if len(parts) == 5 and parts[3] == "instruments" and parts[4] == "performance" and method == "GET":
+                        return 200, self._body(self.instrument_analytics.read(strategy_id, instance_id, query_values), source="canonical_postgres")
+                    if len(parts) == 5 and parts[3] == "instruments" and parts[4] == "audit" and method == "GET":
+                        return 200, self._body(self.instrument_analytics.audit_history(strategy_id, instance_id, query_values.get("instrument", [""])[0].upper()), source="canonical_postgres")
+                except (ValueError, CanonicalSourceUnavailable) as exc:
+                    return 400 if isinstance(exc, ValueError) else 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE", error="SOURCE_UNAVAILABLE", message=str(exc))
         if path.startswith("/api/v1/strategies/") and path.endswith("/instruments"):
             strategy_id = unquote(path[len("/api/v1/strategies/"):-len("/instruments")].strip("/"))
             query_values = parse_qs(parsed.query, keep_blank_values=False)
@@ -1032,9 +1048,22 @@ class PlatformControlApi:
                     if state == "ACTIVE" and not catalog[canonical].provider_symbol:
                         raise UnsupportedInstrument(f"{canonical} has no provider mapping")
                     self.strategy_catalog.check_membership_change(strategy_id, instance_id, canonical, state)
-                    row = self.instrument_membership.save_membership(
-                        strategy_id, instance_id, canonical, state,
-                        payload.get("expectedRevision"), str(payload.get("updatedBy") or "control-api"))
+                    membership_args = (strategy_id, instance_id, canonical, state,
+                                       payload.get("expectedRevision"), str(payload.get("updatedBy") or "control-api"))
+                    try:
+                        row = self.instrument_membership.save_membership(
+                            *membership_args, reason=str(payload.get("reason") or "membership change"),
+                            selected_period=payload.get("selectedPeriod"),
+                            provenance_filter=payload.get("provenance"),
+                            strategy_version=payload.get("strategyVersion"),
+                            parameter_set_ref=payload.get("parameterSetRef"),
+                            performance_snapshot=payload.get("performanceSnapshot"))
+                    except TypeError as exc:
+                        # Preserve compatibility with injected legacy repositories used by older
+                        # operators/tests; the production repository supports the audit kwargs.
+                        if "unexpected keyword" not in str(exc):
+                            raise
+                        row = self.instrument_membership.save_membership(*membership_args)
                     return 200, self._body(row, source="canonical_postgres")
                 except UnsupportedInstrument as exc:
                     return 409, self._body(None, source="canonical_postgres", status="DEGRADED",
