@@ -12,6 +12,27 @@ SQL = Path(__file__).resolve().parents[1]/'postgres/migrations'/repair.FILENAME
 
 
 class RepairTests(unittest.TestCase):
+    def test_failure_diagnostics_preserve_sql_error_and_redact_credentials(self):
+        detail=repair.safe_error('ERROR: permission denied for table x password="secret value" '
+                                 'token=abc Bearer xyz postgresql://user:pwd@host/db')
+        self.assertIn('permission denied for table x', detail)
+        for secret in ('secret value','abc','xyz','user:pwd'):
+            self.assertNotIn(secret, detail)
+
+    def test_admin_failure_records_step_and_psql_error(self):
+        def kubectl(args,**kwargs):
+            if 'trading-postgres-0' in args:
+                return subprocess.CompletedProcess(args,3,'','ERROR: repair verification failed')
+            output='local\n' if args[-2:]==['config','current-context'] else '{"database":"trading_test"}'
+            return subprocess.CompletedProcess(args,0,output,'')
+        with tempfile.TemporaryDirectory() as tmp:
+            report=Path(tmp)/'report.txt'
+            with patch.object(sys,'argv',['repair','--kubeconfig','config.yaml','--sql',str(SQL),
+                                          '--report',str(report)]), patch.object(subprocess,'run',side_effect=kubectl):
+                with self.assertRaises(SystemExit): repair.main()
+            self.assertIn('ADMIN_MIGRATION_065: exit=3',report.read_text())
+            self.assertIn('ERROR: repair verification failed',report.read_text())
+
     def test_only_the_exact_merged_migration_is_accepted(self):
         sql=SQL.read_bytes().decode('utf-8')
         self.assertEqual(hashlib.sha256(sql.encode()).hexdigest(),repair.CHECKSUM)

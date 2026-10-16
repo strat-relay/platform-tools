@@ -2,11 +2,20 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 
 FILENAME = '065_strategy_library_reader_permissions.sql'
 CHECKSUM = 'a8a63151ee915be84e1a01b36ae1a852e2a79c3bda0f78068e39cbf1200a9e2e'
+
+
+def safe_error(message):
+    message = re.sub(r'(?i)postgres(?:ql)?://[^\s]+', '<database-uri-redacted>', message)
+    message = re.sub(r'(?i)\bBearer\s+[^\s]+', 'Bearer <redacted>', message)
+    message = re.sub(r'''(?ix)(\b(?:password|token|authorization|client-key-data|client-certificate-data|certificate-authority-data)\s*[:=]\s*)(?:'[^']*'|"[^"]*"|[^\s,;]+)''',
+                     r'\1<redacted>', message)
+    return message.strip()[:6000]
 
 
 def transaction(sql):
@@ -63,12 +72,14 @@ def main():
     lines = []
 
     def run(arguments, payload=None):
+        step = ('CONTEXT' if arguments[:1] == ['config'] else
+                'ADMIN_MIGRATION_065' if 'trading-postgres-0' in arguments else 'DATABASE_TARGET')
         result = subprocess.run(['kubectl','--kubeconfig',args.kubeconfig,
                                  '--request-timeout=30s',*arguments],
                                 input=payload,text=True,capture_output=True,timeout=120)
         if result.returncode:
-            # Credentials are never fetched or printed; retain only a safe error class.
-            raise RuntimeError('kubectl operation failed; exit='+str(result.returncode))
+            detail = safe_error(result.stderr or result.stdout or 'No diagnostic output')
+            raise RuntimeError(step+': exit='+str(result.returncode)+'\n'+detail)
         return result.stdout
 
     try:
