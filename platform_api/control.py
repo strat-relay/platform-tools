@@ -25,8 +25,24 @@ from .strategy_catalog import MembershipRefused
 # strategy_mgmt keeps dedicated frozen family keys, while the legacy
 # /api/v1/strategies contract uses canonical operational identifiers.
 MANAGED_FAMILY_TO_CANONICAL: dict[str, str] = {
+    "KOJO": "KOJO_STRUCTURE_RECLAIM_V3",
     "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST_V1": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST",
     "PRICE_ACTION_ENGULFING_CONTINUATION_V1": "PRICE_ACTION_ENGULFING_CONTINUATION",
+}
+
+# Virtual families: a single family ID groups versioned strategy siblings.
+# The family ID is routable at all instance and report endpoints; the strategy
+# list collapses members into the family entry.
+STRATEGY_FAMILIES: dict[str, list[str]] = {
+    "CONTEXT_STRUCTURE_RETRACE": [
+        "CONTEXT_STRUCTURE_RETRACE_V1",
+        "CONTEXT_STRUCTURE_RETRACE_V2",
+    ],
+}
+STRATEGY_MEMBER_TO_FAMILY: dict[str, str] = {
+    member: family
+    for family, members in STRATEGY_FAMILIES.items()
+    for member in members
 }
 
 SCHEMA_VERSION = "012"
@@ -559,6 +575,13 @@ class PlatformControlRepository:
             observability_version="entry-only-outcomes.v1",
         )
 
+    def context_v2_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "CONTEXT_STRUCTURE_RETRACE_V2", "ENTRY_ONLY", instance_id,
+            display_name="Context Structure Retrace V2",
+            observability_version="entry-only-outcomes.v1",
+        )
+
     def liquidity_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
         return self.strategy_entry_outcome_report(
             "LIQUIDITY_DISPLACEMENT_SCALP_V1", "LIQUIDITY_ENTRY", instance_id,
@@ -580,15 +603,30 @@ class PlatformControlRepository:
             observability_version="entry-outcomes.v1",
         )
 
+    def kojo_v3_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "KOJO_STRUCTURE_RECLAIM_V3", "ENTRY_ONLY", instance_id,
+            display_name="Kojo Structure Reclaim V3",
+            observability_version="entry-outcomes.v1",
+        )
+
 
 STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
     "CONTEXT_STRUCTURE_RETRACE_V1": {
         "reader": "context_entry_outcome_report",
         "outcome_type": "ENTRY_ONLY",
     },
+    "CONTEXT_STRUCTURE_RETRACE_V2": {
+        "reader": "context_v2_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
+    },
     "LIQUIDITY_DISPLACEMENT_SCALP_V1": {
         "reader": "liquidity_entry_outcome_report",
         "outcome_type": "LIQUIDITY_ENTRY",
+    },
+    "KOJO_STRUCTURE_RECLAIM_V3": {
+        "reader": "kojo_v3_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
     },
     "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST": {
         "reader": "pa_sr_retest_entry_outcome_report",
@@ -876,17 +914,71 @@ class PlatformControlApi:
             item["instance_count"] = len(item["instances"])
         return list(grouped.values())
 
+    @staticmethod
+    def _merge_family_page(family_id: str, member_pages: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Build a virtual family page from a list of versioned strategy pages."""
+        pages = [p for p in member_pages if p is not None]
+        if not pages:
+            return None
+        base = pages[0]
+        outs = [p.get("outcomes") or {} for p in pages]
+        target_hits = sum(int(o.get("target_hits") or 0) for o in outs)
+        stops = sum(int(o.get("stops") or 0) for o in outs)
+        closed = target_hits + stops
+        realized_r = sum(float(o.get("realized_r_total") or 0) for o in outs)
+        merged_outcomes = {
+            "tracked": sum(int(o.get("tracked") or 0) for o in outs),
+            "untracked": sum(int(o.get("untracked") or 0) for o in outs),
+            "open": sum(int(o.get("open") or 0) for o in outs),
+            "target_hits": target_hits, "stops": stops, "closed": closed,
+            "invalidated": sum(int(o.get("invalidated") or 0) for o in outs),
+            "realized_r_total": realized_r,
+            "win_rate": round(target_hits / closed * 100, 1) if closed else None,
+            "expectancy_r": round(realized_r / closed, 3) if closed else None,
+            "average_target_r": None,
+        }
+        all_instances = [
+            {**inst, "strategy_id": family_id}
+            for p in pages for inst in (p.get("instances") or [])
+        ]
+        return {
+            **base,
+            "strategy_id": family_id,
+            "display_name": base.get("display_name", family_id),
+            "signals_published": sum(int(p.get("signals_published") or 0) for p in pages),
+            "signals_24h": sum(int(p.get("signals_24h") or 0) for p in pages),
+            "outcomes": merged_outcomes,
+            "instances": all_instances,
+            "instance_count": len(all_instances),
+            "stats_scope": "FAMILY",
+            "family_members": [p["strategy_id"] for p in pages],
+        }
+
     def _unified_strategy_list(self, legacy: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Return the legacy-compatible list plus strategies only in strategy_mgmt."""
+        """Return the legacy-compatible list plus strategies only in strategy_mgmt,
+        with STRATEGY_FAMILIES members collapsed into virtual family entries."""
         try:
             rows = self.strategy_mgmt_api.registry_rows()
             known = {str(item.get("strategy_id")) for item in legacy}
             additions = [item for item in self._registry_summary(rows)
                          if item["strategy_id"] not in known]
-            return legacy + additions
         except Exception:
-            # Before migration 042/044 is applied, retain the legacy endpoint behavior.
-            return legacy
+            additions = []
+        all_items = legacy + additions
+        family_buckets: dict[str, list[dict[str, Any]]] = {}
+        non_family: list[dict[str, Any]] = []
+        for item in all_items:
+            fam = STRATEGY_MEMBER_TO_FAMILY.get(item["strategy_id"])
+            if fam:
+                family_buckets.setdefault(fam, []).append(item)
+            else:
+                non_family.append(item)
+        result = non_family
+        for fam_id, member_pages in family_buckets.items():
+            merged = self._merge_family_page(fam_id, member_pages)
+            if merged:
+                result.append(merged)
+        return result
 
     def execute(self, method: str, target: str, body: bytes | None = None) -> tuple[int, dict[str, Any]]:
         parsed = urlsplit(target)
@@ -910,6 +1002,16 @@ class PlatformControlApi:
                             [DEFAULT_INSTANCE_BY_STRATEGY.get(strategy_id, "")])[0]
             if not instance_id:
                 return 400, self._body(None, source="canonical_postgres", error="INSTANCE_REQUIRED")
+            # Resolve family ID to the member that owns this instance
+            if strategy_id in STRATEGY_FAMILIES:
+                resolved = next(
+                    (m for m in STRATEGY_FAMILIES[strategy_id]
+                     if self.strategy_catalog.instance_page(m, instance_id) is not None),
+                    None,
+                )
+                if resolved is None:
+                    return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                strategy_id = resolved
             if method == "GET":
                 try:
                     rows = self.instrument_membership.list_membership(strategy_id, instance_id)
@@ -1097,6 +1199,41 @@ class PlatformControlApi:
                         self._unified_strategy_list(self.strategy_catalog.list_strategies()),
                         source="canonical_postgres")
                 parts = [unquote(p) for p in suffix.split("/")]
+                # --- Family routing: resolve CONTEXT_STRUCTURE_RETRACE (and any future family)
+                # to the correct versioned member before delegating to the standard paths.
+                if parts and parts[0] in STRATEGY_FAMILIES:
+                    family_id = parts[0]
+                    family_members = STRATEGY_FAMILIES[family_id]
+                    if len(parts) == 1:
+                        # Family strategy page: merge member pages
+                        member_pages = [self.strategy_catalog.strategy_page(m) for m in family_members]
+                        page = self._merge_family_page(family_id, member_pages)
+                        if page is None:
+                            return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        return 200, self._body(page, source="canonical_postgres")
+                    if len(parts) == 2 and parts[1] == "instances":
+                        member_pages = [self.strategy_catalog.strategy_page(m) for m in family_members]
+                        page = self._merge_family_page(family_id, member_pages)
+                        if page is None:
+                            return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        return 200, self._body({"strategy_id": family_id, "instances": page["instances"]},
+                                               source="canonical_postgres")
+                    if len(parts) >= 3 and parts[1] == "instances":
+                        # Resolve which member owns this instance
+                        instance_id = parts[2]
+                        resolved_id = next(
+                            (m for m in family_members
+                             if self.strategy_catalog.instance_page(m, instance_id) is not None),
+                            None,
+                        )
+                        if resolved_id is None:
+                            return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                        # Reroute with the resolved versioned strategy_id
+                        parts = [resolved_id] + parts[1:]
+                    else:
+                        # Family-level report (/report on the family itself)
+                        parts = [family_members[0]] + parts[1:]
+                # --- End family routing
                 if len(parts) == 1:
                     page = self.strategy_catalog.strategy_page(parts[0])
                     if page is None:

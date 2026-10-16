@@ -113,11 +113,14 @@ class InstrumentMembershipRepository:
             raise CanonicalSourceUnavailable(f"canonical PostgreSQL instrument mapping write unavailable: {exc}") from exc
 
     def list_membership(self, strategy_id: str, instance_id: str) -> list[dict[str, Any]]:
+        # Filter by instance_id only — strategy_id stored in the table can be stale
+        # (e.g. rows inserted via a legacy family key before the canonical ID was settled).
+        # instance_id is the effective unique discriminator; strategy_id is redundant here.
         return self._read("""SELECT strategy_instance_id, strategy_id, canonical_instrument,
             state, revision, created_at, updated_at, updated_by
             FROM strategy.instrument_membership
-            WHERE strategy_id = %s AND strategy_instance_id = %s
-            ORDER BY canonical_instrument""", (strategy_id, instance_id))
+            WHERE strategy_instance_id = %s
+            ORDER BY canonical_instrument""", (instance_id,))
 
     def save_membership(self, strategy_id: str, instance_id: str, canonical: str,
                         state: str, expected_revision: int | None, actor: str) -> dict[str, Any]:
@@ -151,11 +154,12 @@ class InstrumentMembershipRepository:
                         if expected_revision is not None and int(current["revision"]) != expected_revision:
                             raise MembershipConflict(f"revision conflict: expected {expected_revision}, current {current['revision']}")
                         cur.execute("""UPDATE strategy.instrument_membership
-                            SET state = %s, revision = revision + 1, updated_at = now(), updated_by = %s
+                            SET state = %s, strategy_id = %s, revision = revision + 1,
+                                updated_at = now(), updated_by = %s
                             WHERE strategy_instance_id = %s AND canonical_instrument = %s
                             RETURNING strategy_instance_id, strategy_id, canonical_instrument, state,
                                       revision, created_at, updated_at, updated_by""",
-                                    (state, actor, instance_id, canonical))
+                                    (state, strategy_id, actor, instance_id, canonical))
                     result = _row_dict(cur, cur.fetchone())
                 conn.commit()
                 return result
