@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 
@@ -9,7 +10,20 @@ FILENAME = '065_strategy_library_reader_permissions.sql'
 CHECKSUM = 'a8a63151ee915be84e1a01b36ae1a852e2a79c3bda0f78068e39cbf1200a9e2e'
 
 
-def transaction(sql):
+def safe_error(message):
+    message = re.sub(r'(?i)postgres(?:ql)?://[^\s]+', '<database-uri-redacted>', message)
+    message = re.sub(r'(?i)\bBearer\s+[^\s]+', 'Bearer <redacted>', message)
+    message = re.sub(r'''(?ix)(\b(?:password|token|authorization|client-key-data|client-certificate-data|certificate-authority-data)\s*[:=]\s*)(?:'[^']*'|"[^"]*"|[^\s,;]+)''',
+                     r'\1<redacted>', message)
+    return message.strip()[:6000]
+
+
+def transaction(sql, app_role='trading_app', readonly_role='trading_readonly'):
+    for role in (app_role, readonly_role):
+        if not isinstance(role,str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.@-]{0,62}',role):
+            raise ValueError('Valid discovered database roles required')
+    role_array = "ARRAY["+",".join("'"+r.replace("'","''")+"'" for r in (app_role,readonly_role))+"]"
+    readonly_literal = "'"+readonly_role.replace("'","''")+"'"
     if hashlib.sha256(sql.encode()).hexdigest() != CHECKSUM:
         raise ValueError('Migration 065 checksum mismatch; refusing to execute')
     return '''BEGIN;
@@ -32,8 +46,17 @@ VALUES ('065','065_strategy_library_reader_permissions.sql',
  'a8a63151ee915be84e1a01b36ae1a852e2a79c3bda0f78068e39cbf1200a9e2e');
 END IF;
 END $repair$;
+DO $readers$ DECLARE r text; BEGIN
+FOREACH r IN ARRAY ''' + role_array + ''' LOOP
+ IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=r) THEN
+  RAISE EXCEPTION 'Discovered application role is missing';
+ END IF;
+ EXECUTE format('GRANT USAGE ON SCHEMA research TO %I',r);
+ EXECUTE format('GRANT SELECT ON research.strategy_library_forward_state, research.strategy_library_forward_event TO %I',r);
+END LOOP;
+END $readers$;
 DO $verify$ DECLARE r text; t text; BEGIN
-FOREACH r IN ARRAY ARRAY['trading_app','trading_readonly'] LOOP
+FOREACH r IN ARRAY ''' + role_array + ''' LOOP
  IF NOT has_schema_privilege(r,'research','USAGE') THEN
   RAISE EXCEPTION 'Reader schema privilege missing';
  END IF;
@@ -42,7 +65,7 @@ FOREACH r IN ARRAY ARRAY['trading_app','trading_readonly'] LOOP
   IF NOT has_table_privilege(r,t,'SELECT') THEN
    RAISE EXCEPTION 'Reader SELECT privilege missing';
   END IF;
-  IF r='trading_readonly' AND
+  IF r=''' + readonly_literal + ''' AND
     (has_table_privilege(r,t,'INSERT') OR has_table_privilege(r,t,'UPDATE')
       OR has_table_privilege(r,t,'DELETE')) THEN
    RAISE EXCEPTION 'Read-only role unexpectedly has write access';
@@ -63,32 +86,46 @@ def main():
     lines = []
 
     def run(arguments, payload=None):
+        step = ('CONTEXT' if arguments[:1] == ['config'] else
+                'ADMIN_MIGRATION_065' if 'trading-postgres-0' in arguments else 'DATABASE_TARGET')
         result = subprocess.run(['kubectl','--kubeconfig',args.kubeconfig,
                                  '--request-timeout=30s',*arguments],
                                 input=payload,text=True,capture_output=True,timeout=120)
         if result.returncode:
-            # Credentials are never fetched or printed; retain only a safe error class.
-            raise RuntimeError('kubectl operation failed; exit='+str(result.returncode))
+            detail = safe_error(result.stderr or result.stdout or 'No diagnostic output')
+            raise RuntimeError(step+': exit='+str(result.returncode)+'\n'+detail)
         return result.stdout
 
     try:
         sql = Path(args.sql).read_bytes().decode('utf-8')
-        body = transaction(sql)
+        transaction(sql)  # verify pinned migration before any cluster operation
         context = run(['config','current-context']).strip()
         if context != 'local':
             raise RuntimeError('Expected reviewed local context')
         lines.append('Context: local; namespace: trading')
-        code = '''import json
+        code = """import json
 from postgres.db import connect
-with connect() as conn:
- print(json.dumps({'database':conn.info.dbname}))
-'''
-        target = json.loads(run(['-n','trading','exec','-i',
-                                 'deployment/unified-outcome-resolver','-c','resolver',
-                                 '--','python3','-'],code))['database']
-        if not isinstance(target,str) or not target:
-            raise RuntimeError('Explicit database target unavailable')
-        lines.append('Database target verified from existing resolver connection')
+with connect(readonly=READ_ONLY) as conn:
+ with conn.cursor() as cur:
+  cur.execute('SELECT current_database(), current_user')
+  database,role=cur.fetchone()
+ print(json.dumps({'database':database,'role':role}))
+"""
+        targets = {}
+        for label,deployment,container,readonly in (
+            ('resolver','unified-outcome-resolver','resolver',False),
+            ('orchestrator','mt5-native-bridge-main-runtime','orchestrator-shadow',False),
+            ('api','platform-signals-api','api',True)):
+            targets[label]=json.loads(run(['-n','trading','exec','-i','deployment/'+deployment,
+                                          '-c',container,'--','python3','-'],
+                                         code.replace('READ_ONLY',repr(readonly))))
+        target=targets['resolver']['database']
+        if not isinstance(target,str) or not target or any(t['database'] != target for t in targets.values()):
+            raise RuntimeError('Reader databases do not match verified resolver target')
+        body=transaction(sql,targets['orchestrator']['role'],targets['api']['role'])
+        lines.append('Database target verified across resolver, orchestrator and API connections')
+        lines.append('Discovered orchestrator role: '+targets['orchestrator']['role'])
+        lines.append('Discovered API read role: '+targets['api']['role'])
         run(['-n','trading','exec','-i','trading-postgres-0','--','sh','-c',
              'exec psql -X -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "$1"',
              'sh',target],body)
