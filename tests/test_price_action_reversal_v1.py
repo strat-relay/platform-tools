@@ -61,11 +61,11 @@ def test_pattern_detectors_cover_long_short_and_zero_body_boundaries():
     engulfing = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
     assert engulfing.detect_pattern((
         Candle(0, 0, 1, 91, 91.2, 88.8, 89),
-        Candle(1, 1, 2, 88.9, 91.2, 88.8, 91),
+        Candle(1, 1, 2, 88.9, 91.2, 88.8, 91.1),
     ), 0.01)["direction"] == "LONG"
     assert engulfing.detect_pattern((
         Candle(0, 0, 1, 109, 111.2, 108.8, 111),
-        Candle(1, 1, 2, 111, 111.2, 108.3, 108.5),
+        Candle(1, 1, 2, 111.1, 111.3, 108.3, 108.5),
     ), 0.01)["direction"] == "SHORT"
 
     star = initialized(StarReversalEvaluator(), star_version, star_parameters)
@@ -90,7 +90,7 @@ def test_causal_replay_proposes_then_resolves_next_open_and_survives_restart():
         bar(52, "M15", 93, 93.2, 90.8, 91),
         bar(53, "M15", 91, 91.2, 89.8, 90),
         bar(54, "M15", 90, 90.2, 88.8, 89),
-        bar(55, "M15", 89, 91.2, 88.8, 91),
+        bar(55, "M15", 88.9, 91.2, 88.8, 91.1),
     ]
     outputs = [item for event in events for item in evaluator.consume_market_event(event)]
     proposal = next(item for item in outputs if item.provenance["rejection_reason"] == "RESEARCH_PROPOSAL_ONLY")
@@ -99,9 +99,9 @@ def test_causal_replay_proposes_then_resolves_next_open_and_survives_restart():
     checkpoint = json.loads(json.dumps(evaluator.snapshot_state()))
     restored = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
     restored.restore_state(checkpoint)
-    resolved = restored.consume_market_event(bar(55, "M15", 91, 92, 90, 91.5))
+    resolved = restored.consume_market_event(bar(56, "M15", 91.1, 92, 90, 91.5))
     assert resolved[0].provenance["rejection_reason"] == "ENTRY_OBSERVED_RESEARCH_ONLY"
-    assert resolved[0].provenance["accepted_paper_entry_time"] == bar(55, "M15", 91, 92, 90, 91.5).open_timestamp
+    assert resolved[0].provenance["accepted_paper_entry_time"] == bar(56, "M15", 91.1, 92, 90, 91.5).open_timestamp
 
 
 def test_invalid_order_duplicate_and_incomplete_context_are_explicit():
@@ -112,3 +112,35 @@ def test_invalid_order_duplicate_and_incomplete_context_are_explicit():
         evaluator.consume_market_event(bar(-1, "M15", 100, 101, 99, 100))
     assert any(item.provenance["rejection_reason"] == "INSUFFICIENT_CONTEXT"
                for item in evaluator.consume_market_event(bar(1, "M15", 100, 101, 99, 100)))
+
+
+def test_revision_identity_metadata_and_checkpoint_binding():
+    evaluator = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
+    original = bar(0, "M15", 100, 101, 99, 100)
+    evaluator.consume_market_event(original)
+    with pytest.raises(ValueError, match="conflicting candle revision"):
+        evaluator.consume_market_event(bar(0, "M15", 100, 102, 99, 100))
+    missing_metadata = MarketEvent("TEST", "M15", 900, 1800, 100, 101, 99, 100,
+                                   provenance={"tick_size": 0.01})
+    with pytest.raises(ValueError, match="snapshot_id"):
+        evaluator.consume_market_event(missing_metadata)
+    checkpoint = json.loads(json.dumps(evaluator.snapshot_state()))
+    checkpoint["binding"]["parameter_hash"] = "wrong"
+    restored = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
+    with pytest.raises(ValueError, match="checkpoint binding"):
+        restored.restore_state(checkpoint)
+
+
+def test_strict_engulfing_boundary_and_full_pattern_geometry():
+    evaluator = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
+    equal_boundary = evaluator.detect_pattern((
+        Candle(0, 0, 1, 91, 91.2, 89, 89),
+        Candle(1, 1, 2, 89, 91.2, 88.8, 91),
+    ), 0.01)
+    assert equal_boundary is None
+    accepted = evaluator.detect_pattern((
+        Candle(0, 0, 1, 91, 91.2, 89, 89),
+        Candle(1, 1, 2, 88.9, 91.5, 88.5, 91.1),
+    ), 0.01)
+    assert accepted["pattern_high"] == 91.5
+    assert accepted["pattern_low"] == 88.5

@@ -16,10 +16,13 @@
   },
   "causal_protocol": {
     "prior_move": "strict monotonic completed M15 closes over prior_move_bars",
-    "entry": "next completed M15 event supplies the next candle open; no later OHLC may enter the proposal",
+    "entry": "the exact next M15 candle is identified by open_timestamp equal to pattern completion close_timestamp; later observations are delayed reconstruction/cancellation only",
     "entry_gap": "cancel when adverse next-open displacement exceeds entry_gap_cancel_ticks",
     "stop": "pattern extreme plus stop_buffer_ticks",
     "target": "nearest known opposing H1 level at pattern cutoff",
+    "structural_zone": "candle/pattern high-low interval must intersect [level-tolerance, level+tolerance] and the final pattern close must reject directionally from the level; wholly beyond the zone is invalid",
+    "pattern_scope": "engulfing uses both candles, star uses all three candles, pin-bar uses its single candle; stop uses the full pattern high/low",
+    "engulfing_boundary": "strict penetration: current open is strictly beyond prior close and current close strictly beyond prior open; equality is rejected for this new definition",
     "outcome": "research proposal and paper-entry observations only; no outcome resolver is invoked without a compatible frozen outcome protocol",
     "costs": "not applied to detector proposals; any later outcome report must declare spread, commission, and slippage assumptions"
   },

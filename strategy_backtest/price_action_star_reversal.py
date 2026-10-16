@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .price_action_primitives import Candle
+from .price_action_primitives import Candle, star_reversal_confirmation
 from .price_action_reversal_common import ReversalEvaluator, contract_parameter_set, contract_strategy_version
 
 STRATEGY_ID = "PRICE_ACTION_STAR_REVERSAL"
@@ -45,27 +45,30 @@ class StarReversalEvaluator(ReversalEvaluator):
         if len(candles) < 3:
             return None
         first, middle, third = candles[-3:]
-        first_body = abs(first.close - first.open)
-        middle_body = abs(middle.close - middle.open)
-        third_body = abs(third.close - third.open)
-        if first_body < tick * self.values["minimum_first_body_ticks"]:
-            return None
-        if third_body < tick * self.values["minimum_third_body_ticks"]:
-            return None
-        if middle.high <= middle.low or middle_body > first_body * self.values["middle_body_max_fraction_first"]:
-            return None
-        recovery = first.close + (first.open - first.close) * self.values["third_recovery_fraction"]
-        if first.close < first.open and third.close > third.open and third.close > recovery:
+        if star_reversal_confirmation(first, middle, third,
+                                      minimum_first_body=tick * self.values["minimum_first_body_ticks"],
+                                      minimum_third_body=tick * self.values["minimum_third_body_ticks"],
+                                      middle_body_max_fraction=self.values["middle_body_max_fraction_first"],
+                                      recovery_fraction=self.values["third_recovery_fraction"], direction="LONG"):
             return {"direction": "LONG", "primitive_id": "price_action.star_reversal@1",
                     "observed": {"first": first.payload(), "middle": middle.payload(),
                                  "third": third.payload(), "recovery_above_first_body_midpoint": True,
-                                 "exchange_gap_required": False}}
-        recovery = first.close - (first.close - first.open) * self.values["third_recovery_fraction"]
-        if first.close > first.open and third.close < third.open and third.close < recovery:
+                                 "exchange_gap_required": False}, "pattern_start_index": len(candles) - 3,
+                    "pattern_end_index": len(candles) - 1, "pattern_high": max(first.high, middle.high, third.high),
+                    "pattern_low": min(first.low, middle.low, third.low),
+                    "constituent_candle_ids": [first.open_timestamp, middle.open_timestamp, third.open_timestamp]}
+        if star_reversal_confirmation(first, middle, third,
+                                      minimum_first_body=tick * self.values["minimum_first_body_ticks"],
+                                      minimum_third_body=tick * self.values["minimum_third_body_ticks"],
+                                      middle_body_max_fraction=self.values["middle_body_max_fraction_first"],
+                                      recovery_fraction=self.values["third_recovery_fraction"], direction="SHORT"):
             return {"direction": "SHORT", "primitive_id": "price_action.star_reversal@1",
                     "observed": {"first": first.payload(), "middle": middle.payload(),
                                  "third": third.payload(), "recovery_below_first_body_midpoint": True,
-                                 "exchange_gap_required": False}}
+                                 "exchange_gap_required": False}, "pattern_start_index": len(candles) - 3,
+                    "pattern_end_index": len(candles) - 1, "pattern_high": max(first.high, middle.high, third.high),
+                    "pattern_low": min(first.low, middle.low, third.low),
+                    "constituent_candle_ids": [first.open_timestamp, middle.open_timestamp, third.open_timestamp]}
         return None
 
 

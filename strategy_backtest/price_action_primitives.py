@@ -117,6 +117,48 @@ def engulfing_confirmation(previous: Candle, candle: Candle, *, direction: str) 
     raise ValueError("direction must be LONG or SHORT")
 
 
+def star_reversal_confirmation(first: Candle, middle: Candle, third: Candle, *,
+                               minimum_first_body: float, minimum_third_body: float,
+                               middle_body_max_fraction: float,
+                               recovery_fraction: float, direction: str) -> bool:
+    """Pure three-candle star geometry used by the V1 reversal evaluator."""
+    first_body = abs(first.close - first.open)
+    middle_body = abs(middle.close - middle.open)
+    third_body = abs(third.close - third.open)
+    if first_body < minimum_first_body or third_body < minimum_third_body:
+        return False
+    if middle.high <= middle.low or middle_body > first_body * middle_body_max_fraction:
+        return False
+    if direction == "LONG":
+        recovery = first.close + (first.open - first.close) * recovery_fraction
+        return first.close < first.open and third.close > third.open and third.close > recovery
+    if direction == "SHORT":
+        recovery = first.close - (first.close - first.open) * recovery_fraction
+        return first.close > first.open and third.close < third.open and third.close < recovery
+    raise ValueError("direction must be LONG or SHORT")
+
+
+def pin_bar_confirmation(candle: Candle, *, minimum_range: float, minimum_wick_body_ratio: float,
+                         maximum_opposite_wick_body_ratio: float, minimum_close_location: float,
+                         direction: str) -> bool:
+    """Pure directional rejection geometry; zero body/range never qualifies."""
+    total_range = candle.high - candle.low
+    body = abs(candle.close - candle.open)
+    if total_range <= 0 or body <= 0 or total_range < minimum_range:
+        return False
+    lower_wick = min(candle.open, candle.close) - candle.low
+    upper_wick = candle.high - max(candle.open, candle.close)
+    if direction == "LONG":
+        return (candle.close > candle.open and lower_wick / body >= minimum_wick_body_ratio
+                and upper_wick / body <= maximum_opposite_wick_body_ratio
+                and (candle.close - candle.low) / total_range >= minimum_close_location)
+    if direction == "SHORT":
+        return (candle.close < candle.open and upper_wick / body >= minimum_wick_body_ratio
+                and lower_wick / body <= maximum_opposite_wick_body_ratio
+                and (candle.high - candle.close) / total_range >= minimum_close_location)
+    raise ValueError("direction must be LONG or SHORT")
+
+
 def structural_stop(candle: Candle, *, direction: str, buffer: float) -> float:
     if buffer < 0:
         raise ValueError("stop buffer cannot be negative")

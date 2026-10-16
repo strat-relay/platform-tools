@@ -8,9 +8,10 @@ for research only:
 - Rejection / Pin-Bar Reversal V1
 
 They use completed H1 context and completed M15 execution candles, confirmed
-H1 swings/levels, a strict prior directional move, a structural pattern
-location, a pattern-extreme stop plus buffer, the nearest known opposing
-target, and a next-M15-open paper-entry observation. A proposal is never an
+H1 swings/levels, a strict prior directional move before the pattern starts,
+a true candle/zone intersection with directional rejection, a full-pattern
+extreme stop plus buffer, the nearest known opposing target, and the exact
+next-M15-open paper-entry observation. A proposal is never an
 execution signal: all outputs are `RESEARCH`, `research_only=true`, and
 `execution_eligible=false`.
 

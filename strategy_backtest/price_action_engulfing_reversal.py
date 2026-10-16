@@ -46,14 +46,25 @@ class EngulfingReversalEvaluator(ReversalEvaluator):
         body = abs(current.close - current.open)
         if body < tick * self.values["minimum_engulfing_body_ticks"]:
             return None
-        if engulfing_confirmation(previous, current, direction="LONG"):
+        # The frozen shared primitive is inclusive for the existing
+        # continuation evaluator.  This new definition pins its own contract
+        # to strict body penetration so equality at either boundary is rejected.
+        if engulfing_confirmation(previous, current, direction="LONG") \
+                and current.open < previous.close and current.close > previous.open:
             return {"direction": "LONG", "primitive_id": "price_action.engulfing_reversal@1",
                     "observed": {"previous": previous.payload(), "pattern": current.payload(),
-                                 "confirmation": "close_beyond_prior_body_extreme"}}
-        if engulfing_confirmation(previous, current, direction="SHORT"):
+                                 "confirmation": "close_beyond_prior_body_extreme"},
+                    "pattern_start_index": len(candles) - 2, "pattern_end_index": len(candles) - 1,
+                    "pattern_high": max(previous.high, current.high), "pattern_low": min(previous.low, current.low),
+                    "constituent_candle_ids": [previous.open_timestamp, current.open_timestamp]}
+        if engulfing_confirmation(previous, current, direction="SHORT") \
+                and current.open > previous.close and current.close < previous.open:
             return {"direction": "SHORT", "primitive_id": "price_action.engulfing_reversal@1",
                     "observed": {"previous": previous.payload(), "pattern": current.payload(),
-                                 "confirmation": "close_beyond_prior_body_extreme"}}
+                                 "confirmation": "close_beyond_prior_body_extreme"},
+                    "pattern_start_index": len(candles) - 2, "pattern_end_index": len(candles) - 1,
+                    "pattern_high": max(previous.high, current.high), "pattern_low": min(previous.low, current.low),
+                    "constituent_candle_ids": [previous.open_timestamp, current.open_timestamp]}
         return None
 
 

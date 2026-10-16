@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .price_action_primitives import Candle
+from .price_action_primitives import Candle, pin_bar_confirmation
 from .price_action_reversal_common import ReversalEvaluator, contract_parameter_set, contract_strategy_version
 
 STRATEGY_ID = "PRICE_ACTION_PIN_BAR_REVERSAL"
@@ -57,20 +57,28 @@ class PinBarReversalEvaluator(ReversalEvaluator):
         upper_wick = candle.high - max(candle.open, candle.close)
         long_location = (candle.close - candle.low) / total_range
         short_location = (candle.high - candle.close) / total_range
-        if candle.close > candle.open and lower_wick / body >= self.values["minimum_wick_body_ratio"] \
-                and upper_wick / body <= self.values["maximum_opposite_wick_body_ratio"] \
-                and long_location >= self.values["minimum_close_location"]:
+        if pin_bar_confirmation(candle, minimum_range=tick * self.values["minimum_range_ticks"],
+                                minimum_wick_body_ratio=self.values["minimum_wick_body_ratio"],
+                                maximum_opposite_wick_body_ratio=self.values["maximum_opposite_wick_body_ratio"],
+                                minimum_close_location=self.values["minimum_close_location"], direction="LONG"):
             return {"direction": "LONG", "primitive_id": "price_action.pin_bar@1",
                     "observed": {"bar": candle.payload(), "wick_body_ratio": lower_wick / body,
                                  "opposite_wick_body_ratio": upper_wick / body,
-                                 "close_location": long_location, "zero_body_policy": "reject"}}
-        if candle.close < candle.open and upper_wick / body >= self.values["minimum_wick_body_ratio"] \
-                and lower_wick / body <= self.values["maximum_opposite_wick_body_ratio"] \
-                and short_location >= self.values["minimum_close_location"]:
+                                 "close_location": long_location, "zero_body_policy": "reject"},
+                    "pattern_start_index": len(candles) - 1, "pattern_end_index": len(candles) - 1,
+                    "pattern_high": candle.high, "pattern_low": candle.low,
+                    "constituent_candle_ids": [candle.open_timestamp]}
+        if pin_bar_confirmation(candle, minimum_range=tick * self.values["minimum_range_ticks"],
+                                minimum_wick_body_ratio=self.values["minimum_wick_body_ratio"],
+                                maximum_opposite_wick_body_ratio=self.values["maximum_opposite_wick_body_ratio"],
+                                minimum_close_location=self.values["minimum_close_location"], direction="SHORT"):
             return {"direction": "SHORT", "primitive_id": "price_action.pin_bar@1",
                     "observed": {"bar": candle.payload(), "wick_body_ratio": upper_wick / body,
                                  "opposite_wick_body_ratio": lower_wick / body,
-                                 "close_location": short_location, "zero_body_policy": "reject"}}
+                                 "close_location": short_location, "zero_body_policy": "reject"},
+                    "pattern_start_index": len(candles) - 1, "pattern_end_index": len(candles) - 1,
+                    "pattern_high": candle.high, "pattern_low": candle.low,
+                    "constituent_candle_ids": [candle.open_timestamp]}
         return {"rejection_reason": "PIN_BAR_GEOMETRY_NOT_CONFIRMED"}
 
 
