@@ -88,13 +88,14 @@ class ForwardLedgerPostgresTests(unittest.TestCase):
     def test_registration_conflicting_identity_fails_closed(self):
         import psycopg
         from research.strategy_library_registration import CANARY, candidate_sql, registration
-        row = registration(CANARY[0])
+        key = 'ema_momentum'  # not registered by canary migration 063
+        row = registration(key)
         with self.conn.cursor() as cur:
             cur.execute('''INSERT INTO strategy_mgmt.strategy_definition(id,name,family_key)
                            VALUES (%s,'Conflicting definition',%s)''',
                         (row['definition_id'], 'conflict-'+self.run_id))
             with self.assertRaises(psycopg.errors.RaiseException):
-                cur.execute(candidate_sql())
+                cur.execute(candidate_sql((key,)))
 
     def test_observer_group_has_research_writes_without_delete_or_canonical_writes(self):
         sql = Path(__file__).resolve().parents[1] / 'docs/strategy_library/forward/observer_role_candidate.sql'

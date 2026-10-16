@@ -31,4 +31,6 @@ class RegistrationCandidateTests(unittest.TestCase):
             self.assertIn((root/name).read_text(), bundle)
         self.assertIn('\nBEGIN;\n', bundle)
         self.assertTrue(bundle.endswith('COMMIT;\n'))
-        self.assertFalse((root.parents[2]/'postgres/migrations/063_strategy_library_forward.sql').exists())
+        migration = (root.parents[2]/'postgres/migrations/063_strategy_library_forward_canary.sql').read_text()
+        for name in ('schema_candidate.sql', 'registration_candidate.sql', 'observer_role_candidate.sql'):
+            self.assertIn((root/name).read_text(), migration)
