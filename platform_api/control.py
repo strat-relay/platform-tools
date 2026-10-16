@@ -566,6 +566,20 @@ class PlatformControlRepository:
             observability_version="liquidity-entry-outcomes.v1",
         )
 
+    def pa_sr_retest_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST", "ENTRY_ONLY", instance_id,
+            display_name="Price Action SR Retest",
+            observability_version="entry-outcomes.v1",
+        )
+
+    def pa_engulfing_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "PRICE_ACTION_ENGULFING_CONTINUATION", "ENTRY_ONLY", instance_id,
+            display_name="Price Action Engulfing Continuation",
+            observability_version="entry-outcomes.v1",
+        )
+
 
 STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
     "CONTEXT_STRUCTURE_RETRACE_V1": {
@@ -575,6 +589,14 @@ STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
     "LIQUIDITY_DISPLACEMENT_SCALP_V1": {
         "reader": "liquidity_entry_outcome_report",
         "outcome_type": "LIQUIDITY_ENTRY",
+    },
+    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST": {
+        "reader": "pa_sr_retest_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
+    },
+    "PRICE_ACTION_ENGULFING_CONTINUATION": {
+        "reader": "pa_engulfing_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
     },
 }
 
