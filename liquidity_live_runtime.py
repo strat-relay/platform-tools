@@ -267,12 +267,16 @@ def check_publication_exclusivity(conn: Any) -> None:
     """
     try:
         with conn.cursor() as cur:
+            # Return a single boolean: True = fresh heartbeat, False = stale heartbeat.
+            # A row is returned for ANY RUNNING orchestrator regardless of age so we can
+            # distinguish "no orchestrator" (None → allow) from "stale orchestrator"
+            # (False → fail-closed) rather than silently permitting standalone.
             cur.execute(
-                """SELECT 1 FROM platform.runtime_instances
-                    WHERE instance_id = %s
-                      AND status = 'RUNNING'
-                      AND last_heartbeat_at > now() - interval '%s seconds'""",
-                (_ORCHESTRATOR_LOCK_INSTANCE_ID, int(_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS)),
+                """SELECT last_heartbeat_at > now() - interval '%s seconds'
+                   FROM platform.runtime_instances
+                   WHERE instance_id = %s
+                     AND status = 'RUNNING'""",
+                (int(_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS), _ORCHESTRATOR_LOCK_INSTANCE_ID),
             )
             row = cur.fetchone()
     except Exception as exc:
@@ -280,7 +284,10 @@ def check_publication_exclusivity(conn: Any) -> None:
             f"Publication exclusivity check failed (DB error: {exc!r}). "
             "Standalone publication blocked until lock check succeeds."
         ) from exc
-    if row is not None:
+    if row is None:
+        return  # No RUNNING orchestrator — standalone publication allowed.
+    is_fresh = row[0]
+    if is_fresh:
         raise RuntimeError(
             "Standalone Liquidity Live publication blocked: the orchestrator "
             "holds the canonical publication lock (platform.runtime_instances "
@@ -289,6 +296,13 @@ def check_publication_exclusivity(conn: Any) -> None:
             "or wait for the lock to expire (grace period: "
             f"{_ORCHESTRATOR_LOCK_MAX_AGE_SECONDS}s)."
         )
+    raise RuntimeError(
+        "Standalone Liquidity Live publication blocked: "
+        f"stale heartbeat detected for orchestrator lock "
+        f"(instance_id='{_ORCHESTRATOR_LOCK_INSTANCE_ID}'). "
+        "Fail-closed: manual intervention required to clear the fence. "
+        "Verify the orchestrator is truly stopped before proceeding."
+    )
 
 
 def monitor_open_liquidity_entries(conn: Any, snapshot_reader: Any) -> list[str]:

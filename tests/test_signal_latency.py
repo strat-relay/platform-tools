@@ -336,7 +336,7 @@ class KojoLiveEntryPathTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class LiquidityAgeGateTests(unittest.TestCase):
-    """Stale Liquidity Displacement signals must be suppressed."""
+    """Stale Liquidity Displacement signals are emitted as RETROSPECTIVE_RESEARCH_EVIDENCE."""
 
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -382,19 +382,27 @@ class LiquidityAgeGateTests(unittest.TestCase):
         signals = adapter.discover_new_signals(set())
         self.assertEqual(len(signals), 1, "fresh signal must not be suppressed")
 
-    def test_stale_signal_suppressed(self) -> None:
-        """A signal 700s old must be suppressed by the default 600s gate."""
+    def test_stale_signal_is_research_evidence(self) -> None:
+        """A signal 700s old must be emitted as RETROSPECTIVE_RESEARCH_EVIDENCE."""
         root = self._write_state("setup-stale", fill_age_s=700)
         adapter = self._make_adapter(root)
         signals = adapter.discover_new_signals(set())
-        self.assertEqual(len(signals), 0, "stale signal must be suppressed")
+        self.assertEqual(len(signals), 1, "stale signal must emit as research evidence, not be suppressed")
+        self.assertEqual(
+            (signals[0].provenance or {}).get("signal_emission_class"),
+            "RETROSPECTIVE_RESEARCH_EVIDENCE",
+        )
 
     def test_custom_threshold_respected(self) -> None:
         """LIQUIDITY_SIGNAL_MAX_AGE_SECONDS env var overrides the default."""
         root = self._write_state("setup-custom", fill_age_s=200)
         adapter = self._make_adapter(root, max_age_s=100.0)
         signals = adapter.discover_new_signals(set())
-        self.assertEqual(len(signals), 0, "signal should be suppressed by custom 100s threshold")
+        self.assertEqual(len(signals), 1, "stale signal with custom threshold must emit as research evidence")
+        self.assertEqual(
+            (signals[0].provenance or {}).get("signal_emission_class"),
+            "RETROSPECTIVE_RESEARCH_EVIDENCE",
+        )
 
     def test_gate_disabled_with_zero(self) -> None:
         """Setting LIQUIDITY_SIGNAL_MAX_AGE_SECONDS=0 must disable the gate."""

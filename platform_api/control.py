@@ -433,14 +433,32 @@ class PlatformControlRepository:
         cutoff_metadata_key: str | None = None,
         display_name: str | None = None,
         observability_version: str = "entry-outcomes.v1",
+        include_retrospective: bool = False,
     ) -> dict[str, Any]:
         """Build the canonical entry/outcome report for a registered strategy.
 
         The shared schema is intentionally strategy-neutral. Each strategy selects its
         own outcome type, while the database remains the single source of truth for the
         signal/outcome rows and instance scope.
+
+        By default (include_retrospective=False) signals published with
+        signal_emission_class=RETROSPECTIVE_RESEARCH_EVIDENCE are excluded from all
+        funnel and performance metrics so retrospective catch-up emissions cannot
+        contaminate forward-performance statistics.  Pass include_retrospective=True
+        only for explicit research queries.
         """
         signal_scope = " AND s.strategy_instance_id = %s" if instance_id else ""
+        # Exclude RETROSPECTIVE_RESEARCH_EVIDENCE signals from forward metrics unless
+        # the caller explicitly opts in.  The filter covers both the nested KOJO V3
+        # provenance path (source_provenance->'signal_emission_class') and the flat
+        # legacy path used by Context Retrace and Liquidity Displacement
+        # (source_provenance->>'classification').
+        retro_filter = "" if include_retrospective else (
+            " AND (s.source_provenance->>'signal_emission_class' IS NULL"
+            " OR s.source_provenance->>'signal_emission_class' != 'RETROSPECTIVE_RESEARCH_EVIDENCE')"
+            " AND (s.source_provenance->>'classification' IS NULL"
+            " OR s.source_provenance->>'classification' != 'RETROSPECTIVE_RESEARCH_EVIDENCE')"
+        )
         query_params: tuple[Any, ...] = (strategy_id, outcome_type)
         if instance_id:
             query_params += (instance_id,)
@@ -450,7 +468,7 @@ class PlatformControlRepository:
                 FROM strategy.entry_signals AS s
                 JOIN strategy.entry_signal_outcomes AS o USING (signal_id)
                 WHERE s.strategy_id = %s AND o.outcome_type = %s
-                """ + signal_scope + " ORDER BY s.decision_time, s.signal_id""",
+                """ + signal_scope + retro_filter + " ORDER BY s.decision_time, s.signal_id""",
                           query_params)
         cutoff_rows = self.query("""SELECT value FROM platform.system_metadata
                                    WHERE key = %s""",
@@ -534,7 +552,11 @@ class PlatformControlRepository:
                     "observability_timestamp": observed_at,
                     "kill_switch": False,
                 },
-                "sample": {"scope": "CANONICAL_ENTRY_SIGNALS" if instance_id is None else "CANONICAL_ENTRY_SIGNALS_INSTANCE", "boundary": cutoff_utc},
+                "sample": {
+                    "scope": ("CANONICAL_ENTRY_SIGNALS" if instance_id is None else "CANONICAL_ENTRY_SIGNALS_INSTANCE"),
+                    "retrospective_included": include_retrospective,
+                    "boundary": cutoff_utc,
+                },
                 "funnel": [
                     {"stage": "ENTRY_SIGNALS", "label": "Canonical Entry Signals", "count": count},
                     {"stage": "OPEN", "label": "Open", "count": len(open_positions)},

@@ -163,27 +163,40 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         classes = [s.provenance.get("signal_emission_class") for s in signals]
         self.assertTrue(all(c == "PROSPECTIVE" for c in classes), f"Expected PROSPECTIVE, got {classes}")
 
-    def test_six_hour_outage_signals_suppressed(self) -> None:
-        """After a 6-hour outage, replay signals must be suppressed."""
+    def test_six_hour_outage_signals_as_research_evidence(self) -> None:
+        """After a 6-hour outage, stale signals are published as RETROSPECTIVE_RESEARCH_EVIDENCE."""
         decision_ts = _retrospective_decision_ts(6 * 3600)
         h1, m15 = _build_bars(decision_ts)
         signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15)
-        self.assertEqual(len(signals), 0, "6h outage: stale signal must not be published")
+        self.assertGreater(len(signals), 0,
+            "6h outage: stale signal must be published as research evidence, not suppressed")
+        for sig in signals:
+            self.assertEqual(sig.provenance.get("signal_emission_class"),
+                             "RETROSPECTIVE_RESEARCH_EVIDENCE")
 
-    def test_54_hour_outage_signals_suppressed(self) -> None:
-        """After a 54-hour outage (the incident scenario), replay signals must be suppressed."""
+    def test_54_hour_outage_signals_as_research_evidence(self) -> None:
+        """After a 54-hour outage, signals are published as RETROSPECTIVE_RESEARCH_EVIDENCE."""
         incident_latency = 21697  # seconds — matches the Oct 15 incident
         decision_ts = _retrospective_decision_ts(incident_latency)
         h1, m15 = _build_bars(decision_ts)
         signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15)
-        self.assertEqual(len(signals), 0, "54h outage replay signal must be suppressed")
+        self.assertGreater(len(signals), 0,
+            "54h outage: signal must be preserved as research evidence")
+        for sig in signals:
+            self.assertEqual(sig.provenance.get("signal_emission_class"),
+                             "RETROSPECTIVE_RESEARCH_EVIDENCE")
 
-    def test_retrospective_suppressed_at_boundary(self) -> None:
-        """A signal at emission_latency_s = 1201 must be suppressed (default gate 1200s)."""
+    def test_retrospective_research_evidence_at_boundary(self) -> None:
+        """A signal at emission_latency_s = 1201 (beyond default 1200s gate) must be
+        published as RETROSPECTIVE_RESEARCH_EVIDENCE, not suppressed."""
         decision_ts = _retrospective_decision_ts(1201)
         h1, m15 = _build_bars(decision_ts)
         signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15)
-        self.assertEqual(len(signals), 0, "emission_latency_s=1201 must be suppressed")
+        self.assertGreater(len(signals), 0,
+            "emission_latency_s=1201 must emit as research evidence")
+        for sig in signals:
+            self.assertEqual(sig.provenance.get("signal_emission_class"),
+                             "RETROSPECTIVE_RESEARCH_EVIDENCE")
 
     def test_gate_disabled_with_zero_allows_retrospective(self) -> None:
         """Setting KOJO_V3_MAX_SIGNAL_AGE_S=0 disables the gate (research override)."""
@@ -203,12 +216,16 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         # 1500s < 3600s threshold → should be published even though RETROSPECTIVE
         self.assertGreater(len(signals), 0, "1500s latency with 3600s threshold must be published")
 
-    def test_gate_env_var_custom_threshold_blocks_beyond(self) -> None:
-        """KOJO_V3_MAX_SIGNAL_AGE_S=3600 should suppress a 3601s-late signal."""
+    def test_gate_env_var_custom_threshold_emits_evidence_beyond(self) -> None:
+        """KOJO_V3_MAX_SIGNAL_AGE_S=3600: a 3601s-late signal emits as research evidence."""
         decision_ts = _retrospective_decision_ts(3601)
         h1, m15 = _build_bars(decision_ts)
         signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15, max_age_s="3600")
-        self.assertEqual(len(signals), 0, "3601s latency with 3600s threshold must be suppressed")
+        self.assertGreater(len(signals), 0,
+            "3601s latency beyond 3600s threshold must emit as RETROSPECTIVE_RESEARCH_EVIDENCE")
+        for sig in signals:
+            self.assertEqual(sig.provenance.get("signal_emission_class"),
+                             "RETROSPECTIVE_RESEARCH_EVIDENCE")
 
     def test_signal_emission_class_in_prospective_provenance(self) -> None:
         """Published prospective signals must carry signal_emission_class=PROSPECTIVE."""

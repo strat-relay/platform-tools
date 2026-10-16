@@ -426,7 +426,7 @@ def test_stale_orchestrator_heartbeat_remains_fail_closed():
     stale_cursor = MagicMock()
     stale_cursor.__enter__ = MagicMock(return_value=stale_cursor)
     stale_cursor.__exit__ = MagicMock(return_value=False)
-    stale_cursor.fetchone.return_value = ("RUNNING",)
+    stale_cursor.fetchone.return_value = (False,)  # RUNNING but heartbeat too old
     stale_conn.cursor.return_value = stale_cursor
 
     try:

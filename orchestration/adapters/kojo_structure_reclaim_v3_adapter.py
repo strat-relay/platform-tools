@@ -76,6 +76,25 @@ class KojoStructureReclaimV3Adapter:
         One evaluator instance is maintained per instrument.  State is persisted
         in separate files: kojo_v3_{instance_id}_{instrument}_evaluator.json so
         each instrument's bar history and setup state remain independent.
+
+        Crash-consistency guarantee
+        ---------------------------
+        Entry signals are written to a pending-publications file BEFORE the
+        evaluator checkpoint is advanced.  This ensures that a crash between
+        "checkpoint written" and "signal published" cannot permanently lose the
+        signal.  The pending file is cleaned up by after_publish_hook() once
+        the orchestrator confirms canonical publication.  Signals surviving in
+        the pending file are re-emitted on the next cycle with the same signal_id,
+        which the idempotent canonical publisher (INSERT ON CONFLICT DO NOTHING)
+        handles safely.
+
+        Research evidence
+        -----------------
+        Signals whose emission_latency_s exceeds KOJO_V3_MAX_SIGNAL_AGE_S are
+        published with signal_emission_class=RETROSPECTIVE_RESEARCH_EVIDENCE
+        instead of being silently discarded.  This preserves historical setup
+        outcomes for research queries while keeping them out of forward-performance
+        metrics (filtered in strategy_entry_outcome_report).
         """
         import json
         import os
@@ -112,12 +131,34 @@ class KojoStructureReclaimV3Adapter:
         _max_age_raw = os.environ.get("KOJO_V3_MAX_SIGNAL_AGE_S", "1200").strip()
         try:
             _max_signal_age_s: float | None = float(_max_age_raw) if _max_age_raw else None
-        except (ValueError, TypeError):
-            _max_signal_age_s = 1200.0
+        except (ValueError, TypeError) as _exc:
+            raise ValueError(
+                f"KOJO_V3_MAX_SIGNAL_AGE_S must be a numeric value in seconds (got {_max_age_raw!r}). "
+                "Fix the environment variable or remove it to restore the 1200s default."
+            ) from _exc
+
+        # Pending-publications file: crash-safe bridge between evaluator checkpoint
+        # and canonical signal publication.
+        pending_file = state_dir / f"kojo_v3_{self.instance_id}_pending_publications.json"
+        _pending_by_id: dict[str, dict] = {}
+        if pending_file.exists():
+            try:
+                for rec in json.loads(pending_file.read_text(encoding="utf-8")):
+                    if rec.get("signal_id") not in seen_signal_ids:
+                        _pending_by_id[rec["signal_id"]] = rec
+            except Exception:
+                _pending_by_id = {}
+        # Snapshot the pre-cycle pending IDs. Phase 1.5 may add current-cycle signals
+        # to _pending_by_id for durability; Phase 2a must only re-emit pre-cycle signals
+        # so current-cycle signals don't get emitted twice.
+        _pre_cycle_pending_ids: frozenset[str] = frozenset(_pending_by_id.keys())
 
         # 3-tuple: (EntrySignal, canonical_instrument, entry_source)
-        # entry_source distinguishes the emission path for provenance.
+        # entry_source distinguishes the emission path (BAR_CLOSE or LIVE_ENTRY).
         entry_signals: list[tuple[Any, str, str]] = []
+        # Checkpoint snapshots are collected here and written AFTER the pending
+        # file is updated so the pending file always precedes the checkpoint advance.
+        _checkpoint_queue: list[tuple[Path, dict]] = []
         try:
             import redis as redis_module
             redis_url = os.environ.get("MARKET_DATA_REDIS_URL", "")
@@ -274,13 +315,9 @@ class KojoStructureReclaimV3Adapter:
                     state = evaluator.snapshot_state()
                     state["_h1_watermark"] = h1_watermark
                     state["_m15_watermark"] = m15_watermark
-                    # Atomic write: write to .tmp then replace so a process kill mid-write
-                    # cannot produce a partial/corrupt checkpoint.
-                    tmp_file = state_file.with_suffix(".tmp")
-                    tmp_file.write_text(
-                        json.dumps(state, sort_keys=True, default=str), encoding="utf-8"
-                    )
-                    os.replace(tmp_file, state_file)
+                    # Queue the checkpoint for writing after the pending file is
+                    # updated — see Phase 1.5 below for the ordering guarantee.
+                    _checkpoint_queue.append((state_file, state))
                 except Exception as persist_exc:
                     from observability.strategy_audit import audit as _audit
                     _audit(
@@ -311,6 +348,63 @@ class KojoStructureReclaimV3Adapter:
             )
             raise
 
+        # Phase 1.5 — write the pending-publications file BEFORE advancing any
+        # evaluator checkpoints.  This ordering guarantees that a crash between
+        # "pending written" and "checkpoint written" leaves the next cycle able to
+        # re-evaluate (checkpoint not advanced) and produce the same signals (which
+        # the pending file also carries, with dedup via seen_signal_ids).  A crash
+        # after "checkpoint written" is the dangerous case: without the pending file
+        # the signal would be lost because the evaluator would not re-produce it.
+        _new_pending_ids = {r["signal_id"] for r in _pending_by_id.values()}
+        for _es, _inst, _src in entry_signals:
+            if _es.signal_id not in seen_signal_ids and _es.signal_id not in _new_pending_ids:
+                _pending_by_id[_es.signal_id] = {
+                    "signal_id": _es.signal_id,
+                    "instrument": _inst,
+                    "decision_timestamp": int(_es.decision_timestamp),
+                    "entry_price": float(_es.entry_price),
+                    "stop_price": float(_es.stop_price),
+                    "target_price": float(_es.target_price),
+                    "direction": str(_es.direction),
+                    "order_type": str(_es.order_type),
+                    "provenance": dict(_es.provenance or {}),
+                }
+        if _pending_by_id:
+            try:
+                tmp_p = pending_file.with_suffix(".tmp")
+                tmp_p.write_text(
+                    json.dumps(list(_pending_by_id.values()), sort_keys=True, default=str),
+                    encoding="utf-8",
+                )
+                os.replace(tmp_p, pending_file)
+            except Exception:
+                pass
+        elif pending_file.exists():
+            try:
+                pending_file.unlink()
+            except Exception:
+                pass
+
+        # Phase 1.6 — now safe to advance evaluator checkpoints.
+        for _ckpt_file, _ckpt_state in _checkpoint_queue:
+            try:
+                _tmp_ckpt = _ckpt_file.with_suffix(".tmp")
+                _tmp_ckpt.write_text(
+                    json.dumps(_ckpt_state, sort_keys=True, default=str), encoding="utf-8"
+                )
+                os.replace(_tmp_ckpt, _ckpt_file)
+            except Exception as _ckpt_exc:
+                from observability.strategy_audit import audit as _audit
+                _audit(
+                    "strategy_state_persist_failed",
+                    runner="signal-orchestrator",
+                    strategy_id=STRATEGY_ID,
+                    instance_id=self.instance_id,
+                    state_file=str(_ckpt_file),
+                    error=str(_ckpt_exc),
+                    error_type=type(_ckpt_exc).__name__,
+                )
+
         from orchestration.models import StrategySignal
         now_iso = (
             datetime.now(timezone.utc)
@@ -319,8 +413,96 @@ class KojoStructureReclaimV3Adapter:
         )
         now_ts_wall = int(datetime.now(timezone.utc).timestamp())
         result: list[Any] = []
+
+        # Phase 2a — re-emit unconfirmed pending signals from a PREVIOUS cycle.
+        # These survive when a crash occurred after the evaluator checkpoint was
+        # written but before canonical publication succeeded.  Only pre-cycle
+        # pending entries are re-emitted here; current-cycle entries are emitted
+        # by Phase 2b (they went through the evaluator this cycle).
+        _seen_in_result: set[str] = set()
+        for _rec in _pending_by_id.values():
+            if _rec["signal_id"] not in _pre_cycle_pending_ids:
+                continue  # current-cycle signal — Phase 2b will emit it
+            if _rec["signal_id"] in seen_signal_ids:
+                continue
+            _r_ts = int(_rec["decision_timestamp"])
+            _r_latency = now_ts_wall - _r_ts
+            _r_class = "PROSPECTIVE" if _r_latency <= 1200 else "RETROSPECTIVE"
+            if _max_signal_age_s is not None and _max_signal_age_s > 0 and _r_latency > _max_signal_age_s:
+                _r_class = "RETROSPECTIVE_RESEARCH_EVIDENCE"
+            _r_ts_iso = (
+                datetime.fromtimestamp(_r_ts, tz=timezone.utc)
+                .isoformat(timespec="microseconds")
+                .replace("+00:00", "Z")
+            )
+            _r_risk = abs(_rec["entry_price"] - _rec["stop_price"])
+            _r_reward = abs(_rec["target_price"] - _rec["entry_price"])
+            _r_prov = dict(_rec.get("provenance") or {})
+            result.append(StrategySignal(
+                signal_id=_rec["signal_id"],
+                schema_version="strategy-signal-v1",
+                strategy_id=STRATEGY_ID,
+                strategy_version=VERSION,
+                strategy_instance_id=self.instance_id,
+                source_event_id=f"kojo-v3-m15-entry:{_rec['signal_id']}",
+                market_event_id=str(_r_prov.get("market_event_id") or ""),
+                setup_id=str(_r_prov.get("setup_id") or ""),
+                entry_opportunity_id=None,
+                economic_position_id=None,
+                created_at=now_iso,
+                signal_timestamp=_r_ts_iso,
+                symbol=_rec["instrument"],
+                canonical_symbol=_rec["instrument"],
+                broker_symbol_hint=canonical_to_broker_hint(_rec["instrument"]),
+                direction=_rec["direction"],
+                entry_type=_rec["order_type"],
+                entry_price=_rec["entry_price"],
+                stop_price=_rec["stop_price"],
+                target_price=_rec["target_price"],
+                risk_distance=_r_risk,
+                target_distance=_r_reward,
+                target_r=round(_r_reward / _r_risk, 3) if _r_risk > 0 else None,
+                timeframe="M15",
+                lower_timeframe=None,
+                higher_timeframes=("H1",),
+                entry_mechanism=("M15_OPEN",),
+                strategy_metadata={
+                    "parameter_set_fingerprint": self._active_fingerprint,
+                    "parameter_set_id": _r_prov.get("parameter_set_id"),
+                    "execution_mode": self._execution_mode,
+                    "execution_mode_revision": self._execution_mode_revision,
+                    "signal_emission_class": _r_class,
+                    "emission_latency_s": _r_latency,
+                    "entry_source": "PENDING_RECOVERY",
+                    "pending_recovery": True,
+                    "outcome_contract": {
+                        "version": "entry-outcome.v2",
+                        "timeframe_minutes": 15,
+                        "activation": "SIGNAL_TIMESTAMP",
+                        "max_hold_minutes": None,
+                        "expiration_minutes": None,
+                        "time_exit_price": "CLOSE",
+                        "price_basis": "THEORETICAL_TOUCH",
+                        "same_candle_priority": "AMBIGUOUS_INTRABAR",
+                        "time_exit_priority": "AFTER_PRICE",
+                    },
+                },
+                provenance={
+                    "provider_symbol": canonical_to_broker_hint(_rec["instrument"]),
+                    "signal_emission_class": _r_class,
+                    "emission_latency_s": _r_latency,
+                    "entry_source": "PENDING_RECOVERY",
+                    "pending_recovery": True,
+                    **_r_prov,
+                },
+                decision_time=_r_ts_iso,
+                signal_emitted_at=now_iso,
+            ))
+            _seen_in_result.add(_rec["signal_id"])
+
+        # Phase 2b — assemble signals from the current evaluation cycle.
         for es, canonical_instrument, entry_source in entry_signals:
-            if es.signal_id in seen_signal_ids:
+            if es.signal_id in seen_signal_ids or es.signal_id in _seen_in_result:
                 continue
             risk = abs(es.entry_price - es.stop_price)
             reward = abs(es.target_price - es.entry_price)
@@ -334,39 +516,44 @@ class KojoStructureReclaimV3Adapter:
             # prospective LIVE signals.  All others are catch-up/replay emissions.
             emission_latency_s = now_ts_wall - int(es.decision_timestamp)
             signal_emission_class = "PROSPECTIVE" if emission_latency_s <= 1200 else "RETROSPECTIVE"
-            # Publication eligibility gate: suppress signals whose emission lag exceeds
-            # the configured threshold so a pod restart cannot convert catch-up bar replay
-            # into actionable forward signals.  The gate threshold is independent of the
-            # PROSPECTIVE/RETROSPECTIVE classification (which uses a fixed 1200s boundary).
-            # Override with KOJO_V3_MAX_SIGNAL_AGE_S; set to 0 to disable the gate.
+            # Stale gate: signals beyond the actionable threshold are published as
+            # RETROSPECTIVE_RESEARCH_EVIDENCE rather than silently discarded.  This
+            # preserves historical setup outcomes for research queries (the evaluator
+            # checkpoint has already advanced past these bars so discarding would be
+            # permanent).  strategy_entry_outcome_report() excludes them from forward
+            # performance metrics via provenance filtering.
             if (_max_signal_age_s is not None and _max_signal_age_s > 0 and
                     emission_latency_s > _max_signal_age_s):
+                signal_emission_class = "RETROSPECTIVE_RESEARCH_EVIDENCE"
                 from observability.strategy_audit import audit as _audit
                 from execution_v2.trace import emit as trace_emit
                 _audit(
-                    "kojo_signal_stale_skipped",
+                    "kojo_signal_research_evidence",
                     runner="signal-orchestrator",
                     strategy_id=STRATEGY_ID,
                     instance_id=self.instance_id,
                     signal_id=es.signal_id,
                     canonical_instrument=canonical_instrument,
                     decision_timestamp=int(es.decision_timestamp),
+                    entry_price=float(es.entry_price),
+                    stop_price=float(es.stop_price),
+                    target_price=float(es.target_price),
+                    direction=es.direction,
                     emission_latency_s=emission_latency_s,
                     max_signal_age_s=_max_signal_age_s,
+                    signal_emission_class=signal_emission_class,
                     reason="KOJO_V3_ENTRY_BAR_CLOSED",
                 )
                 trace_emit(
-                    "SIGNAL_STALE_SKIPPED",
+                    "SIGNAL_RESEARCH_EVIDENCE",
                     signal_id=es.signal_id,
                     strategy_id=STRATEGY_ID,
                     strategy_instance_id=self.instance_id,
                     instrument=canonical_instrument,
                     decision_timestamp=int(es.decision_timestamp),
                     emission_latency_s=emission_latency_s,
-                    max_signal_age_s=_max_signal_age_s,
-                    reason="KOJO_V3_ENTRY_BAR_CLOSED",
+                    signal_emission_class=signal_emission_class,
                 )
-                continue
             # Causal timestamp chain:
             # decision_available_at = when the confirmation bar closed (= decision_timestamp)
             # entry_eligible_at     = when the next bar opened (= decision_timestamp, same
@@ -432,7 +619,48 @@ class KojoStructureReclaimV3Adapter:
                 decision_time=ts_iso,
                 signal_emitted_at=now_iso,
             ))
+            _seen_in_result.add(es.signal_id)
         return result
+
+    def after_publish_hook(self, signal_id: str, conn: Any) -> None:
+        """Remove a confirmed-published signal from the pending-publications file.
+
+        Called by the orchestrator after a successful canonical INSERT.  Until
+        this is called the signal remains in the pending file so a subsequent
+        crash-recovery cycle can re-emit it idempotently.
+        """
+        import json
+        import os
+        from pathlib import Path
+
+        runtime_dir = Path(os.environ.get("TRADING_PLATFORM_RUNTIME_DIR", "/tmp"))
+        pending_file = runtime_dir / "orchestration" / f"kojo_v3_{self.instance_id}_pending_publications.json"
+        if not pending_file.exists():
+            return
+        try:
+            remaining = [r for r in json.loads(pending_file.read_text(encoding="utf-8"))
+                         if r.get("signal_id") != signal_id]
+            if remaining:
+                tmp = pending_file.with_suffix(".tmp")
+                tmp.write_text(
+                    json.dumps(remaining, sort_keys=True, default=str), encoding="utf-8"
+                )
+                os.replace(tmp, pending_file)
+            else:
+                pending_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            from observability.strategy_audit import audit as _audit
+            _audit(
+                "kojo_signal_publication_confirmed",
+                runner="signal-orchestrator",
+                strategy_id=STRATEGY_ID,
+                instance_id=self.instance_id,
+                signal_id=signal_id,
+            )
+        except Exception:
+            pass
 
     def initialize(self, strategy_version: Any, parameter_set: Any) -> None:
         from strategy_backtest.kojo_structure_reclaim_v3 import (
