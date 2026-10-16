@@ -104,6 +104,17 @@ class KojoStructureReclaimV3Adapter:
         )
         self._active_fingerprint = parameter_set.fingerprint
 
+        # Publication eligibility threshold derived from the M15 entry-bar contract:
+        # the entry price is the open of the bar at decision_timestamp (duration 900s).
+        # Once that bar closes, the entry price is no longer achievable.  Allow up to
+        # 1200s (= 900s bar + ~20 × 15s orchestrator cycles) before suppressing.
+        # Override with KOJO_V3_MAX_SIGNAL_AGE_S; set to 0 to disable the gate.
+        _max_age_raw = os.environ.get("KOJO_V3_MAX_SIGNAL_AGE_S", "1200").strip()
+        try:
+            _max_signal_age_s: float | None = float(_max_age_raw) if _max_age_raw else None
+        except (ValueError, TypeError):
+            _max_signal_age_s = 1200.0
+
         entry_signals: list[tuple[Any, str]] = []
         try:
             import redis as redis_module
@@ -118,7 +129,18 @@ class KojoStructureReclaimV3Adapter:
                 if state_file.exists():
                     try:
                         persisted = json.loads(state_file.read_text(encoding="utf-8"))
-                    except Exception:
+                    except Exception as corrupt_exc:
+                        from observability.strategy_audit import audit as _audit
+                        _audit(
+                            "kojo_checkpoint_corrupt",
+                            runner="signal-orchestrator",
+                            strategy_id=STRATEGY_ID,
+                            instance_id=self.instance_id,
+                            canonical_instrument=canonical_instrument,
+                            state_file=str(state_file),
+                            error=str(corrupt_exc),
+                            error_type=type(corrupt_exc).__name__,
+                        )
                         persisted = {}
 
                 evaluator = KojoStructureReclaimV3Evaluator()
@@ -250,9 +272,13 @@ class KojoStructureReclaimV3Adapter:
                     state = evaluator.snapshot_state()
                     state["_h1_watermark"] = h1_watermark
                     state["_m15_watermark"] = m15_watermark
-                    state_file.write_text(
+                    # Atomic write: write to .tmp then replace so a process kill mid-write
+                    # cannot produce a partial/corrupt checkpoint.
+                    tmp_file = state_file.with_suffix(".tmp")
+                    tmp_file.write_text(
                         json.dumps(state, sort_keys=True, default=str), encoding="utf-8"
                     )
+                    os.replace(tmp_file, state_file)
                 except Exception as persist_exc:
                     from observability.strategy_audit import audit as _audit
                     _audit(
@@ -306,6 +332,39 @@ class KojoStructureReclaimV3Adapter:
             # prospective LIVE signals.  All others are catch-up/replay emissions.
             emission_latency_s = now_ts_wall - int(es.decision_timestamp)
             signal_emission_class = "PROSPECTIVE" if emission_latency_s <= 1200 else "RETROSPECTIVE"
+            # Publication eligibility gate: suppress signals whose emission lag exceeds
+            # the configured threshold so a pod restart cannot convert catch-up bar replay
+            # into actionable forward signals.  The gate threshold is independent of the
+            # PROSPECTIVE/RETROSPECTIVE classification (which uses a fixed 1200s boundary).
+            # Override with KOJO_V3_MAX_SIGNAL_AGE_S; set to 0 to disable the gate.
+            if (_max_signal_age_s is not None and _max_signal_age_s > 0 and
+                    emission_latency_s > _max_signal_age_s):
+                from observability.strategy_audit import audit as _audit
+                from execution_v2.trace import emit as trace_emit
+                _audit(
+                    "kojo_signal_stale_skipped",
+                    runner="signal-orchestrator",
+                    strategy_id=STRATEGY_ID,
+                    instance_id=self.instance_id,
+                    signal_id=es.signal_id,
+                    canonical_instrument=canonical_instrument,
+                    decision_timestamp=int(es.decision_timestamp),
+                    emission_latency_s=emission_latency_s,
+                    max_signal_age_s=_max_signal_age_s,
+                    reason="KOJO_V3_ENTRY_BAR_CLOSED",
+                )
+                trace_emit(
+                    "SIGNAL_STALE_SKIPPED",
+                    signal_id=es.signal_id,
+                    strategy_id=STRATEGY_ID,
+                    strategy_instance_id=self.instance_id,
+                    instrument=canonical_instrument,
+                    decision_timestamp=int(es.decision_timestamp),
+                    emission_latency_s=emission_latency_s,
+                    max_signal_age_s=_max_signal_age_s,
+                    reason="KOJO_V3_ENTRY_BAR_CLOSED",
+                )
+                continue
             result.append(StrategySignal(
                 signal_id=es.signal_id,
                 schema_version="strategy-signal-v1",

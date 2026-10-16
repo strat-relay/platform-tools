@@ -1017,16 +1017,21 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
             # Management proposals follow the same central authority as entry
             # signals. This creates only typed management intents; the REAL
             # consumer remains the sole broker-write boundary.
-            except Exception as exc: atomic(HEARTBEAT, {"pid": os.getpid(), "status": "DEGRADED", "mode": orchestration_mode, "timestamp": now(), "error": str(exc)})
+            except Exception as exc: atomic(HEARTBEAT, {"pid": os.getpid(), "status": "DEGRADED", "mode": orchestration_mode,
+                                                               "timestamp": now(), "error": str(exc),
+                                                               "cycle_elapsed_s": round(time.monotonic() - cycle_started, 3)})
             else:
                 # Keep the lifecycle health contract explicit so downstream
                 # services cannot mistake a shadow heartbeat for REAL mode.
                 signal_count = (len(canonical_publisher.existing_signal_ids())
                                 if signal_authority_mode is SignalAuthorityMode.DB_PRIMARY and canonical_publisher
                                 else len(store.rows("signals")))
+                cycle_elapsed_s = round(time.monotonic() - cycle_started, 3)
                 heartbeat = {"pid": os.getpid(), "status": "ACTIVE", "mode": orchestration_mode,
                              "signal_authority_mode": signal_authority_mode.value,
-                             "timestamp": now(), "signals_seen": signal_count}
+                             "timestamp": now(), "signals_seen": signal_count,
+                             "cycle_elapsed_s": cycle_elapsed_s,
+                             "interval_s": max(0.25, float(args.interval))}
                 atomic(HEARTBEAT, heartbeat)
             if orchestration_mode != "PRIMARY":
                 try:
@@ -1071,6 +1076,9 @@ def main() -> None:
     real_start = sub.add_parser("real-start"); real_start.add_argument("--interval", type=float, default=1)
     startup_audit_cmd = sub.add_parser("startup-audit")
     startup_audit_cmd.add_argument("--mode", choices=("SHADOW", "PRIMARY", "REAL_EXECUTION"))
+    liveness_cmd = sub.add_parser("liveness-check", help="exit 0 if heartbeat is fresh, 1 if stale (for k8s livenessProbe)")
+    liveness_cmd.add_argument("--max-age", type=float, default=90, dest="max_age",
+                               help="maximum heartbeat age in seconds before reporting unhealthy (default: 90)")
     for name in ("shadow-stop", "primary-stop", "real-stop", "status", "health", "account", "report", "signals", "decisions", "distribution", "audit-order-isolation", "freeze", "live-audit", "live-enable", "live-status"):
         sub.add_parser(name)
     args = p.parse_args(); config = load_config(); store = OrchestrationStore(RUNTIME)
@@ -1099,6 +1107,24 @@ def main() -> None:
     if args.command == "shadow-stop": STOP.write_text(now()); print("Shadow orchestrator stop requested"); return
     if args.command == "primary-stop": PRIMARY_STOP.write_text(now()); print("Primary orchestrator stop requested"); return
     if args.command == "real-stop": REAL_STOP.write_text(now()); print("Real orchestrator stop requested"); return
+    if args.command == "liveness-check":
+        import sys as _sys
+        max_age = getattr(args, "max_age", 90)
+        if not HEARTBEAT.exists():
+            print("UNHEALTHY: heartbeat file missing", file=_sys.stderr)
+            _sys.exit(1)
+        try:
+            hb = json.loads(HEARTBEAT.read_text())
+            ts = datetime.fromisoformat(hb["timestamp"].replace("Z", "+00:00"))
+            age_s = (datetime.now(timezone.utc) - ts).total_seconds()
+            if age_s > max_age:
+                print(f"UNHEALTHY: heartbeat is {age_s:.0f}s old (max {max_age}s)", file=_sys.stderr)
+                _sys.exit(1)
+            print(f"HEALTHY: heartbeat {age_s:.0f}s old, status={hb.get('status')}")
+            _sys.exit(0)
+        except Exception as exc:
+            print(f"UNHEALTHY: {exc}", file=_sys.stderr)
+            _sys.exit(1)
     if args.command in ("status", "health"):
         state = store.load_state(); value = {"version": VERSION, "status": state.get("status"),
             "pid": json.loads(PID.read_text())["pid"] if PID.exists() else None,

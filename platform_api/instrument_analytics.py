@@ -64,19 +64,33 @@ class InstrumentAnalyticsRepository:
     def _population_sql(population: str) -> str:
         # Classification uses persisted evidence only.  A retrospective signal emitted after
         # its theoretical exit is not timely forward performance.
-        classification = "CASE WHEN o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION' THEN 'BROKER_EXECUTED' " \
-            "WHEN lower(COALESCE(s.evidence_class, '') || ' ' || COALESCE(s.source_provenance->>'classification', '')) " \
-            "LIKE ANY (ARRAY['%research%', '%retro%', '%backfill%']) THEN 'RETROSPECTIVE' " \
-            "WHEN lower(COALESCE(s.evidence_class, '') || ' ' || COALESCE(s.source_provenance->>'classification', '')) " \
-            "LIKE ANY (ARRAY['%canonical_runtime%', '%forward%', '%prospective%', '%paper%']) THEN 'FORWARD_PAPER' " \
-            "ELSE 'UNKNOWN' END"
+        # source_provenance_text: combines legacy 'classification' key and KOJO V3's
+        # 'signal_emission_class' key so both strategies classify correctly.
+        prov_text = (
+            "lower(COALESCE(s.evidence_class, '') || ' '"
+            "|| COALESCE(s.source_provenance->>'classification', '') || ' '"
+            "|| COALESCE(s.source_provenance->'provenance'->>'signal_emission_class', '') || ' '"
+            "|| COALESCE(s.source_provenance->>'signal_emission_class', ''))"
+        )
+        classification = (
+            f"CASE WHEN o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION' THEN 'BROKER_EXECUTED' "
+            f"WHEN {prov_text} LIKE ANY (ARRAY['%research%', '%retro%', '%backfill%']) THEN 'RETROSPECTIVE' "
+            f"WHEN {prov_text} LIKE ANY (ARRAY['%canonical_runtime%', '%forward%', '%prospective%', '%paper%']) THEN 'FORWARD_PAPER' "
+            f"ELSE 'UNKNOWN' END"
+        )
         if population == "THEORETICAL":
             return "(o.outcome_kind IS DISTINCT FROM 'BROKER_REALIZED' AND o.source_kind IS DISTINCT FROM 'BROKER_EXECUTION')"
         if population == "BROKER_EXECUTED": return "(o.outcome_kind = 'BROKER_REALIZED' OR o.source_kind = 'BROKER_EXECUTION')"
         if population == "RETROSPECTIVE": return f"({classification}) = 'RETROSPECTIVE'"
         if population == "UNKNOWN": return f"({classification}) = 'UNKNOWN'"
         if population == "FORWARD_PAPER":
-            return f"({classification}) = 'FORWARD_PAPER' AND NOT (COALESCE(s.evidence_class, '') ILIKE '%RETRO%' AND o.exit_timestamp IS NOT NULL AND s.signal_emitted_at > o.exit_timestamp)"
+            # Exclude signals where the emission timestamp post-dates the exit timestamp
+            # (emitted-after-outcome, e.g. pod-restart replay signals).
+            return (
+                f"({classification}) = 'FORWARD_PAPER' AND NOT ("
+                f"{prov_text} LIKE ANY (ARRAY['%retro%']) "
+                f"AND o.exit_timestamp IS NOT NULL AND s.signal_emitted_at > o.exit_timestamp)"
+            )
         return "TRUE"
 
     def read(self, strategy_id: str, instance_id: str, query: dict[str, list[str]]) -> dict[str, Any]:
