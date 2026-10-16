@@ -201,7 +201,7 @@ class InstrumentAnalyticsRepository:
                         WHERE s.strategy_id = %s AND s.strategy_instance_id = %s AND s.instrument = COALESCE(NULLIF(%s,''), s.instrument)""",
                                 (strategy_id, instance_id, (query.get("instrument") or [""])[0].upper()))
                     exposure = _row_dict(cur, cur.fetchone())
-                    cur.execute("""SELECT canonical_instrument, provider_symbol, asset_class
+                    cur.execute("""SELECT canonical_instrument, provider_symbol, asset_class, pip_size
                         FROM platform.instrument_provider_mapping WHERE provider = 'MT5' AND state = 'ACTIVE'
                         AND canonical_instrument = ANY(%s)""", ([r["instrument"] for r in rows],))
                     mapping = {_row_dict(cur, r)["canonical_instrument"]: _row_dict(cur, r) for r in cur.fetchall()}
