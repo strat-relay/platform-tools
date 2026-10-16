@@ -72,3 +72,26 @@ class ForwardLedgerPostgresTests(unittest.TestCase):
             with self.assertRaises(psycopg.errors.QueryCanceled):
                 PostgresResearchLedger(second, self.run_id).lock_and_load()
             second.rollback()
+
+    def test_canary_registration_is_idempotent_and_stays_offline(self):
+        from research.strategy_library_registration import CANARY, candidate_sql, registration
+        with self.conn.cursor() as cur:
+            cur.execute(candidate_sql())
+            cur.execute(candidate_sql())
+            for key in CANARY:
+                row = registration(key)
+                cur.execute('''SELECT online,execution_eligible,execution_mode
+                               FROM strategy_mgmt.strategy_instance_v2 WHERE id=%s''',
+                            (row['instance_id'],))
+                self.assertEqual(cur.fetchone(), (False, False, 'OFF'))
+
+    def test_registration_conflicting_identity_fails_closed(self):
+        import psycopg
+        from research.strategy_library_registration import CANARY, candidate_sql, registration
+        row = registration(CANARY[0])
+        with self.conn.cursor() as cur:
+            cur.execute('''INSERT INTO strategy_mgmt.strategy_definition(id,name,family_key)
+                           VALUES (%s,'Conflicting definition',%s)''',
+                        (row['definition_id'], 'conflict-'+self.run_id))
+            with self.assertRaises(psycopg.errors.RaiseException):
+                cur.execute(candidate_sql())

@@ -104,3 +104,25 @@ they skip locally without that DSN. CI must pass them before provisioning. Tests
 do not establish that the deployed database or cache is ready. Existing
 Price Action reversal adapters and portal/report read models are subsequent work.
 No strategy graduates from RESEARCH, and no profitability claim is made.
+
+## Canary registration candidate
+
+`research.strategy_library_registration` generates review-only SQL and
+`registration_manifest.json` records deterministic definition/version/parameter/
+instance UUIDs for the three canary strategies. Parameter references and hashes
+match the frozen runtime exactly. Existing records are never updated. A conflicting
+identity or safety configuration aborts instead of silently binding wrong rows.
+Instances start `online=false`, `execution_eligible=false`, `execution_mode=OFF`.
+No orchestrator adapter is registered. This is catalog preparation, not activation.
+
+The legacy schema makes `strategy_definition.family_key` unique, so namespaced
+`LIBRARY:<strategy_id>` keys are used for compatibility. Actual family classification
+lives in provenance/instance attributes. `strategy_version.lifecycle=FROZEN` means
+implementation immutability under the existing schema; research eligibility remains
+RESEARCH in metadata. This does not implement the future first-class family or
+Deployment domain objects, or rewrite existing definitions.
+
+User-supplied DB snapshot 2026-10-16T17:24Z lists migration 062 and only existing
+research tables. Migration versions are text; the DESC LIMIT output is lexical and
+does not prove a new slot is free. A full numeric slot check is required before
+assigning the candidate SQL to an automatic migration. No migration was added or run.
