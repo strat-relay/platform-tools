@@ -101,8 +101,8 @@ class ResolverRedisCandleStore:
         """Fetch completed bars from market_data.candle_archive for the period (since, until).
 
         Returns an empty list on any error so callers always degrade to Redis-only
-        rather than raising. The archive is queried only when the cursor predates
-        the oldest Redis bar, keeping the hot path free of extra DB round-trips.
+        rather than raising. Full path replay queries the archive whenever
+        the entry predates the oldest Redis bar (also when Redis is empty).
         """
         symbol = self.symbol_resolver(signal)
         timeframe = f"M{timeframe_minutes}"
@@ -232,10 +232,14 @@ class OutcomeResolverRuntime:
                                       s.source_provenance
                                  FROM strategy.entry_signals s
                             LEFT JOIN strategy.entry_signal_outcomes o USING (signal_id)
+                            LEFT JOIN platform.outcome_resolver_signal_state work USING (signal_id)
                                 WHERE s.entry_price IS NOT NULL AND s.stop_price IS NOT NULL
                                   AND s.target_price IS NOT NULL
                                   AND (o.signal_id IS NULL OR o.status = 'OPEN')
-                             ORDER BY s.decision_time, s.signal_id
+                             -- Oldest attempt first; unseen signals use event time.
+                             -- Persisted attempts move blocked history behind waiting work.
+                             ORDER BY COALESCE(work.updated_at, s.decision_time),
+                                      s.decision_time, s.signal_id
                                 LIMIT %s""", (limit,))
             return [ResolverSignal.from_row(row) for row in cur.fetchall()]
 
@@ -243,10 +247,9 @@ class OutcomeResolverRuntime:
                        result: OutcomeResolution, candles: list[Candle], *, attempt: int,
                        prior_cursor: datetime | None = None,
                        error: str | None = None) -> None:
-        # ``candles`` is the cursor-filtered work set.  On a recovery tick with
-        # no new completed candles it is intentionally empty; retaining the
-        # prior cursor is essential or the next restart will replay the same
-        # history and can regress durable progress.
+        # Record evaluated coverage, not an instruction to resume a stateless
+        # resolver on a suffix. Gap failures explicitly discard unsafe prior
+        # cursors and pass only the path before the missing interval.
         coverage_end = max((c.close_timestamp for c in candles), default=prior_cursor)
         last_close = coverage_end
         with self.conn.cursor() as cur:
@@ -315,48 +318,25 @@ class OutcomeResolverRuntime:
                                                     "strategy_metadata": signal.strategy_metadata})
         candles = self.candle_store.candles(signal, contract.timeframe_minutes)
         cursor = self._cursor(signal.signal_id)
-        if cursor is not None and candles:
-            oldest_redis_open = min(_utc(c.open_timestamp) for c in candles)
-            gap_threshold = cursor + timedelta(minutes=contract.timeframe_minutes)
-            if oldest_redis_open > gap_threshold:
-                archive = self.candle_store.archive_candles(
-                    signal, contract.timeframe_minutes,
-                    since=cursor, until=oldest_redis_open, conn=self.conn,
-                )
-                if archive:
-                    seen_opens = {_utc(c.open_timestamp) for c in archive}
-                    redis_deduped = [c for c in candles if _utc(c.open_timestamp) not in seen_opens]
-                    candles = archive + redis_deduped
-        elif cursor is None and candles:
-            # First run for this signal: try archive to fill any gap between decision_time
-            # and the oldest available Redis bar before declaring CANDLE_GAP.
-            oldest_redis_open = min(_utc(c.open_timestamp) for c in candles)
-            initial_gap_threshold = signal.decision_time + timedelta(minutes=contract.timeframe_minutes)
-            if oldest_redis_open > initial_gap_threshold:
-                archive = self.candle_store.archive_candles(
-                    signal, contract.timeframe_minutes,
-                    since=signal.decision_time, until=oldest_redis_open, conn=self.conn,
-                )
-                if archive:
-                    seen_opens = {_utc(c.open_timestamp) for c in archive}
-                    redis_deduped = [c for c in candles if _utc(c.open_timestamp) not in seen_opens]
-                    candles = archive + redis_deduped
-        if cursor is not None:
-            candles = [candle for candle in candles if _utc(candle.close_timestamp) > cursor]
-        if not candles and cursor is not None:
-            prior_state, prior_evidence = self._prior_resolution(signal.signal_id)
-            if prior_state in {"AMBIGUOUS_INTRABAR", "RESOLVED"} and (
-                    prior_state == "AMBIGUOUS_INTRABAR"
-                    or prior_evidence.get("event") == "EXPIRED_UNFILLED"):
-                result = OutcomeResolution(
-                    "OPEN", None, None, prior_state, "CANDLE_REPLAY_V2",
-                    {**prior_evidence, "cursor": cursor.isoformat(),
-                     "replayed_without_new_candles": True},
-                )
-            else:
-                result = OutcomeResolution("OPEN", None, None, "INSUFFICIENT_DATA",
-                                           "CANDLE_REPLAY_V2", {"reason": "NO_NEW_COMPLETED_CANDLES",
-                                                                 "cursor": cursor.isoformat()})
+        # resolve_candle_path starts from immutable entry geometry and has no
+        # resumable activation/path state. A suffix after the cursor is NOT an
+        # equivalent input: it can invent an initial gap or lose a limit fill.
+        # Replay the full available entry path; the cursor is evidence only.
+        oldest_open = min((_utc(c.open_timestamp) for c in candles),
+                          default=datetime.now(timezone.utc))
+        if oldest_open > signal.decision_time:
+            archive = self.candle_store.archive_candles(
+                signal, contract.timeframe_minutes,
+                since=signal.decision_time, until=oldest_open, conn=self.conn,
+            )
+            seen_opens = {_utc(c.open_timestamp) for c in archive}
+            candles = archive + [c for c in candles if _utc(c.open_timestamp) not in seen_opens]
+        prior_state, prior_evidence = (self._prior_resolution(signal.signal_id)
+                                       if cursor is not None else (None, {}))
+        if prior_state == "AMBIGUOUS_INTRABAR" or (
+                prior_state == "RESOLVED" and prior_evidence.get("event") == "EXPIRED_UNFILLED"):
+            result = OutcomeResolution("OPEN", None, None, prior_state,
+                                       "CANDLE_REPLAY_V2", prior_evidence)
         else:
             result = resolve_candle_path(
                 direction=signal.direction, entry=signal.entry, stop=signal.stop,
@@ -423,7 +403,7 @@ class OutcomeResolverRuntime:
                     state_candles = []
             self._persist_state(signal, contract, result, state_candles,
                                 attempt=self._next_attempt(signal.signal_id),
-                                prior_cursor=cursor)
+                                prior_cursor=(None if result.evidence.get("reason") == "CANDLE_GAP" else cursor))
             with self.conn.cursor() as cur:
                 self._assert_lease(cur)
             self.conn.commit()
