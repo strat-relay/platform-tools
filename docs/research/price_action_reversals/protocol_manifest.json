@@ -12,11 +12,13 @@
     "execution": "M15",
     "timestamps": "UTC candle-open timestamps; candle close is open plus timeframe duration",
     "completed_only": true,
-    "htf_rule": "H1 swings and levels are usable only after the strict left/right confirmation closes"
+    "htf_rule": "H1 swings and levels are usable only after the strict left/right confirmation closes",
+    "synchronization": "M15 evaluations buffer until the per-instrument context_watermark_timestamp covers the M15 close cutoff; finalize_context(timeout=true) records explicit unavailable-context timeouts"
   },
   "causal_protocol": {
     "prior_move": "strict monotonic completed M15 closes over prior_move_bars",
     "entry": "the exact next M15 candle is identified by open_timestamp equal to pattern completion close_timestamp; later observations are delayed reconstruction/cancellation only",
+    "entry_provenance": "completed-candle next-open reconstruction records intended timestamp, reference open timestamp/price, data availability timestamp, processing observation timestamp, and unknown observation when unavailable",
     "entry_gap": "cancel when adverse next-open displacement exceeds entry_gap_cancel_ticks",
     "stop": "pattern extreme plus stop_buffer_ticks",
     "target": "nearest known opposing H1 level at pattern cutoff",
@@ -53,5 +55,6 @@
     "required_dimensions": ["strategy", "instrument", "evaluated_interval", "coverage", "candidate_count", "rejection_counts", "proposal_count", "paper_entry_count", "cancellation_count", "duplicate_count", "unresolved_count"],
     "evidence_classes": ["synthetic_fixture", "retrospective_historical", "untouched_holdout", "forward"],
     "performance_claims": "forbidden until raw dataset is reacquired, replayed, and outcome semantics are proven compatible"
-  }
+  },
+  "checkpoint": {"schema": "price-action-reversal-checkpoint-v2", "binding": ["strategy_version_id", "parameter_hash", "dependency_manifest_hash", "evaluator_key", "evaluator_version", "engine_version"]}
 }

@@ -15,6 +15,13 @@ next-M15-open paper-entry observation. A proposal is never an
 execution signal: all outputs are `RESEARCH`, `research_only=true`, and
 `execution_eligible=false`.
 
+M15 events are buffered behind an explicit per-instrument H1 event-time
+watermark. `finalize_context()` either releases evaluations once the cutoff is
+covered or records a timeout; it never silently revises an emitted decision.
+Next-open results are completed-candle reconstructions: the reference open is
+known, while data availability and processing observation timestamps remain
+unknown unless supplied by provenance.
+
 The definitions deliberately do not modify the frozen Support/Resistance
 Retest V1 or Engulfing Continuation V1 evaluators, and do not register an
 active instance or change deployment state.

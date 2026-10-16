@@ -163,6 +163,7 @@ def default_reason_codes() -> ReasonCodeRegistry:
         ("DUPLICATE_EPISODE", "deduplication", "Candidate episode was already consumed", True),
         ("PATTERN_IDENTITY_INVALID", "data", "Pattern constituent identity was invalid", True),
         ("PATTERN_DATA_GAP", "data", "Pattern constituents were separated by an unsupported gap", True),
+        ("CONTEXT_UNAVAILABLE_TIMEOUT", "data", "Event-time boundary expired without confirmed H1 context coverage", True),
     )
     return ReasonCodeRegistry({(code, "v1"): ReasonCode(code, "v1", category, description, terminal)
                                for code, category, description, terminal in definitions})

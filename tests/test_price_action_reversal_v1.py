@@ -22,9 +22,15 @@ from strategy_backtest.price_action_star_reversal import (
 
 def bar(index: int, timeframe: str, open_: float, high: float, low: float, close: float) -> MarketEvent:
     step = 3600 if timeframe == "H1" else 900
+    provenance = {"tick_size": 0.01, "snapshot_id": "reversal-fixture-v1"}
+    if timeframe == "H1":
+        # Explicit synthetic event-time watermark: fixture delivery has
+        # established H1 coverage through the replay boundary. Only the
+        # final fixture event advances beyond the M15 cutoff.
+        provenance["context_watermark_timestamp"] = 10_000_000 if index == 10 else (index + 1) * step
     return MarketEvent("TEST", timeframe, index * step, (index + 1) * step,
                        open_, high, low, close,
-                       provenance={"tick_size": 0.01, "snapshot_id": "reversal-fixture-v1"})
+                       provenance=provenance)
 
 
 def h1_context() -> tuple[MarketEvent, ...]:
@@ -99,19 +105,53 @@ def test_causal_replay_proposes_then_resolves_next_open_and_survives_restart():
     checkpoint = json.loads(json.dumps(evaluator.snapshot_state()))
     restored = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
     restored.restore_state(checkpoint)
+    original_stop = restored.pending["TEST"]["stop"]
+    checkpoint["pending"]["TEST"]["stop"] = -999
     resolved = restored.consume_market_event(bar(56, "M15", 91.1, 92, 90, 91.5))
     assert resolved[0].provenance["rejection_reason"] == "ENTRY_OBSERVED_RESEARCH_ONLY"
+    assert resolved[0].provenance["stop"] == original_stop
     assert resolved[0].provenance["accepted_paper_entry_time"] == bar(56, "M15", 91.1, 92, 90, 91.5).open_timestamp
+
+
+def test_h1_first_and_m15_first_finalize_identical_evaluations():
+    h1 = list(h1_context())
+    m15 = [
+        bar(50, "M15", 96, 96.2, 94.8, 95), bar(51, "M15", 95, 95.2, 92.8, 93),
+        bar(52, "M15", 93, 93.2, 90.8, 91), bar(53, "M15", 91, 91.2, 89.8, 90),
+        bar(54, "M15", 90, 90.2, 88.8, 89), bar(55, "M15", 88.9, 91.2, 88.8, 91.1),
+    ]
+    left = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
+    right = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
+    left_outputs = [item for event in h1 + m15 for item in left.consume_market_event(event)]
+    right_outputs = [item for event in m15 + h1 for item in right.consume_market_event(event)]
+    assert [item.canonical_bytes() for item in left_outputs] == [item.canonical_bytes() for item in right_outputs]
+
+
+def test_completed_candle_reconstruction_does_not_claim_contemporaneous_observation():
+    evaluator = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
+    events = list(h1_context()) + [
+        bar(50, "M15", 96, 96.2, 94.8, 95), bar(51, "M15", 95, 95.2, 92.8, 93),
+        bar(52, "M15", 93, 93.2, 90.8, 91), bar(53, "M15", 91, 91.2, 89.8, 90),
+        bar(54, "M15", 90, 90.2, 88.8, 89), bar(55, "M15", 88.9, 91.2, 88.8, 91.1),
+    ]
+    for event in events:
+        evaluator.consume_market_event(event)
+    resolved = evaluator.consume_market_event(bar(56, "M15", 91.1, 120, 1, 50))[0]
+    assert resolved.provenance["reconstruction_classification"] == "COMPLETED_CANDLE_NEXT_OPEN_RECONSTRUCTION"
+    assert resolved.provenance["reference_candle_open_timestamp"] == bar(56, "M15", 91.1, 120, 1, 50).open_timestamp
+    assert resolved.provenance["actual_entry_observation_time"] is None
+    assert resolved.provenance["observation_timestamp_unknown"] is True
+    assert resolved.provenance["entry_open"] == 91.1
 
 
 def test_invalid_order_duplicate_and_incomplete_context_are_explicit():
     evaluator = initialized(PinBarReversalEvaluator(), pin_version, pin_parameters)
-    assert evaluator.consume_market_event(bar(0, "M15", 100, 101, 99, 100))
+    assert evaluator.consume_market_event(bar(0, "M15", 100, 101, 99, 100)) == ()
     assert evaluator.consume_market_event(bar(0, "M15", 100, 101, 99, 100)) == ()
     with pytest.raises(ValueError, match="out-of-order"):
         evaluator.consume_market_event(bar(-1, "M15", 100, 101, 99, 100))
-    assert any(item.provenance["rejection_reason"] == "INSUFFICIENT_CONTEXT"
-               for item in evaluator.consume_market_event(bar(1, "M15", 100, 101, 99, 100)))
+    assert any(item.provenance["rejection_reason"] == "CONTEXT_UNAVAILABLE_TIMEOUT"
+               for item in evaluator.finalize_context("TEST", 1800, timeout=True))
 
 
 def test_revision_identity_metadata_and_checkpoint_binding():
@@ -129,6 +169,16 @@ def test_revision_identity_metadata_and_checkpoint_binding():
     restored = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
     with pytest.raises(ValueError, match="checkpoint binding"):
         restored.restore_state(checkpoint)
+
+
+def test_invalid_h1_watermark_is_atomic():
+    evaluator = initialized(EngulfingReversalEvaluator(), engulfing_version, engulfing_parameters)
+    invalid = MarketEvent("TEST", "H1", 0, 3600, 100, 101, 99, 100,
+                          provenance={"tick_size": 0.01, "snapshot_id": "fixture", "context_watermark_timestamp": 3599})
+    with pytest.raises(ValueError, match="context_watermark"):
+        evaluator.consume_market_event(invalid)
+    assert evaluator.snapshot_state()["events"] == []
+    assert evaluator.snapshot_state()["candle_content"] == []
 
 
 def test_strict_engulfing_boundary_and_full_pattern_geometry():

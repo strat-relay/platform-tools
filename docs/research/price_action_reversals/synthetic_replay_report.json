@@ -1,6 +1,82 @@
 {
+  "count_reconciliation": {
+    "PRICE_ACTION_ENGULFING_REVERSAL@V1": true,
+    "PRICE_ACTION_PIN_BAR_REVERSAL@V1": true,
+    "PRICE_ACTION_STAR_REVERSAL@V1": true
+  },
   "evidence_class": "synthetic_fixture",
   "historical_claim": false,
+  "lifecycle_by_strategy": {
+    "PRICE_ACTION_ENGULFING_REVERSAL@V1": {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "episode_ids": [
+        "f1df9cc4f5be8a05a6bacd75",
+        "7790e40e5d79c6dfd6642073",
+        "fb448302b0df1b523d8bb002",
+        "cd21d25e313d5f0b6dcc6cf7",
+        "9037252f9fa8c38f887b98ce",
+        "ac61e972c285e5d16c6fc1d7",
+        "ac61e972c285e5d16c6fc1d7",
+        "436f28f2313723bf94cc5ef8"
+      ],
+      "evaluations": 8,
+      "pending_episodes": 0,
+      "proposals": 1,
+      "rejection_counts": {
+        "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+        "INSUFFICIENT_EXECUTION_WARMUP": 5,
+        "PATTERN_NOT_CONFIRMED": 1,
+        "RESEARCH_PROPOSAL_ONLY": 1
+      }
+    },
+    "PRICE_ACTION_PIN_BAR_REVERSAL@V1": {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "episode_ids": [
+        "a718738392e9ac6ca83c0c0b",
+        "da87e5fbbdf1455792002d6d",
+        "03af2da635922826d12b9f43",
+        "df49d8ae950ef6fc0d7a7260",
+        "5117f58bbb2d93c38ce000da",
+        "b2651cde21eeed99bf9ece7e",
+        "b2651cde21eeed99bf9ece7e",
+        "909d8e299fcfcf9b59244f96"
+      ],
+      "evaluations": 8,
+      "pending_episodes": 0,
+      "proposals": 1,
+      "rejection_counts": {
+        "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+        "INSUFFICIENT_EXECUTION_WARMUP": 5,
+        "PIN_BAR_GEOMETRY_NOT_CONFIRMED": 1,
+        "RESEARCH_PROPOSAL_ONLY": 1
+      }
+    },
+    "PRICE_ACTION_STAR_REVERSAL@V1": {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "episode_ids": [
+        "846f2f6e967a6a71e960b13f",
+        "0db1be7467456a404488ab46",
+        "b317b01f5edb8859f5f920d0",
+        "76c321ba8bf4ba1afce7e667",
+        "cd2ec5a02fe9cfeeb56cd529",
+        "d19cfc1b9cf156713c4b2ecb",
+        "d19cfc1b9cf156713c4b2ecb",
+        "57d8c6e53be7c8d915500ee9"
+      ],
+      "evaluations": 8,
+      "pending_episodes": 0,
+      "proposals": 1,
+      "rejection_counts": {
+        "ENTRY_OBSERVED_RESEARCH_ONLY": 1,
+        "INSUFFICIENT_EXECUTION_WARMUP": 5,
+        "PATTERN_NOT_CONFIRMED": 1,
+        "RESEARCH_PROPOSAL_ONLY": 1
+      }
+    }
+  },
   "schema": "price-action-reversal-synthetic-replay-v1",
   "strategies": [
     {

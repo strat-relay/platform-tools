@@ -52,6 +52,8 @@ class ReversalEvaluator:
         self.consumed_candidates: set[str] = set()
         self.candle_content: dict[tuple[str, str, int, int], str] = {}
         self.last_series_open: dict[tuple[str, str], int] = {}
+        self.context_watermarks: dict[str, int] = {}
+        self.buffered_execution: dict[str, dict[int, MarketEvent]] = {}
         self.rejection_counts: dict[str, int] = {}
         self.pending: dict[str, dict[str, Any]] = {}
 
@@ -110,7 +112,8 @@ class ReversalEvaluator:
             "instrument_timeframe_roles": {"context": self.values["context_timeframe"],
                                             "execution": self.values["execution_timeframe"]},
             "data_snapshot_id": event.provenance.get("snapshot_id", "synthetic-or-supplied"),
-            "information_cutoff": event.close_timestamp, "rejection_reason": reason,
+            "information_cutoff": event.close_timestamp, "decision_cutoff": event.close_timestamp,
+            "rejection_reason": reason,
             "pattern_event_time": extra.pop("pattern_event_time", None),
             "confirmation_time": extra.pop("confirmation_time", None),
             "processing_time": event.provenance.get("processing_time"),
@@ -178,7 +181,12 @@ class ReversalEvaluator:
             "entry_cancelled": reason != "ENTRY_OBSERVED_RESEARCH_ONLY",
             "intended_entry_time": pending["expected_next_open_timestamp"],
             "intended_entry_price": pending["pattern_close_price"],
-            "actual_entry_observation_time": event.open_timestamp,
+            "reference_candle_open_timestamp": event.open_timestamp,
+            "reference_candle_open_price": entry,
+            "entry_candle_data_available_time": event.provenance.get("data_available_at"),
+            "actual_entry_observation_time": event.provenance.get("processing_time"),
+            "observation_timestamp_unknown": event.provenance.get("processing_time") is None,
+            "reconstruction_classification": "COMPLETED_CANDLE_NEXT_OPEN_RECONSTRUCTION",
             "delayed_reconstruction": delayed,
             "pattern_event_time": pending["pattern_event_time"], "confirmation_time": pending["confirmation_time"],
             "candidate_id": pending["candidate_id"], "level": pending["level_payload"],
@@ -186,7 +194,8 @@ class ReversalEvaluator:
             "structural_distance": abs(entry - level),
         }
         if reason == "ENTRY_OBSERVED_RESEARCH_ONLY":
-            extra.update({"entry_open": entry, "accepted_paper_entry_time": event.open_timestamp})
+            extra.update({"entry_open": entry, "accepted_paper_entry_time": event.open_timestamp,
+                          "accepted_paper_entry_reference_timestamp": event.open_timestamp})
         else:
             extra["entry_open"] = None
         return self._evaluation(event, Decision.REJECT, stages, reason, extra)
@@ -195,12 +204,14 @@ class ReversalEvaluator:
         if event.timeframe != self.values["execution_timeframe"]:
             return None
         instrument = event.canonical_instrument
+        event_close_cutoff = event.close_timestamp
         context = self._context(instrument, event.close_timestamp)
         minimum = self.values["swing_left_bars"] + self.values["swing_right_bars"] + 1
         if len(context) < minimum:
             return self._evaluation(event, Decision.NO_CANDIDATE, (), "INSUFFICIENT_CONTEXT")
         execution = tuple(Candle.from_event(i, x) for i, x in enumerate(
-            event for event in self._execution_events.get(instrument, []) if event.completed))
+            event for event in self._execution_events.get(instrument, [])
+            if event.completed and event.close_timestamp <= event_close_cutoff))
         if len(execution) < self.values["prior_move_bars"] + 3:
             return self._evaluation(event, Decision.NO_CANDIDATE, (), "INSUFFICIENT_EXECUTION_WARMUP")
         current = execution[-1]
@@ -296,18 +307,28 @@ class ReversalEvaluator:
             raise ValueError("timestamp is not aligned to timeframe")
         if "snapshot_id" not in event.provenance or "tick_size" not in event.provenance:
             raise ValueError("snapshot_id and tick_size metadata are required")
+        tick = event.provenance["tick_size"]
+        if not isinstance(tick, (int, float)) or not math.isfinite(float(tick)) or float(tick) <= 0:
+            raise ValueError("tick_size must be finite and positive")
         validate_candle(Candle.from_event(0, event))
         identity = (event.canonical_instrument, event.timeframe, event.open_timestamp, event.close_timestamp)
-        content_id = canonical_hash(event.identity_payload())
+        content_id = canonical_hash({"open": event.open, "high": event.high, "low": event.low,
+                                     "close": event.close, "completed": event.completed,
+                                     "source": event.source})
         prior_content = self.candle_content.get(identity)
         if prior_content is not None and prior_content != content_id:
             raise ValueError("conflicting candle revision")
-        event_id = content_id
-        if event_id in self.seen_events:
+        if prior_content is not None:
             return ()
+        event_id = content_id
         series = (event.canonical_instrument, event.timeframe)
         if series in self.last_series_open and event.open_timestamp < self.last_series_open[series]:
             raise ValueError("out-of-order market event")
+        context_watermark = None
+        if event.timeframe == self.values["context_timeframe"]:
+            context_watermark = event.provenance.get("context_watermark_timestamp", event.close_timestamp)
+            if not isinstance(context_watermark, int) or context_watermark < event.close_timestamp:
+                raise ValueError("context_watermark_timestamp must cover the completed H1 event")
         self.candle_content[identity] = content_id
         self.last_series_open[series] = event.open_timestamp
         self.seen_events.add(event_id)
@@ -315,9 +336,18 @@ class ReversalEvaluator:
         if event.timeframe == self.values["context_timeframe"]:
             self._context_events.setdefault(event.canonical_instrument, []).append(event)
             self._context_events[event.canonical_instrument].sort(key=lambda item: item.open_timestamp)
+            self.context_watermarks[event.canonical_instrument] = max(
+                self.context_watermarks.get(event.canonical_instrument, 0), context_watermark)
         else:
             self._execution_events.setdefault(event.canonical_instrument, []).append(event)
             self._execution_events[event.canonical_instrument].sort(key=lambda item: item.open_timestamp)
+        outputs: list[Evaluation] = []
+        if event.timeframe == self.values["execution_timeframe"]:
+            self.buffered_execution.setdefault(event.canonical_instrument, {})[event.close_timestamp] = event
+        outputs.extend(self._drain_ready(event.canonical_instrument))
+        return tuple(outputs)
+
+    def _process_execution_event(self, event: MarketEvent) -> list[Evaluation]:
         outputs: list[Evaluation] = []
         resolved = self._resolve_pending(event)
         if resolved is not None:
@@ -325,7 +355,7 @@ class ReversalEvaluator:
         evaluation = self._evaluate_execution_close(event)
         if evaluation is not None:
             outputs.append(evaluation)
-        unique = []
+        unique: list[Evaluation] = []
         for item in outputs:
             if item.evaluation_hash in self.emitted_evaluations:
                 continue
@@ -333,16 +363,51 @@ class ReversalEvaluator:
             reason = item.provenance.get("rejection_reason", "UNKNOWN")
             self.rejection_counts[reason] = self.rejection_counts.get(reason, 0) + 1
             unique.append(item)
-        return tuple(unique)
+        return unique
+
+    def _drain_ready(self, instrument: str) -> list[Evaluation]:
+        watermark = self.context_watermarks.get(instrument, 0)
+        ready = [event for event in self.buffered_execution.get(instrument, {}).values()
+                 if event.close_timestamp <= watermark]
+        ready.sort(key=lambda item: (item.close_timestamp, item.open_timestamp))
+        outputs: list[Evaluation] = []
+        for event in ready:
+            self.buffered_execution[instrument].pop(event.close_timestamp, None)
+            outputs.extend(self._process_execution_event(event))
+        return outputs
+
+    def finalize_context(self, instrument: str, watermark_timestamp: int, *, timeout: bool = False) -> tuple[Evaluation, ...]:
+        """Finalize an event-time boundary or emit explicit missing-context timeouts."""
+        if self.parameters is None:
+            raise RuntimeError("evaluator is not initialized")
+        if not isinstance(watermark_timestamp, int) or watermark_timestamp < self.context_watermarks.get(instrument, 0):
+            raise ValueError("context watermark must be a monotonic integer timestamp")
+        self.context_watermarks[instrument] = watermark_timestamp
+        if not timeout:
+            return tuple(self._drain_ready(instrument))
+        outputs: list[Evaluation] = []
+        for event in sorted(self.buffered_execution.get(instrument, {}).values(), key=lambda item: item.close_timestamp):
+            if event.close_timestamp <= watermark_timestamp:
+                self.buffered_execution[instrument].pop(event.close_timestamp, None)
+                outputs.append(self._evaluation(event, Decision.NO_CANDIDATE, (), "CONTEXT_UNAVAILABLE_TIMEOUT"))
+        for item in outputs:
+            self.emitted_evaluations.add(item.evaluation_hash)
+            reason = item.provenance["rejection_reason"]
+            self.rejection_counts[reason] = self.rejection_counts.get(reason, 0) + 1
+        return tuple(outputs)
 
     def snapshot_state(self) -> dict[str, Any]:
         return {"schema": CHECKPOINT_SCHEMA, "binding": {"strategy_version_id": self.strategy_version_id,
-                "parameter_hash": self.parameter_hash, "dependency_manifest_hash": self.dependency_manifest_hash},
+                "parameter_hash": self.parameter_hash, "dependency_manifest_hash": self.dependency_manifest_hash,
+                "evaluator_key": self.EVALUATOR_KEY, "evaluator_version": self.EVALUATOR_VERSION,
+                "engine_version": self.ENGINE_VERSION},
                 "events": deepcopy([asdict(event) for event in self.events]), "seen_events": sorted(self.seen_events),
                 "emitted_evaluations": sorted(self.emitted_evaluations),
                 "consumed_candidates": sorted(self.consumed_candidates),
                 "rejection_counts": dict(self.rejection_counts),
-                "pending": deepcopy(self.pending),
+                "pending": deepcopy(self.pending), "context_watermarks": deepcopy(self.context_watermarks),
+                "buffered_execution": {instrument: [asdict(event) for event in events.values()]
+                                       for instrument, events in self.buffered_execution.items()},
                 "candle_content": [{"identity": list(key), "content": value} for key, value in self.candle_content.items()],
                 "last_series_open": [{"series": list(key), "open": value} for key, value in self.last_series_open.items()]}
 
@@ -350,7 +415,9 @@ class ReversalEvaluator:
         if self.parameters is None or state.get("schema") != CHECKPOINT_SCHEMA:
             raise ValueError("incompatible checkpoint schema or uninitialized evaluator")
         expected = {"strategy_version_id": self.strategy_version_id, "parameter_hash": self.parameter_hash,
-                    "dependency_manifest_hash": self.dependency_manifest_hash}
+                    "dependency_manifest_hash": self.dependency_manifest_hash,
+                    "evaluator_key": self.EVALUATOR_KEY, "evaluator_version": self.EVALUATOR_VERSION,
+                    "engine_version": self.ENGINE_VERSION}
         if state.get("binding") != expected:
             raise ValueError("checkpoint binding does not match evaluator")
         self.events = [MarketEvent(**item) for item in deepcopy(state.get("events", []))]
@@ -358,11 +425,17 @@ class ReversalEvaluator:
         for event in self.events:
             target = self._context_events if event.timeframe == "H1" else self._execution_events
             target.setdefault(event.canonical_instrument, []).append(event)
-        self.seen_events = set(state.get("seen_events", []))
-        self.emitted_evaluations = set(state.get("emitted_evaluations", []))
-        self.consumed_candidates = set(state.get("consumed_candidates", []))
-        self.rejection_counts = dict(state.get("rejection_counts", {}))
-        self.pending = dict(state.get("pending", {}))
+        self.seen_events = set(deepcopy(state.get("seen_events", [])))
+        self.emitted_evaluations = set(deepcopy(state.get("emitted_evaluations", [])))
+        self.consumed_candidates = set(deepcopy(state.get("consumed_candidates", [])))
+        self.rejection_counts = dict(deepcopy(state.get("rejection_counts", {})))
+        self.pending = deepcopy(state.get("pending", {}))
+        self.context_watermarks = dict(deepcopy(state.get("context_watermarks", {})))
+        self.buffered_execution = {
+            instrument: {event.close_timestamp: event for event in
+                         (MarketEvent(**item) for item in events)}
+            for instrument, events in deepcopy(state.get("buffered_execution", {})).items()
+        }
         self.candle_content = {tuple(item["identity"]): item["content"] for item in state.get("candle_content", [])}
         self.last_series_open = {tuple(item["series"]): item["open"] for item in state.get("last_series_open", [])}
 
