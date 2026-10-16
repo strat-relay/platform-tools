@@ -15,6 +15,7 @@ ENTRYPOINT_MODULES = (
     "broker_view.service",
     "context_structure_retrace_forward",
     "context_structure_retrace_v2_forward",
+    "research.strategy_library_forward",
 )
 
 
