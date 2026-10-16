@@ -93,7 +93,7 @@ class ResolverRedisCandleStore:
                                  bid_low=_number(row.get("bid_low")), bid_close=_number(row.get("bid_close")),
                                  ask_open=_number(row.get("ask_open")), ask_high=_number(row.get("ask_high")),
                                  ask_low=_number(row.get("ask_low")), ask_close=_number(row.get("ask_close")),
-                                 spread=_number(row.get("spread"))))
+                                 spread=_number(row.get("spread")), open=_number(row.get("open"))))
         return result
 
     def archive_candles(self, signal: ResolverSignal, timeframe_minutes: int,
@@ -113,7 +113,7 @@ class ResolverRedisCandleStore:
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT candle_time, high_price, low_price, close_price
+                    SELECT candle_time, high_price, low_price, close_price, open_price
                       FROM market_data.candle_archive
                      WHERE provider_symbol = %s AND timeframe = %s
                        AND candle_time > %s AND candle_time < %s
@@ -123,11 +123,13 @@ class ResolverRedisCandleStore:
         except Exception:
             return []
         result: list[Candle] = []
-        for (candle_time, high, low, close) in rows:
+        for row in rows:
+            candle_time, high, low, close = row[:4]
+            opening = row[4] if len(row) > 4 else None
             opened = datetime.fromtimestamp(int(candle_time), timezone.utc)
             result.append(Candle(opened, opened + timedelta(minutes=timeframe_minutes),
                                  float(high), float(low),
-                                 float(close) if close is not None else None))
+                                 float(close) if close is not None else None, open=_number(opening)))
         return result
 
 
@@ -337,6 +339,9 @@ class OutcomeResolverRuntime:
                 prior_state == "RESOLVED" and prior_evidence.get("event") == "EXPIRED_UNFILLED"):
             result = OutcomeResolution("OPEN", None, None, prior_state,
                                        "CANDLE_REPLAY_V2", prior_evidence)
+        elif contract.version == 'library-research-outcome.v1':
+            from orchestration.library_outcomes import resolve_library_signal
+            result = resolve_library_signal(signal, candles, contract.timeframe_minutes)
         else:
             result = resolve_candle_path(
                 direction=signal.direction, entry=signal.entry, stop=signal.stop,
@@ -394,7 +399,7 @@ class OutcomeResolverRuntime:
             # when no bars were processed at all).  Passing only those bars prevents
             # the cursor from jumping past the gap and burying unprocessed history.
             state_candles = candles
-            if result.evidence.get("reason") == "CANDLE_GAP":
+            if result.evidence.get("reason") == "CANDLE_GAP" or result.evidence.get("unprocessed_path"):
                 gap_start_str = result.evidence.get("gap_start")
                 if gap_start_str:
                     gap_boundary = _utc(datetime.fromisoformat(gap_start_str))
@@ -403,7 +408,8 @@ class OutcomeResolverRuntime:
                     state_candles = []
             self._persist_state(signal, contract, result, state_candles,
                                 attempt=self._next_attempt(signal.signal_id),
-                                prior_cursor=(None if result.evidence.get("reason") == "CANDLE_GAP" else cursor))
+                                prior_cursor=(None if (result.evidence.get("reason") == "CANDLE_GAP" or
+                                                     result.evidence.get("unprocessed_path")) else cursor))
             with self.conn.cursor() as cur:
                 self._assert_lease(cur)
             self.conn.commit()

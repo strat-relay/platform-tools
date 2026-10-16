@@ -43,6 +43,7 @@ class Candle:
     ask_low: float | None = None
     ask_close: float | None = None
     spread: float | None = None
+    open: float | None = None
 
     def __post_init__(self) -> None:
         if self.open_timestamp.tzinfo is None or self.close_timestamp.tzinfo is None:
