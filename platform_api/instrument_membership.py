@@ -151,11 +151,12 @@ class InstrumentMembershipRepository:
                         if expected_revision is not None and int(current["revision"]) != expected_revision:
                             raise MembershipConflict(f"revision conflict: expected {expected_revision}, current {current['revision']}")
                         cur.execute("""UPDATE strategy.instrument_membership
-                            SET state = %s, revision = revision + 1, updated_at = now(), updated_by = %s
+                            SET state = %s, strategy_id = %s, revision = revision + 1,
+                                updated_at = now(), updated_by = %s
                             WHERE strategy_instance_id = %s AND canonical_instrument = %s
                             RETURNING strategy_instance_id, strategy_id, canonical_instrument, state,
                                       revision, created_at, updated_at, updated_by""",
-                                    (state, actor, instance_id, canonical))
+                                    (state, strategy_id, actor, instance_id, canonical))
                     result = _row_dict(cur, cur.fetchone())
                 conn.commit()
                 return result
