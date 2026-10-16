@@ -63,6 +63,29 @@ class ForwardLedgerPostgresTests(unittest.TestCase):
         with self.assertRaises(psycopg.errors.CheckViolation):
             self.ledger.save({'binding':'frozen'}, [{**self.record, 'execution_eligible':True}])
 
+    def test_application_and_portal_roles_can_read_the_observer_ledger(self):
+        with self.conn.cursor() as cur:
+            for role in ('trading_app', 'trading_readonly'):
+                cur.execute('SELECT 1 FROM pg_roles WHERE rolname=%s', (role,))
+                self.assertIsNotNone(cur.fetchone(), role+' must exist in the migrated CI database')
+                cur.execute("SELECT has_schema_privilege(%s,'research','USAGE'), "
+                            "has_table_privilege(%s,'research.strategy_library_forward_state','SELECT'), "
+                            "has_table_privilege(%s,'research.strategy_library_forward_event','SELECT')",
+                            (role, role, role))
+                self.assertEqual(cur.fetchone(), (True, True, True))
+            for table in ('strategy_library_forward_state', 'strategy_library_forward_event'):
+                for privilege in ('INSERT', 'UPDATE', 'DELETE'):
+                    cur.execute("SELECT has_table_privilege('trading_readonly',%s,%s)",
+                                ('research.'+table, privilege))
+                    self.assertFalse(cur.fetchone()[0], table+':'+privilege)
+            # Exercise both actual reader paths under the deployed read-only role.
+            cur.execute('SET LOCAL ROLE trading_readonly')
+            cur.execute('SELECT state FROM research.strategy_library_forward_state LIMIT 1')
+            cur.fetchall()
+            cur.execute('SELECT payload FROM research.strategy_library_forward_event LIMIT 1')
+            cur.fetchall()
+            cur.execute('RESET ROLE')
+
     def test_same_run_advisory_lock_excludes_second_connection(self):
         import psycopg
         self.ledger.lock_and_load()
