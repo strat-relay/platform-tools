@@ -378,7 +378,7 @@ class LivenessCheckTests(unittest.TestCase):
             [sys.executable, "signal_orchestrator.py", "liveness-check", "--max-age", str(max_age)],
             capture_output=True,
             env={**os.environ, "TRADING_PLATFORM_RUNTIME_DIR": self._tmpdir.name},
-            cwd="/Users/caleb/projects/platform-tools",
+            cwd=Path(__file__).resolve().parents[1],
         )
         return result.returncode
 

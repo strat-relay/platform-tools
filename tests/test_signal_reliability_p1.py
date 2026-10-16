@@ -415,7 +415,6 @@ class PriceActionAgeGateTests(unittest.TestCase):
                 },
             }
         }
-        import psycopg2
         fake_cursor = MagicMock()
         from datetime import datetime, timezone
         fake_cursor.fetchall.return_value = [
