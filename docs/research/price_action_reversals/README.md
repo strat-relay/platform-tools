@@ -35,3 +35,21 @@ evidence.
 The implementation is in `strategy_backtest/price_action_*_reversal.py` and
 the shared causal lifecycle is in
 `strategy_backtest/price_action_reversal_common.py`.
+
+## Review correction: coverage and timeouts
+
+An M15 close uses H1 coverage through the most recent whole-hour boundary,
+including that boundary's H1 close. It never waits for a future H1 candle.
+H1 provenance cannot assert coverage beyond its own close. Missing H1 bars in
+the retained level window fail closed; expected closures require a separately
+pinned calendar policy before they can be distinguished from outages.
+
+Timeouts do not advance healthy coverage. They terminate affected pending
+entries exactly once, including when the entry candle never arrived, and persist
+an expired-decision boundary across restart. Unrelated instruments are untouched.
+Completed-candle entries are always reconstructed; `next_candle_mismatch` is
+separate from observation delay. Checkpoint schema is now v3.
+
+Validation for this correction: 44 focused and existing-strategy regression
+tests passed. Synthetic replay produces one proposal and one reconstructed entry
+per definition. Historical replay remains blocked by unavailable raw files.

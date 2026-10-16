@@ -165,6 +165,32 @@ def default_reason_codes() -> ReasonCodeRegistry:
         ("PATTERN_DATA_GAP", "data", "Pattern constituents were separated by an unsupported gap", True),
         ("CONTEXT_UNAVAILABLE_TIMEOUT", "data", "Event-time boundary expired without confirmed H1 context coverage", True),
     )
+    # Additive research-library reasons; existing codes/consumers are unchanged.
+    definitions += (
+        ("LIBRARY_INSUFFICIENT_WARMUP", "research_library", "Insufficient warmup", True),
+        ("LIBRARY_ZERO_VOLATILITY", "research_library", "Zero volatility", True),
+        ("LIBRARY_EXECUTION_DATA_GAP", "research_library", "Execution data gap", True),
+        ("LIBRARY_OUTSIDE_SESSION", "research_library", "Outside session", True),
+        ("LIBRARY_INCOMPLETE_RANGE", "research_library", "Incomplete range", True),
+        ("LIBRARY_INVALID_GEOMETRY", "research_library", "Invalid geometry", True),
+        ("LIBRARY_RR_BELOW_MINIMUM", "research_library", "Rr below minimum", True),
+        ("LIBRARY_PROPOSAL", "research_library", "Proposal", True),
+        ("LIBRARY_INCOMPLETE_SESSION", "research_library", "Incomplete session", True),
+        ("LIBRARY_VOLUME_UNAVAILABLE", "research_library", "Volume unavailable", True),
+        ("LIBRARY_INCOMPLETE_CALENDAR_RANGE", "research_library", "Incomplete calendar range", True),
+        ("LIBRARY_NO_STRUCTURAL_BIAS", "research_library", "No structural bias", True),
+        ("LIBRARY_NO_SETUP", "research_library", "No setup", True),
+        ("LIBRARY_INSTRUMENT_OUTSIDE_SCOPE", "research_library", "Instrument outside scope", True),
+        ("LIBRARY_CONTEXT_UNAVAILABLE", "research_library", "Context unavailable", True),
+        ("LIBRARY_CONTEXT_DATA_GAP", "research_library", "Context data gap", True),
+        ("LIBRARY_ENTRY_ACCEPTED", "research_library", "Entry accepted", True),
+        ("LIBRARY_MISSING_NEXT_CANDLE", "research_library", "Missing next candle", True),
+        ("LIBRARY_ENTRY_WINDOW_EXPIRED", "research_library", "Entry window expired", True),
+        ("LIBRARY_ENTRY_GAP_CANCELLED", "research_library", "Entry gap cancelled", True),
+        ("LIBRARY_INVALID_ENTRY_GEOMETRY", "research_library", "Invalid entry geometry", True),
+        ("LIBRARY_ENTRY_RR_BELOW_MINIMUM", "research_library", "Entry rr below minimum", True),
+        ("LIBRARY_DUPLICATE_EPISODE", "research_library", "Duplicate episode", True),
+    )
     return ReasonCodeRegistry({(code, "v1"): ReasonCode(code, "v1", category, description, terminal)
                                for code, category, description, terminal in definitions})
 
