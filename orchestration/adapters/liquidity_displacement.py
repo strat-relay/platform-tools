@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,14 @@ class LiquidityDisplacementAdapter:
         self.root = root
         self.freeze_timestamp = freeze_timestamp
         self.state_path = root / "liquidity_displacement_forward_state.json"
+        # Signal age gate: an M5 fill observed long after the entry bar closes is no
+        # longer actionable.  Default 300s (= one M5 bar) + orchestrator cycle headroom.
+        # Override with LIQUIDITY_SIGNAL_MAX_AGE_SECONDS; set to 0 to disable.
+        _age_raw = os.environ.get("LIQUIDITY_SIGNAL_MAX_AGE_SECONDS", "600").strip()
+        try:
+            self.max_signal_age_s: float | None = float(_age_raw) if _age_raw else None
+        except (ValueError, TypeError):
+            self.max_signal_age_s = 600.0
 
     @staticmethod
     def _float(value: Any, default: float = 0.0) -> float:
@@ -50,6 +60,30 @@ class LiquidityDisplacementAdapter:
             }
             signal_id = stable_id("SIG", identity)
             if signal_id in seen_signal_ids:
+                continue
+            signal_age_s = max(0.0, time.time() - self._epoch(fill_timestamp))
+            if self.max_signal_age_s is not None and self.max_signal_age_s > 0 and signal_age_s > self.max_signal_age_s:
+                from observability.strategy_audit import audit as _audit
+                from execution_v2.trace import emit as trace_emit
+                _audit(
+                    "liquidity_signal_stale_skipped",
+                    runner="signal-orchestrator",
+                    strategy_id=self.strategy_id,
+                    signal_id=signal_id,
+                    setup_id=record.get("setup_id"),
+                    signal_age_s=round(signal_age_s, 3),
+                    max_signal_age_s=self.max_signal_age_s,
+                    reason="LIQUIDITY_FILL_BAR_CLOSED",
+                )
+                trace_emit(
+                    "SIGNAL_STALE_SKIPPED",
+                    signal_id=signal_id,
+                    strategy_id=self.strategy_id,
+                    strategy_instance_id="forward-paper",
+                    signal_age_s=round(signal_age_s, 3),
+                    max_signal_age_s=self.max_signal_age_s,
+                    reason="LIQUIDITY_FILL_BAR_CLOSED",
+                )
                 continue
             entry = self._float(record.get("entry_realistic"), self._float(record.get("entry_theoretical")))
             stop = self._float(record.get("stop_loss"))

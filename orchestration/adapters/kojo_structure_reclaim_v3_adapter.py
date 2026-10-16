@@ -115,7 +115,9 @@ class KojoStructureReclaimV3Adapter:
         except (ValueError, TypeError):
             _max_signal_age_s = 1200.0
 
-        entry_signals: list[tuple[Any, str]] = []
+        # 3-tuple: (EntrySignal, canonical_instrument, entry_source)
+        # entry_source distinguishes the emission path for provenance.
+        entry_signals: list[tuple[Any, str, str]] = []
         try:
             import redis as redis_module
             redis_url = os.environ.get("MARKET_DATA_REDIS_URL", "")
@@ -194,7 +196,7 @@ class KojoStructureReclaimV3Adapter:
                             )
                             for output in evaluator.consume_market_event(event):
                                 if isinstance(output, EntrySignal):
-                                    entry_signals.append((output, canonical_instrument))
+                                    entry_signals.append((output, canonical_instrument, "BAR_CLOSE"))
                         except Exception as bar_exc:
                             from observability.strategy_audit import audit as _audit
                             _audit(
@@ -222,7 +224,7 @@ class KojoStructureReclaimV3Adapter:
                         canonical_instrument=canonical_instrument,
                         new_h1_bars=len(new_h1),
                         new_m15_bars=len(new_m15),
-                        emitted_signals=sum(1 for _, instrument in entry_signals
+                        emitted_signals=sum(1 for _, instrument, _src in entry_signals
                                             if instrument == canonical_instrument),
                         h1_watermark=h1_watermark,
                         m15_watermark=m15_watermark,
@@ -255,7 +257,7 @@ class KojoStructureReclaimV3Adapter:
                                 )
                                 for live_out in evaluator.consume_live_entry_price(live_obs):
                                     if isinstance(live_out, EntrySignal):
-                                        entry_signals.append((live_out, canonical_instrument))
+                                        entry_signals.append((live_out, canonical_instrument, "LIVE_ENTRY"))
                         except Exception as live_exc:
                             from observability.strategy_audit import audit as _audit
                             _audit(
@@ -317,7 +319,7 @@ class KojoStructureReclaimV3Adapter:
         )
         now_ts_wall = int(datetime.now(timezone.utc).timestamp())
         result: list[Any] = []
-        for es, canonical_instrument in entry_signals:
+        for es, canonical_instrument, entry_source in entry_signals:
             if es.signal_id in seen_signal_ids:
                 continue
             risk = abs(es.entry_price - es.stop_price)
@@ -365,6 +367,11 @@ class KojoStructureReclaimV3Adapter:
                     reason="KOJO_V3_ENTRY_BAR_CLOSED",
                 )
                 continue
+            # Causal timestamp chain:
+            # decision_available_at = when the confirmation bar closed (= decision_timestamp)
+            # entry_eligible_at     = when the next bar opened (= decision_timestamp, same
+            #                         instant — the entry bar opens at confirmation close)
+            # These allow downstream analytics to measure each stage of emission lag.
             result.append(StrategySignal(
                 signal_id=es.signal_id,
                 schema_version="strategy-signal-v1",
@@ -400,6 +407,7 @@ class KojoStructureReclaimV3Adapter:
                     "execution_mode_revision": self._execution_mode_revision,
                     "signal_emission_class": signal_emission_class,
                     "emission_latency_s": emission_latency_s,
+                    "entry_source": entry_source,
                     "outcome_contract": {
                         "version": "entry-outcome.v2",
                         "timeframe_minutes": 15,
@@ -416,6 +424,9 @@ class KojoStructureReclaimV3Adapter:
                     "provider_symbol": canonical_to_broker_hint(canonical_instrument),
                     "signal_emission_class": signal_emission_class,
                     "emission_latency_s": emission_latency_s,
+                    "entry_source": entry_source,
+                    "decision_available_at": ts_iso,
+                    "entry_eligible_at": ts_iso,
                     **dict(es.provenance or {}),
                 },
                 decision_time=ts_iso,

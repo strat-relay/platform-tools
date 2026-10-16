@@ -542,17 +542,23 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     audit("strategies_loaded", runner="signal-orchestrator",
           strategies=[getattr(adapter, "strategy_id", adapter.__class__.__name__) for adapter in adapters])
     adapter_failures: list[str] = []
+    _adapter_timing_ms: dict[str, float] = {}
     for adapter in adapters:
         strategy_id = getattr(adapter, "strategy_id", adapter.__class__.__name__)
         before = len(discovered)
+        t_adapter = time.perf_counter()
         try:
             discovered.extend(adapter.discover_new_signals(seen))
+            elapsed_ms = round((time.perf_counter() - t_adapter) * 1000, 3)
+            _adapter_timing_ms[strategy_id] = elapsed_ms
             audit("strategy_scan_completed", runner="signal-orchestrator", strategy_id=strategy_id,
                   decision="SIGNALS_FOUND" if len(discovered) > before else "NO_SIGNAL",
-                  signal_count=len(discovered) - before)
+                  signal_count=len(discovered) - before, elapsed_ms=elapsed_ms)
         except Exception as exc:
+            elapsed_ms = round((time.perf_counter() - t_adapter) * 1000, 3)
+            _adapter_timing_ms[strategy_id] = elapsed_ms
             audit("strategy_scan_failed", runner="signal-orchestrator", strategy_id=strategy_id,
-                  decision="ERROR", error=str(exc))
+                  decision="ERROR", error=str(exc), elapsed_ms=elapsed_ms)
             adapter_failures.append(strategy_id)
             # Per-adapter fault isolation: one broken adapter must not crash signal
             # generation for all other strategies.  The failure is recorded above and
@@ -665,7 +671,8 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
     state["processed_signal_ids"] = sorted(seen); state["last_poll_at"] = now(); state["status"] = "ACTIVE"; store.save_state(state)
     atomic(HEARTBEAT, {"pid": os.getpid(), "status": "ACTIVE", "timestamp": now(), "signals_seen": len(seen)})
     audit("runner_cycle_completed", runner="signal-orchestrator", processed=total,
-          signals_seen=len(seen), orchestration_mode=orchestration_mode)
+          signals_seen=len(seen), orchestration_mode=orchestration_mode,
+          adapter_timing_ms=_adapter_timing_ms)
     return total
 
 
