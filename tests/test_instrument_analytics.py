@@ -33,6 +33,15 @@ def test_missing_provenance_is_not_assumed_forward():
     assert "UNKNOWN" in sql
 
 
+def test_population_like_wildcards_are_escaped_for_psycopg3():
+    repo = InstrumentAnalyticsRepository()
+    retrospective_sql = repo._population_sql("RETROSPECTIVE")
+    forward_sql = repo._population_sql("FORWARD_PAPER")
+    assert "'%%research%%'" in retrospective_sql
+    assert "'%%canonical_runtime%%'" in forward_sql
+    assert "'%%retro%%'" in forward_sql
+
+
 def test_invalid_period_and_sort_fail_closed():
     repo = InstrumentAnalyticsRepository()
     with pytest.raises(ValueError):
