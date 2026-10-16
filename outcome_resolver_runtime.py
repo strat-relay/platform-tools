@@ -327,6 +327,20 @@ class OutcomeResolverRuntime:
                     seen_opens = {_utc(c.open_timestamp) for c in archive}
                     redis_deduped = [c for c in candles if _utc(c.open_timestamp) not in seen_opens]
                     candles = archive + redis_deduped
+        elif cursor is None and candles:
+            # First run for this signal: try archive to fill any gap between decision_time
+            # and the oldest available Redis bar before declaring CANDLE_GAP.
+            oldest_redis_open = min(_utc(c.open_timestamp) for c in candles)
+            initial_gap_threshold = signal.decision_time + timedelta(minutes=contract.timeframe_minutes)
+            if oldest_redis_open > initial_gap_threshold:
+                archive = self.candle_store.archive_candles(
+                    signal, contract.timeframe_minutes,
+                    since=signal.decision_time, until=oldest_redis_open, conn=self.conn,
+                )
+                if archive:
+                    seen_opens = {_utc(c.open_timestamp) for c in archive}
+                    redis_deduped = [c for c in candles if _utc(c.open_timestamp) not in seen_opens]
+                    candles = archive + redis_deduped
         if cursor is not None:
             candles = [candle for candle in candles if _utc(candle.close_timestamp) > cursor]
         if not candles and cursor is not None:
@@ -394,7 +408,20 @@ class OutcomeResolverRuntime:
                                         outcome_kind=result.outcome_kind,
                                         source_kind="STRATEGY_REPLAY",
                                         writer_id="unified-outcome-resolver")
-            self._persist_state(signal, contract, result, candles,
+            # On CANDLE_GAP the resolver returned before processing all passed candles.
+            # Only advance the cursor through bars that were actually evaluated:
+            # gap_start marks the last processed candle's close (or entry_timestamp
+            # when no bars were processed at all).  Passing only those bars prevents
+            # the cursor from jumping past the gap and burying unprocessed history.
+            state_candles = candles
+            if result.evidence.get("reason") == "CANDLE_GAP":
+                gap_start_str = result.evidence.get("gap_start")
+                if gap_start_str:
+                    gap_boundary = _utc(datetime.fromisoformat(gap_start_str))
+                    state_candles = [c for c in candles if _utc(c.close_timestamp) <= gap_boundary]
+                else:
+                    state_candles = []
+            self._persist_state(signal, contract, result, state_candles,
                                 attempt=self._next_attempt(signal.signal_id),
                                 prior_cursor=cursor)
             with self.conn.cursor() as cur:
