@@ -25,6 +25,7 @@ from .strategy_catalog import MembershipRefused
 # strategy_mgmt keeps dedicated frozen family keys, while the legacy
 # /api/v1/strategies contract uses canonical operational identifiers.
 MANAGED_FAMILY_TO_CANONICAL: dict[str, str] = {
+    "KOJO": "KOJO_STRUCTURE_RECLAIM_V3",
     "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST_V1": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST",
     "PRICE_ACTION_ENGULFING_CONTINUATION_V1": "PRICE_ACTION_ENGULFING_CONTINUATION",
 }
