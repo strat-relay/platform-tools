@@ -1,0 +1,20 @@
+{
+  "schema": "library-forward-observation.v1",
+  "execution_eligible": false,
+  "run_id": "REPLACE_WITH_IMMUTABLE_RUN_ID",
+  "activation_time": null,
+  "keys": [
+    "donchian_breakout",
+    "ema_pullback",
+    "fvg_retracement"
+  ],
+  "symbols": {
+    "XAUUSD": "XAUUSDm",
+    "BTCUSD": "BTCUSDm",
+    "USDJPY": "USDJPYm"
+  },
+  "history": 320,
+  "max_age_seconds": 330,
+  "prospective_max_delay": 120,
+  "max_retained_bars": 10000
+}
