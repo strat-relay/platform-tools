@@ -584,6 +584,19 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
                 discovered.append(StrategySignal(**{
                     k: row[k] for k in StrategySignal.__dataclass_fields__ if k in row
                 }))
+    # Aggregate per-cycle latency observability for LIVE_ENTRY / BAR_CLOSE split.
+    _entry_source_counts: dict[str, int] = {}
+    _emission_latencies: list[float] = []
+    for signal in discovered:
+        _meta = signal.strategy_metadata or {}
+        _src = str(_meta.get("entry_source") or "UNKNOWN")
+        _entry_source_counts[_src] = _entry_source_counts.get(_src, 0) + 1
+        _lat = _meta.get("emission_latency_s")
+        if _lat is not None:
+            try:
+                _emission_latencies.append(float(_lat))
+            except (TypeError, ValueError):
+                pass
     for signal in discovered:
         trace_emit("SIGNAL_ORCHESTRATOR_RECEIVED", signal_id=signal.signal_id,
                    decision_time=signal.decision_time or signal.signal_timestamp,
@@ -670,9 +683,22 @@ def poll_once(store: OrchestrationStore, config: dict[str, Any], mf: dict[str, A
         total += 1
     state["processed_signal_ids"] = sorted(seen); state["last_poll_at"] = now(); state["status"] = "ACTIVE"; store.save_state(state)
     atomic(HEARTBEAT, {"pid": os.getpid(), "status": "ACTIVE", "timestamp": now(), "signals_seen": len(seen)})
+    _latency_stats: dict[str, float] = {}
+    if _emission_latencies:
+        _sorted = sorted(_emission_latencies)
+        _n = len(_sorted)
+        _latency_stats = {
+            "count": _n,
+            "min_s": round(_sorted[0], 3),
+            "median_s": round(_sorted[_n // 2], 3),
+            "p95_s": round(_sorted[int(_n * 0.95)], 3),
+            "max_s": round(_sorted[-1], 3),
+        }
     audit("runner_cycle_completed", runner="signal-orchestrator", processed=total,
           signals_seen=len(seen), orchestration_mode=orchestration_mode,
-          adapter_timing_ms=_adapter_timing_ms)
+          adapter_timing_ms=_adapter_timing_ms,
+          entry_source_counts=_entry_source_counts,
+          emission_latency_stats=_latency_stats)
     return total
 
 

@@ -153,6 +153,7 @@ class OrchestratorTests(unittest.TestCase):
         from datetime import datetime, timezone
         from dataclasses import replace
         class Adapter:
+            strategy_id = "TEST_STRATEGY"
             def discover_new_signals(self, seen):
                 return [replace(signal(), created_at="2026-09-22T00:01:00Z",
                                 signal_timestamp="2026-09-22T00:01:00Z",
