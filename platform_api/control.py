@@ -26,6 +26,9 @@ from .instrument_analytics import InstrumentAnalyticsRepository
 # strategy_mgmt keeps dedicated frozen family keys, while the legacy
 # /api/v1/strategies contract uses canonical operational identifiers.
 MANAGED_FAMILY_TO_CANONICAL: dict[str, str] = {
+    "LIBRARY:BREAKOUT_DONCHIAN_BREAKOUT": "BREAKOUT_DONCHIAN_BREAKOUT",
+    "LIBRARY:TREND_FOLLOWING_EMA_PULLBACK": "TREND_FOLLOWING_EMA_PULLBACK",
+    "LIBRARY:SMC_FVG_RETRACEMENT": "SMC_FVG_RETRACEMENT",
     "KOJO": "KOJO_STRUCTURE_RECLAIM_V3",
     "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST_V1": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST",
     "PRICE_ACTION_ENGULFING_CONTINUATION_V1": "PRICE_ACTION_ENGULFING_CONTINUATION",
@@ -1250,6 +1253,8 @@ class PlatformControlApi:
                         self._unified_strategy_list(self.strategy_catalog.list_strategies()),
                         source="canonical_postgres")
                 parts = [unquote(p) for p in suffix.split("/")]
+                if parts and parts[0].startswith('LIBRARY:'):
+                    parts[0] = MANAGED_FAMILY_TO_CANONICAL.get(parts[0], parts[0])
                 # --- Family routing: resolve CONTEXT_STRUCTURE_RETRACE (and any future family)
                 # to the correct versioned member before delegating to the standard paths.
                 if parts and parts[0] in STRATEGY_FAMILIES:

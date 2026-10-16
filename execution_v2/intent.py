@@ -32,7 +32,10 @@ from .risk_policy_store import policy_fingerprint
 from .trace import emit as trace_emit
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
-RESEARCH_ONLY_STRATEGIES = frozenset({"CONTEXT_STRUCTURE_RETRACE_V2"})
+RESEARCH_ONLY_STRATEGIES = frozenset({
+    "CONTEXT_STRUCTURE_RETRACE_V2", "BREAKOUT_DONCHIAN_BREAKOUT",
+    "TREND_FOLLOWING_EMA_PULLBACK", "SMC_FVG_RETRACEMENT",
+})
 TERMINAL_SIGNAL_OUTCOMES = frozenset({"TARGET_HIT", "STOPPED", "TIME_EXIT", "INVALIDATED"})
 
 

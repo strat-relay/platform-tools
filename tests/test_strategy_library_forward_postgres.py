@@ -76,9 +76,10 @@ class ForwardLedgerPostgresTests(unittest.TestCase):
     def test_canary_registration_is_idempotent_and_stays_offline(self):
         from research.strategy_library_registration import CANARY, candidate_sql, registration
         with self.conn.cursor() as cur:
-            cur.execute(candidate_sql())
-            cur.execute(candidate_sql())
-            for key in CANARY:
+            keys = ('ema_momentum',)  # canary instances are enabled for publication by 064
+            cur.execute(candidate_sql(keys))
+            cur.execute(candidate_sql(keys))
+            for key in keys:
                 row = registration(key)
                 cur.execute('''SELECT online,execution_eligible,execution_mode
                                FROM strategy_mgmt.strategy_instance_v2 WHERE id=%s''',

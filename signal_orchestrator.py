@@ -78,6 +78,8 @@ def classify_source_timestamp(source_timestamp: str | None, freeze_timestamp: st
 
 def live_classification(signal: dict[str, Any], state: dict[str, Any]) -> str:
     """Classify live output using receipt and source-event provenance."""
+    if (signal.get('strategy_metadata') or {}).get('library_run_id'):
+        return "PRE_LIVE_EXECUTION"
     if not state.get("live_execution_enabled"):
         return "PRE_LIVE_EXECUTION"
     cutoff = state.get("live_execution_cutoff_timestamp")
@@ -224,6 +226,17 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                     instance_id=ENGULFING_INSTANCE_ID,
                     strategy_key=ENGULFING_STRATEGY_KEY,
                 ))
+        elif record.get("adapter") == "StrategyLibraryAdapter":
+            if conn is not None:
+                from orchestration.adapters.strategy_library import StrategyLibraryAdapter
+                from research.strategy_library_registration import CANARY, registration
+                keys = {registration(key)['strategy_id']: key for key in CANARY}
+                key = keys.get(record['strategy_id'])
+                if key is None:
+                    raise ValueError('unauthorized library adapter strategy')
+                for instance in config.get('instances', []):
+                    if instance.get('enabled') and instance.get('strategy_id') == record['strategy_id']:
+                        adapters.append(StrategyLibraryAdapter(conn, key, instance))
         elif record["strategy_id"] == "KOJO_STRUCTURE_RECLAIM_V1":
             # Pipeline-created instances from strategy_instance_v2.
             # Only ONLINE instances are present in config["instances"] (loaded by
@@ -372,6 +385,10 @@ def route_signal(store: OrchestrationStore, signal: StrategySignal, config: dict
         "channel": "INTERNAL_QUEUE", "audience_id": "internal-shadow", "created_at": created,
         "status": "QUEUED", "attempt_count": 0, "last_error": None}, signal.signal_id)
     live_state = store.load_state()
+    if signal.strategy_metadata.get('library_run_id'):
+        event(store, 'EXECUTION_ROUTE_DISABLED', signal,
+              {'reason': 'LIBRARY_RESEARCH_ONLY', 'execution_eligible': False})
+        return
     if orchestration_mode != "PRIMARY" and live_classification(signal.to_dict(), live_state) == "POST_LIVE_EXECUTION":
         live_route_id = stable_id("ROUTE", {"signal": signal.signal_id, "type": "REAL_EXECUTION_OUTPUT"})
         store.append("route_decisions", {"route_decision_id": live_route_id, "signal_id": signal.signal_id,

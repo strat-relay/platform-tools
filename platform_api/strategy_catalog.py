@@ -124,6 +124,9 @@ SELECT coalesce(v.attributes->>'instance_id', v.id::text) AS instance_id,
          WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
          WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
          WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
+         WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          ELSE upper(sv.evaluator_key)
        END AS strategy_id,
        v.display_name, v.online AS enabled, v.attributes,
@@ -144,7 +147,10 @@ LEFT JOIN platform.strategy_definition pd ON pd.strategy_id = CASE sv.evaluator_
   WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
   WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
   WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
-  ELSE upper(sv.evaluator_key) END
+  WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         ELSE upper(sv.evaluator_key) END
 LEFT JOIN LATERAL (
     SELECT count(*) AS signals,
            count(*) FILTER (WHERE s.signal_emitted_at > now() - interval '24 hours') AS signals_24h
@@ -154,7 +160,10 @@ LEFT JOIN LATERAL (
       WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
       WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
       WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
-      ELSE upper(sv.evaluator_key) END
+      WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) sig ON TRUE
 LEFT JOIN LATERAL (
     SELECT count(*) AS tracked, count(*) FILTER (WHERE o.status = 'OPEN') AS open_n,
@@ -167,7 +176,10 @@ LEFT JOIN LATERAL (
       WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
       WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
       WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
-      ELSE upper(sv.evaluator_key) END
+      WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) o ON TRUE
 LEFT JOIN LATERAL (
     SELECT array_agg(m.canonical_instrument ORDER BY m.canonical_instrument)
@@ -185,7 +197,10 @@ LEFT JOIN LATERAL (
           WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
           WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
           WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
-          ELSE upper(sv.evaluator_key) END
+          WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         ELSE upper(sv.evaluator_key) END
           AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
         UNION ALL
         SELECT o.exit_timestamp, o.status, s.instrument || ' ' || o.status
@@ -195,7 +210,10 @@ LEFT JOIN LATERAL (
           WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
           WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
           WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
-          ELSE upper(sv.evaluator_key) END
+          WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         ELSE upper(sv.evaluator_key) END
           AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
           AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
     ORDER BY e.at DESC NULLS LAST LIMIT 1) ev ON TRUE
@@ -208,7 +226,10 @@ LEFT JOIN LATERAL (
           WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
           WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
           WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
-          ELSE upper(sv.evaluator_key) END
+          WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
     ORDER BY s.signal_emitted_at DESC NULLS LAST LIMIT 1) obs ON TRUE
 WHERE NOT EXISTS (
@@ -218,7 +239,10 @@ WHERE NOT EXISTS (
       WHEN 'context_structure_retrace_v2_research' THEN 'CONTEXT_STRUCTURE_RETRACE_V2'
       WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
       WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
-      ELSE upper(sv.evaluator_key) END
+      WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
+         WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         ELSE upper(sv.evaluator_key) END
       AND legacy.instance_id = coalesce(v.attributes->>'instance_id', v.id::text))
 ORDER BY strategy_id, instance_id"""
 
@@ -582,7 +606,16 @@ class StrategyCatalogRepository:
                 if len(params) > 1:
                     managed = [r for r in managed if r["instance_id"] == params[1]]
             rows.extend(managed)
-        return [_instance(r, execution, published.get(r["instance_id"])) for r in rows]
+        result = []
+        from .library_observation import load_observation
+        for r in rows:
+            item = _instance(r, execution, published.get(r['instance_id']))
+            observation = load_observation(cur, r.get('attributes') or {})
+            if observation is not None:
+                item['research_observation'] = observation
+                item['execution']['eligible'] = False
+            result.append(item)
+        return result
 
     def strategy_instances(self, strategy_id: str) -> list[dict[str, Any]]:
         return self._run(lambda cur: self._instances(cur, "WHERE i.strategy_id = %s", (strategy_id,)))
