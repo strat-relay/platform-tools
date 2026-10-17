@@ -7,7 +7,7 @@ from research.price_action_forward_observer import Observer, audit_order_isolati
 
 
 def bar(ts: int, value: float = 100.0, *, complete: bool = True) -> dict:
-    return {"time": ts, "open": value, "high": value + 1, "low": value - 1, "close": value + .25, "complete": complete}
+    return {"time": ts, "open": value, "high": value + 1, "low": value - 1, "close": value + .25, "complete": complete, "tick_size": 0.01}
 
 
 def snapshot(start: int, count: int, step: int) -> list[dict]:

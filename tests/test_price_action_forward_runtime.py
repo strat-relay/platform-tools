@@ -18,7 +18,7 @@ def test_price_action_runtime_reads_validated_shared_cache_once():
             h1 = _bars(1_000, 320, 3_600)
             m15 = _bars(1_000, 320, 900)
             return SimpleNamespace(
-                symbol_info={"symbol": provider},
+                symbol_info={"symbol": provider, "tick_size": 0.001},
                 quote={"symbol": provider, "time": 2_000},
                 source="REDIS_CANONICAL_CACHE",
                 cache_age_seconds=4.0,

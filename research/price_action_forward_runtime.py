@@ -23,6 +23,7 @@ from market_data_cache.reader import default_store
 from postgres.config import PostgresConfig
 from postgres.db import connect
 from research.price_action_forward_observer import MANIFEST, Observer, UNIVERSE, now_iso
+from research.price_action_metadata import POLICY as MARKET_INPUT_POLICY, bind_rows, tick_size, validate_checkpoint
 
 REQUIRED_HISTORY = 320
 CACHE_REPLAY_VERSION = "price-action-cache-causal-v1"
@@ -71,11 +72,12 @@ def _read_cached_symbol(reader: CanonicalMarketDataReader, canonical: str, broke
     """
     snapshot = reader.get_snapshot(canonical, broker_symbol,
                                    {"H1": REQUIRED_HISTORY, "M15": REQUIRED_HISTORY})
+    provider_tick = tick_size(snapshot.symbol_info.get("tick_size"))
     return {
         "symbol_info": snapshot.symbol_info,
         "quote": snapshot.quote,
-        "H1": list(snapshot.bars["H1"].bars),
-        "M15": list(snapshot.bars["M15"].bars),
+        "H1": bind_rows(snapshot.bars["H1"].bars, provider_tick),
+        "M15": bind_rows(snapshot.bars["M15"].bars, provider_tick),
         "source": snapshot.source,
         "cache_age_seconds": snapshot.cache_age_seconds,
         "latest_completed_open": {
@@ -133,6 +135,11 @@ def run_once() -> dict[str, Any]:
     strategy = _required("PRICE_ACTION_STRATEGY")
     manifest = Path(os.environ.get("PRICE_ACTION_MANIFEST_PATH", str(MANIFEST)))
     symbols = _symbols()
+    original_ids = {"7f1d6e5a-5ab3-4b59-8d2f-0c6f9e3d0104", "7f1d6e5a-5ab3-4b59-8d2f-0c6f9e3d0204"}
+    if instance_id in original_ids:
+        raise ValueError("corrected provider ticks require a new instance; preserve the affected frozen run")
+    if json.loads(manifest.read_text()).get("market_input_policy") != MARKET_INPUT_POLICY:
+        raise ValueError("corrected observation requires a new manifest with explicit market_input_policy")
     mode = os.environ.get("PRICE_ACTION_ENTRY_MODE", "COMPLETED_CANDLE_RECONSTRUCTION")
     observer_type = Observer
     timing_binding = None
@@ -154,6 +161,7 @@ def run_once() -> dict[str, Any]:
             stored = ledger.load_state(conn)
             observer = observer_type(Path(staging), manifest, strategy_filter=strategy)
             if stored:
+                validate_checkpoint(stored, binding=observer.input_binding)
                 if stored.get("entry_timing_mode", "COMPLETED_CANDLE_RECONSTRUCTION") != mode:
                     raise ValueError("entry mode changed; start a separate instance/run")
                 if mode == "CONTEMPORANEOUS_CANDLE_OPEN" and stored.get("entry_timing_binding") != timing_binding:

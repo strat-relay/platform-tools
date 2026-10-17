@@ -183,6 +183,8 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
     _KEY_TO_STRATEGY = {
         KSR_KEY:    KSR_ID,
         KSR_V3_KEY: KSR_V3_ID,
+        "price_action_sr_retest_v1": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST",
+        "price_action_engulfing_continuation_v1": "PRICE_ACTION_ENGULFING_CONTINUATION",
     }
     from research.strategy_library_registration import CANARY, registration
     _KEY_TO_STRATEGY.update({'library.'+key+'@V1': registration(key)['strategy_id'] for key in CANARY})
@@ -202,7 +204,8 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
             instruments = [str(x.get("canonical_instrument") or x) for x in raw if x]
         result.append({
             **(attrs_json or {}),
-            "instance_id": str((attrs_json or {}).get("instance_id") or inst_id),
+            "instance_id": (str(inst_id) if (attrs_json or {}).get("market_input_policy") == "pa-provider-tick.v1"
+                            else str((attrs_json or {}).get("instance_id") or inst_id)),
             "strategy_id": strategy_id,
             "display_name": display_name,
             "enabled": bool(online),
