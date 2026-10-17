@@ -21,6 +21,7 @@ from .instrument_membership import (DEFAULT_INSTANCE_BY_STRATEGY, InstrumentMemb
                                      MembershipConflict, UnsupportedInstrument)
 from .strategy_catalog import MembershipRefused
 from .instrument_analytics import InstrumentAnalyticsRepository
+from .observers import list_observers
 
 
 # strategy_mgmt keeps dedicated frozen family keys, while the legacy
@@ -1463,6 +1464,12 @@ class PlatformControlApi:
                     return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
                 return 200, self._body({**summary, "report": report["report"]} if report_id else [summary],
                                        source="canonical_postgres")
+            if path == "/api/v1/observers" and method == "GET":
+                try:
+                    with self._connect(readonly=True) as conn:
+                        return 200, self._body(list_observers(conn), source="canonical_postgres")
+                except Exception as exc:
+                    raise CanonicalSourceUnavailable("price action observer state unavailable") from exc
             if path.startswith("/api/v1/"):
                 return 404, self._body(None, source="platform_api_router", status="UNAVAILABLE", error="RESOURCE_NOT_FOUND")
             return 404, self._body(None, source="platform_api_router", status="UNAVAILABLE", error="RESOURCE_NOT_FOUND")
