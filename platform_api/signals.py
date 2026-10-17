@@ -56,6 +56,19 @@ LEFT JOIN strategy.entry_signal_outcomes AS outcomes
     ON outcomes.signal_id = s.signal_id
 """
 
+# Lite projection for paginated list views — omits large JSONB blobs, the mechanism
+# aggregation, and the outbox publication join.  The frontend's Signals table only
+# needs the handful of fields below; everything else is detail-page data.
+_SELECT_LITE = """
+SELECT s.signal_id, s.strategy_id, s.instrument, s.direction,
+       s.decision_time, s.entry_price, s.stop_price, s.target_price, s.target_r,
+       s.economic_position_id, s.source_event_id, s.evidence_class,
+       outcomes.status AS outcome, outcomes.realized_r, outcomes.exit_timestamp
+FROM strategy.entry_signals AS s
+LEFT JOIN strategy.entry_signal_outcomes AS outcomes
+    ON outcomes.signal_id = s.signal_id
+"""
+
 # Same FROM/JOIN/WHERE shape as `_SELECT`, projected to a single count - kept as its own
 # constant (not derived from `_SELECT` by string surgery) so a future edit to `_SELECT` doesn't
 # silently desync the two.
@@ -120,6 +133,19 @@ def _project(row: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _project_lite(row: dict[str, Any]) -> dict[str, Any]:
+    """Minimal projection for list-mode rows — only fields the Signals table renders."""
+    result = dict(row)
+    result["symbol"] = result.get("instrument")
+    result["signal_timestamp"] = result.get("decision_time")
+    result["market_event_id"] = result.get("source_event_id")
+    result.setdefault("outcome", None)
+    result.setdefault("realized_r", None)
+    result.setdefault("exit_timestamp", None)
+    result.setdefault("executionSummary", [])
+    return result
+
+
 class CanonicalSignalRepository:
     """Read EntrySignal rows only; every request is a PostgreSQL read-only txn."""
 
@@ -139,13 +165,14 @@ class CanonicalSignalRepository:
                     f"canonical PostgreSQL requires schema {version}"
                 )
 
-    def _query(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+    def _query(self, sql: str, params: tuple[Any, ...],
+               project: Callable[[dict[str, Any]], dict[str, Any]] = _project) -> list[dict[str, Any]]:
         try:
             with self._connect(readonly=True) as conn:
                 with conn.cursor() as cursor:
                     self._check_schema(cursor)
                     cursor.execute(sql, params)
-                    return [_project(_row_dict(cursor, row)) for row in cursor.fetchall()]
+                    return [project(_row_dict(cursor, row)) for row in cursor.fetchall()]
         except CanonicalSourceUnavailable:
             raise
         except Exception as exc:
@@ -395,9 +422,14 @@ class CanonicalSignalRepository:
             params.extend([f"%{search}%"] * 5)
 
         where_clause = (" WHERE " + " AND ".join(where)) if where else ""
+        lite = query.get("lite") == "1"
 
-        sql = _SELECT + where_clause + _ORDER_BY + " LIMIT %s OFFSET %s"
-        rows = self._query(sql, tuple([*params, limit + 1, offset]))
+        if lite:
+            sql = _SELECT_LITE + where_clause + _ORDER_BY + " LIMIT %s OFFSET %s"
+            rows = self._query(sql, tuple([*params, limit + 1, offset]), project=_project_lite)
+        else:
+            sql = _SELECT + where_clause + _ORDER_BY + " LIMIT %s OFFSET %s"
+            rows = self._query(sql, tuple([*params, limit + 1, offset]))
         audit = self._execution_audit([row["signal_id"] for row in rows[:limit]], full=False)
         for row in rows[:limit]:
             row["executionSummary"] = audit.get(row["signal_id"], [])
@@ -469,7 +501,7 @@ class PlatformSignalApi:
                          "outcome_schema_version": OUTCOME_SCHEMA_VERSION}
         if path == "/api/v1/signals":
             allowed = {"strategy_id", "strategy", "symbol", "instrument", "direction",
-                       "search", "date_from", "date_to", "limit", "offset", "evidence_class"}
+                       "search", "date_from", "date_to", "limit", "offset", "evidence_class", "lite"}
             unsupported = sorted(set(query) - allowed)
             if unsupported:
                 return 400, self._envelope(error="UNSUPPORTED_QUERY_PARAMETER",
