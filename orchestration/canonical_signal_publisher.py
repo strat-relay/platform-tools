@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from typing import Any
 
 from migration.signal import CanonicalSignal, canonical_signal, ingest_signal
 from orchestration.models import StrategySignal
+from orchestration.entry_timing import publication_timing
 from postgres.foundation import DATABASE_SCHEMA_VERSION
 from execution_v2.trace import emit as trace_emit
 
@@ -73,6 +75,7 @@ class CanonicalSignalPublisher:
         emitted_time = timestamp(emitted_at, "signal_emitted_at")
         if source_time < self.cutoff_utc or emitted_time < self.cutoff_utc:
             raise RuntimeError("pre-cutoff StrategySignal cannot enter DB_PRIMARY")
+        signal = publication_timing(replace(signal, signal_emitted_at=emitted_at))
         raw = signal.to_dict()
         raw["signal_emitted_at"] = emitted_at
         trace_emit("SIGNAL_DB_PERSIST_STARTED", signal_id=signal.signal_id,

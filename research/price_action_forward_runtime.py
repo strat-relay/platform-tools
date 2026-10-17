@@ -8,6 +8,7 @@ staging area for the existing evaluator state during one process cycle.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -132,6 +133,18 @@ def run_once() -> dict[str, Any]:
     strategy = _required("PRICE_ACTION_STRATEGY")
     manifest = Path(os.environ.get("PRICE_ACTION_MANIFEST_PATH", str(MANIFEST)))
     symbols = _symbols()
+    mode = os.environ.get("PRICE_ACTION_ENTRY_MODE", "COMPLETED_CANDLE_RECONSTRUCTION")
+    observer_type = Observer
+    timing_binding = None
+    if mode == "CONTEMPORANEOUS_CANDLE_OPEN":
+        from research.price_action_next_open import NextOpenObserver, mode_binding
+        frozen = {"7f1d6e5a-5ab3-4b59-8d2f-0c6f9e3d0104", "7f1d6e5a-5ab3-4b59-8d2f-0c6f9e3d0204"}
+        if instance_id in frozen or json.loads(manifest.read_text()).get("entry_mode") != mode:
+            raise ValueError("next-open mode requires a new instance and explicitly frozen manifest")
+        observer_type = NextOpenObserver
+        timing_binding = mode_binding(manifest, instance_id, strategy)
+    elif mode != "COMPLETED_CANDLE_RECONSTRUCTION":
+        raise ValueError("unsupported entry mode")
     cache = default_store()
     reader = CanonicalMarketDataReader(cache, max_age=float(os.environ.get("MARKET_DATA_MAX_AGE_SECONDS", "330")))
     # Ephemeral staging; the authoritative state is PostgreSQL.
@@ -139,9 +152,16 @@ def run_once() -> dict[str, Any]:
         with connect(PostgresConfig.from_env()) as conn:
             ledger = PostgresLedger(instance_id)
             stored = ledger.load_state(conn)
-            observer = Observer(Path(staging), manifest, strategy_filter=strategy)
+            observer = observer_type(Path(staging), manifest, strategy_filter=strategy)
             if stored:
+                if stored.get("entry_timing_mode", "COMPLETED_CANDLE_RECONSTRUCTION") != mode:
+                    raise ValueError("entry mode changed; start a separate instance/run")
+                if mode == "CONTEMPORANEOUS_CANDLE_OPEN" and stored.get("entry_timing_binding") != timing_binding:
+                    raise ValueError("next-open policy/manifest changed; start a separate instance/run")
                 observer.state = stored
+            observer.state["entry_timing_mode"] = mode
+            if timing_binding:
+                observer.state["entry_timing_binding"] = timing_binding
             if observer.state.get("runtime", {}).get("cache_replay_version") != CACHE_REPLAY_VERSION:
                 # The first cache-backed cycle must not inherit a checkpoint created by the
                 # direct-bridge path: that path could consume H1 before the matching M15 tail
@@ -160,6 +180,7 @@ def run_once() -> dict[str, Any]:
             emitted: list[dict[str, Any]] = []
             successful = 0
             for canonical, broker_symbol in symbols.items():
+                state_before = deepcopy(observer.state) if mode == "CONTEMPORANEOUS_CANDLE_OPEN" else None
                 try:
                     snapshot = _read_cached_symbol(reader, canonical, broker_symbol)
                     info, quote = snapshot["symbol_info"], snapshot["quote"]
@@ -169,6 +190,14 @@ def run_once() -> dict[str, Any]:
                     result = observer.ingest(canonical, broker_symbol, h1, m15,
                                              observed_at=now_iso(), snapshot_id=_event_id(instance_id, {"i": canonical, "h": h1[-1:], "m": m15[-1:]}),
                                              source_kind="LIVE_MARKET")
+                    if mode == "CONTEMPORANEOUS_CANDLE_OPEN" and not result.get("first_snapshot_reconstructed"):
+                        from market_data_cache.opening import read_opening
+                        opening = read_opening(cache.snapshot(broker_symbol) or {}, canonical, broker_symbol,
+                                               "M15", observed_at=time.time())
+                        immediate = observer.ingest_open(canonical, broker_symbol, opening,
+                                                        observed_at=now_iso(), snapshot_id=_event_id(instance_id, {"open": str(opening)}))
+                        result.setdefault("emitted", []).extend(immediate)
+                        result["emitted_evaluations"] += len(immediate)
                     for event in result.get("emitted", []):
                         event["data_provenance"] = {
                             "source": snapshot["source"],
@@ -186,6 +215,8 @@ def run_once() -> dict[str, Any]:
                     emitted.extend(result.get("emitted", []))
                     successful += 1
                 except Exception as exc:  # one slow symbol must not hide other read-only coverage
+                    if state_before is not None:
+                        observer.state = state_before
                     results.append({"instrument": canonical, "broker_symbol": broker_symbol,
                                     "status": "DEGRADED", "error": f"{type(exc).__name__}: {exc}"})
             observer.state["status"] = "RUNNING" if successful else "DEGRADED"

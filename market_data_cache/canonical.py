@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .reader import MarketDataUnavailable
@@ -40,6 +40,8 @@ class CanonicalSnapshot:
     continuity_status: str
     gap_status: str
     recovery_status: str
+
+    opening_observations: dict[str, Any] = field(default_factory=dict)
 
 
 def candle_identity(provider_symbol: str, timeframe: str, timestamp: int) -> str:
@@ -110,7 +112,8 @@ class CanonicalMarketDataReader:
             symbol_info=raw["symbol_info"], quote=raw["quote"], bars=bars,
             fetched_at=float(raw["fetched_at"]), source=self.SOURCE,
             cache_age_seconds=max(ages, default=0.0),
-            continuity_status="CONTINUOUS", gap_status="NONE", recovery_status="NONE")
+            continuity_status="CONTINUOUS", gap_status="NONE", recovery_status="NONE",
+            opening_observations=raw.get("opening_observations", {}))
 
 
 def canonical_health(store: MarketDataStore, provider_symbol: str, *, now: float | None = None,

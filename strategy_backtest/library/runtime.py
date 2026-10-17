@@ -175,16 +175,8 @@ class ComposedResearchRuntime:
         pending=self._state['pending'].get(instrument)
         accepted=None
         if pending:
-            sign=1 if pending['direction']=='LONG' else -1
             entry=current.open;stop=pending['stop'];target=pending['target']
-            vol=pending['evidence']['prior_atr']
-            deadline=pending['evidence'].get('entry_deadline')
-            reason='ENTRY_ACCEPTED'
-            if current.open_timestamp!=pending['intended_entry_time']:reason='MISSING_NEXT_CANDLE'
-            elif deadline is not None and current.open_timestamp>=deadline:reason='ENTRY_WINDOW_EXPIRED'
-            elif abs(entry-pending['entry_reference'])>self.definition.max_entry_gap_atr*vol:reason='ENTRY_GAP_CANCELLED'
-            elif not sign*(entry-stop)>0 or not sign*(target-entry)>0:reason='INVALID_ENTRY_GEOMETRY'
-            elif abs(target-entry)/abs(entry-stop)<self.definition.min_r:reason='ENTRY_RR_BELOW_MINIMUM'
+            reason=self._entry_reason(pending, current.open_timestamp, entry)
             detail={'episode_id':pending['episode_id'],'entry_cancelled':reason!='ENTRY_ACCEPTED',
                     'intended_entry_time':pending['intended_entry_time'],
                     'reference_open_time':current.open_timestamp,'observed_at':current.provenance.get('processing_time'),
@@ -211,6 +203,54 @@ class ComposedResearchRuntime:
             self._state['pending'][instrument]=proposal
         if accepted:self._state['entries'].append(asdict(accepted))
         return tuple(output)
+
+    def _entry_reason(self, pending, open_time, entry):
+        """One geometry/gap policy shared by replay and live observation."""
+        sign=1 if pending['direction']=='LONG' else -1
+        stop=pending['stop'];target=pending['target']
+        deadline=pending['evidence'].get('entry_deadline')
+        if open_time!=pending['intended_entry_time']:return 'MISSING_NEXT_CANDLE'
+        if deadline is not None and open_time>=deadline:return 'ENTRY_WINDOW_EXPIRED'
+        if abs(entry-pending['entry_reference'])>self.definition.max_entry_gap_atr*pending['evidence']['prior_atr']:return 'ENTRY_GAP_CANCELLED'
+        if not sign*(entry-stop)>0 or not sign*(target-entry)>0:return 'INVALID_ENTRY_GEOMETRY'
+        if abs(target-entry)/abs(entry-stop)<self.definition.min_r:return 'ENTRY_RR_BELOW_MINIMUM'
+        return 'ENTRY_ACCEPTED'
+
+    def observe_open(self, observation, *, setup_available_at, now):
+        """Resolve a confirmed proposal immediately, without a completed entry bar.
+
+        This is a new opt-in runtime path. Callers must supply a provider opening
+        observation, not a historical bar or an arbitrary current quote. Persist
+        checkpoint and event together before publication, under a new run identity.
+        """
+        from core.strategies.entry_timing import CandleOpenObservation
+        if not isinstance(observation, CandleOpenObservation):
+            raise TypeError('CandleOpenObservation required')
+        instrument=observation.instrument
+        pending=self._state['pending'].get(instrument)
+        if pending is None:return ()
+        if observation.timeframe_seconds!=STEPS[self.definition.execution]:
+            raise ValueError('entry timeframe mismatch')
+        if self._state['last_cutoff'].get(instrument)!=pending['intended_entry_time']:
+            raise ValueError('pending proposal no longer matches setup watermark')
+        timing=observation.validate(expected_open=pending['intended_entry_time'],
+                                    setup_available_at=setup_available_at, now=now)
+        reason=self._entry_reason(pending, observation.open_time, observation.price)
+        detail={'episode_id':pending['episode_id'], 'entry_cancelled':reason!='ENTRY_ACCEPTED',
+                'entry_timing':timing, 'entry_classification':timing['entry_classification'],
+                'intended_entry_time':pending['intended_entry_time'],
+                'observed_at':observation.observed_at, 'data_available_at':observation.available_at}
+        accepted=None
+        if reason=='ENTRY_ACCEPTED':
+            accepted=ResearchOutcomeEntry(pending['episode_id'],f'{self.strategy_id}@V1',instrument,
+                      pending['direction'],observation.open_time,observation.price,pending['stop'],pending['target'],
+                      self.parameter_hash,self.dependency_hash,self.dataset_id,provenance=detail)
+            detail.update({'entry_price':observation.price,'stop':pending['stop'],'target':pending['target']})
+        result=self._record(instrument,observation.open_time,reason,detail,
+                            entry=asdict(accepted) if accepted else None)
+        self._state['pending'].pop(instrument)
+        if accepted:self._state['entries'].append(asdict(accepted))
+        return (result,)
 
     def accepted_entries(self):
         return tuple(ResearchOutcomeEntry(**deepcopy(e)) for e in self._state['entries'])
