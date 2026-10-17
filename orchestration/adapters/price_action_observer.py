@@ -51,11 +51,21 @@ class PriceActionObserverAdapter:
     def __init__(self, conn: Any, *,
                  strategy_id: str = SR_RETEST_STRATEGY_ID,
                  instance_id: str = SR_RETEST_INSTANCE_ID,
-                 strategy_key: str = SR_RETEST_STRATEGY_KEY) -> None:
+                 strategy_key: str = SR_RETEST_STRATEGY_KEY,
+                 market_input_policy: str | None = None,
+                 activation_time: int | None = None,
+                 parameter_set_id: str | None = None,
+                 parameter_hash: str | None = None,
+                 active_instruments: tuple[str, ...] = ()) -> None:
         self.conn = conn
         self.strategy_id = strategy_id
         self.instance_id = instance_id
         self.strategy_key = strategy_key
+        self.market_input_policy = market_input_policy
+        self.activation_time = activation_time
+        self.parameter_set_id = parameter_set_id
+        self.parameter_hash = parameter_hash
+        self.active_instruments = active_instruments
 
     def discover_new_signals(self, seen_signal_ids: set[str]) -> list[StrategySignal]:
         with self.conn.cursor() as cur:
@@ -74,6 +84,17 @@ class PriceActionObserverAdapter:
         for event_id, instrument, payload, observed_at in rows:
             event = payload.get("event") or {}
             provenance = event.get("provenance") or {}
+            if self.market_input_policy:
+                from research.price_action_metadata import tick_size
+                if instrument not in self.active_instruments:
+                    raise ValueError("corrected observation outside registered instrument scope")
+                if provenance.get("market_input_policy") != self.market_input_policy:
+                    raise ValueError("corrected instance contains incompatible market input evidence")
+                tick_size(provenance.get("provider_tick_size"))
+                if provenance.get("parameter_hash") != self.parameter_hash:
+                    raise ValueError("corrected instance parameter fingerprint mismatch")
+                if int(provenance["information_cutoff"]) < self.activation_time:
+                    continue
             if provenance.get("entry_cancelled") is True:
                 continue
             signal_id = stable_id("SIG", {"strategy_id": self.strategy_id, "strategy_version": self.strategy_version,
@@ -118,6 +139,11 @@ class PriceActionObserverAdapter:
                 entry_mechanism=("RESEARCH_ENTRY_OBSERVED",),
                 strategy_metadata={
                     "research_only": True, "execution_eligible": False,
+                    **({"market_input_policy": self.market_input_policy,
+                        "provider_tick_size": provenance["provider_tick_size"],
+                        "tick_size_source": provenance.get("tick_size_source"),
+                        "parameter_set_id": self.parameter_set_id,
+                        "publication_activation_time": self.activation_time} if self.market_input_policy else {}),
                     "signal_emission_class": signal_emission_class,
                     "signal_age_s": round(signal_age_s, 1),
                     "research_evidence_class": ("CONTEMPORANEOUS_CANDLE_OPEN" if live_open else "FORWARD_COMPLETED_CANDLE_RECONSTRUCTION"),
@@ -144,6 +170,8 @@ class PriceActionObserverAdapter:
                     "orchestrator_freeze_timestamp": decision_time,
                     # Broker symbol for resolver candle lookup (m-suffix Exness convention).
                     "provider_symbol": f"{instrument}m",
+                    **({"market_input_policy": self.market_input_policy,
+                        "provider_tick_size": provenance["provider_tick_size"]} if self.market_input_policy else {}),
                 }, decision_time=decision_time, signal_emitted_at=emitted_at,
             ))
         return result
@@ -153,3 +181,39 @@ class PriceActionObserverAdapter:
         audit("signal_published_to_orchestrator", runner="signal-orchestrator",
               strategy_id=self.strategy_id, signal_id=signal_id,
               outcome_writer="UNIFIED_OUTCOME_RESOLVER", research_only=True)
+
+
+def adapters_for_strategy(conn, config, strategy_id):
+    """Discover explicitly bound corrected instances; retain legacy drain adapter."""
+    from research.price_action_metadata import POLICY
+    from strategy_backtest.price_action_sr_retest import PARAMETER_HASH as SR_HASH
+    from strategy_backtest.price_action_engulfing_continuation import PARAMETER_HASH as EG_HASH
+    if strategy_id == SR_RETEST_STRATEGY_ID:
+        key, legacy, expected = SR_RETEST_STRATEGY_KEY, SR_RETEST_INSTANCE_ID, SR_HASH
+    elif strategy_id == ENGULFING_STRATEGY_ID:
+        key, legacy, expected = ENGULFING_STRATEGY_KEY, ENGULFING_INSTANCE_ID, EG_HASH
+    else:
+        raise ValueError('unknown PA strategy')
+    result = [PriceActionObserverAdapter(conn, strategy_id=strategy_id, instance_id=legacy, strategy_key=key)]
+    seen = {legacy}
+    for instance in config.get('instances', []):
+        if (instance.get('strategy_id') != strategy_id or not instance.get('enabled') or
+                instance.get('market_input_policy') != POLICY or not instance.get('signal_publication')):
+            continue
+        identity = instance.get('instance_id')
+        if identity in seen:
+            if identity == legacy:
+                raise ValueError('corrected PA observation requires a new managed instance')
+            continue
+        activation = instance.get('publication_activation_time')
+        if (not isinstance(identity, str) or not identity or type(activation) is not int or activation <= 0 or
+                not instance.get('parameter_set_id') or not instance.get('active_instruments') or
+                instance.get('parameter_set_fingerprint') != expected or
+                instance.get('execution_mode') != 'OFF' or instance.get('broker_writes') is not False):
+            raise ValueError('corrected PA publication requires explicit research identity, fingerprint and activation')
+        result.append(PriceActionObserverAdapter(conn, strategy_id=strategy_id, instance_id=identity,
+            strategy_key=key, market_input_policy=POLICY, activation_time=activation,
+            parameter_set_id=instance['parameter_set_id'], parameter_hash=expected,
+            active_instruments=tuple(instance['active_instruments'])))
+        seen.add(identity)
+    return result

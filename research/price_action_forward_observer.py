@@ -16,10 +16,12 @@ import signal
 import time
 from collections import Counter
 from datetime import datetime, timezone
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from contracts.mt5_bridge import BridgeEndpoint, Mt5ReadClient
+from research.price_action_metadata import POLICY as MARKET_INPUT_POLICY, tick_size, validate_checkpoint
 from strategy_backtest.models import MarketEvent, fingerprint
 from strategy_backtest.price_action_engulfing_continuation import (
     EngulfingContinuationEvaluator, parameter_set as engulf_parameters,
@@ -74,7 +76,9 @@ def append_jsonl(path: Path, value: Any) -> None:
 
 
 def source_hash() -> str:
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    files = [Path(__file__), ROOT / "research/price_action_metadata.py",
+             ROOT / "research/price_action_forward_runtime.py", ROOT / "research/price_action_next_open.py"]
+    return fingerprint({str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files})
 
 
 def identities() -> dict[str, Any]:
@@ -133,8 +137,10 @@ def normalize_rows(rows: list[dict[str, Any]], timeframe: str) -> tuple[list[dic
 def _event(instrument: str, timeframe: str, row: dict[str, Any], snapshot_id: str, source_kind: str) -> MarketEvent:
     step = TF_SECONDS[timeframe]; ts = int(row["time"])
     return MarketEvent(instrument, timeframe, ts, ts + step, float(row["open"]), float(row["high"]), float(row["low"]), float(row["close"]), True, source_kind,
-                       {"snapshot_id": snapshot_id, "tick_size": float(row.get("tick_size", 1.0)),
-                        "source_timestamp_semantics": "candle_open_utc", "availability_class": source_kind})
+                       {"snapshot_id": snapshot_id, "tick_size": tick_size(row.get("tick_size")),
+                        "source_timestamp_semantics": "candle_open_utc", "availability_class": source_kind,
+                        "market_input_policy": MARKET_INPUT_POLICY,
+                        "tick_size_source": row.get("tick_size_source", "EXPLICIT_INPUT_ROW")})
 
 
 def freeze(*, t0: str | None = None, output: Path = MANIFEST) -> dict[str, Any]:
@@ -142,7 +148,7 @@ def freeze(*, t0: str | None = None, output: Path = MANIFEST) -> dict[str, Any]:
         return json.loads(output.read_text())
     t0 = t0 or now_iso()
     payload = {"schema": SCHEMA, "observer_version": VERSION, "freeze_status": "FROZEN_NOT_ACTIVATED",
-               "t0": t0, "window_days": 30, "minimum_review_sample_per_strategy": 100,
+               "market_input_policy": MARKET_INPUT_POLICY, "t0": t0, "window_days": 30, "minimum_review_sample_per_strategy": 100,
                "universe_requested": list(UNIVERSE), "healthy_universe": [],
                "instrument_mapping": "resolve only by read-only mt5_symbol_info/quote; no suffix guessing",
                "timeframes": {"context": "H1", "execution": "M15"},
@@ -165,9 +171,10 @@ class Observer:
             raise ValueError(f"unknown strategy filter: {strategy_filter}")
         self.strategy_filter = strategy_filter
         self.manifest = json.loads(manifest.read_text())
+        self.input_binding = fingerprint({"manifest": self.manifest, "source_hash": source_hash()})
         self.state_path = state_dir / "state.json"; self.events_path = state_dir / "events.jsonl"; self.outcomes_path = state_dir / "outcomes.jsonl"
         if self.state_path.exists(): self.state = json.loads(self.state_path.read_text())
-        else: self.state = {"schema": SCHEMA, "status": "STOPPED", "t0": self.manifest["t0"], "cursors": {}, "evaluators": {}, "entries": {}, "bars": {}, "health": {}, "counters": Counter()}
+        else: self.state = {"schema": SCHEMA, "market_input_policy": MARKET_INPUT_POLICY, "market_input_binding": self.input_binding, "instrument_tick_sizes": {}, "status": "STOPPED", "t0": self.manifest["t0"], "cursors": {}, "evaluators": {}, "entries": {}, "bars": {}, "health": {}, "counters": Counter()}
         self.state.setdefault("counters", {})
         self.state.setdefault("bars", {})
 
@@ -185,7 +192,18 @@ class Observer:
         return key, evaluator
 
     def ingest(self, instrument: str, broker_symbol: str, h1: list[dict[str, Any]], m15: list[dict[str, Any]], *, observed_at: str, snapshot_id: str, source_kind: str = "LIVE_MARKET") -> dict[str, Any]:
+        # Validate all input metadata and checkpoint compatibility before any
+        # history/cursor/evaluator mutation. Never mix corrected and legacy events.
+        validate_checkpoint(self.state, binding=self.input_binding)
+        incoming_ticks = {tick_size(row.get("tick_size")) for row in h1 + m15}
+        if len(incoming_ticks) != 1:
+            raise ValueError("one consistent explicit tick_size required across H1/M15")
+        incoming_tick = incoming_ticks.pop()
+        known_tick = self.state["instrument_tick_sizes"].get(instrument)
+        if known_tick is not None and known_tick != incoming_tick:
+            raise ValueError("provider tick_size changed; start a separately identified observation run")
         h1_ok, h1_rej = normalize_rows(h1, "H1"); m15_ok, m15_rej = normalize_rows(m15, "M15")
+        self.state["instrument_tick_sizes"][instrument] = incoming_tick
         rows = {"H1": h1_ok, "M15": m15_ok}; cursor = self.state["cursors"].get(instrument, {})
         history = self.state["bars"].setdefault(instrument, {"M15": [], "H1": []})
         for tf, values in rows.items():
@@ -210,6 +228,10 @@ class Observer:
             strategy_emitted = 0
             for event in new_events:
                 for evaluation in evaluator.consume_market_event(event):
+                    evaluation = replace(evaluation, provenance={**evaluation.provenance,
+                        "market_input_policy": MARKET_INPUT_POLICY,
+                        "provider_tick_size": incoming_tick,
+                        "tick_size_source": event.provenance["tick_size_source"]})
                     row = {"strategy": strategy, "instrument": instrument, "broker_symbol": broker_symbol, "observed_at": observed_at, "source_kind": source_kind, "event": evaluation.to_dict()}
                     emitted.append(row); append_jsonl(self.events_path, row)
                     strategy_emitted += 1
@@ -251,7 +273,9 @@ class Observer:
     def _register_entry(self, strategy: str, instrument: str, evaluation: Any, snapshot_id: str) -> None:
         p = evaluation.provenance; episode_id = f"{strategy}|{instrument}|{evaluation.candidate_id}|{p['information_cutoff']}"
         if episode_id in self.state["entries"]: return
-        entry = ResearchOutcomeEntry(episode_id, evaluation.strategy_version, instrument, p["direction"], int(p["information_cutoff"]), float(p["entry_open"]), float(p["stop"]), float(p["target"]), p.get("parameter_hash"), p.get("dependency_manifest_hash"), self.manifest["manifest_hash"], {"data_snapshot_id": snapshot_id, "source": "forward_observer"})
+        entry = ResearchOutcomeEntry(episode_id, evaluation.strategy_version, instrument, p["direction"], int(p["information_cutoff"]), float(p["entry_open"]), float(p["stop"]), float(p["target"]), p.get("parameter_hash"), p.get("dependency_manifest_hash"), self.manifest["manifest_hash"], {"data_snapshot_id": snapshot_id, "source": "forward_observer",
+            "market_input_policy": p["market_input_policy"], "provider_tick_size": p["provider_tick_size"],
+            "tick_size_source": p.get("tick_size_source")})
         self.state["entries"][episode_id] = {"entry": entry.__dict__, "status": "OPEN_PENDING_FORWARD"}
         append_jsonl(self.outcomes_path, {"type": "ENTRY_ACCEPTED_SIMULATED", "entry": entry.__dict__, "recorded_at": now_iso()})
 

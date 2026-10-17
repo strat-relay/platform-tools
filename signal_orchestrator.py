@@ -211,21 +211,10 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
                 except Exception as exc:
                     audit("liquidity_live_adapter_failed", runner="signal-orchestrator",
                           error=str(exc), error_type=type(exc).__name__)
-        elif record["strategy_id"] == "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST":
+        elif record["strategy_id"] in {"PRICE_ACTION_SUPPORT_RESISTANCE_RETEST", "PRICE_ACTION_ENGULFING_CONTINUATION"}:
             if conn is not None:
-                from orchestration.adapters.price_action_observer import PriceActionObserverAdapter
-                adapters.append(PriceActionObserverAdapter(conn))
-        elif record["strategy_id"] == "PRICE_ACTION_ENGULFING_CONTINUATION":
-            if conn is not None:
-                from orchestration.adapters.price_action_observer import (
-                    PriceActionObserverAdapter, ENGULFING_STRATEGY_ID,
-                    ENGULFING_INSTANCE_ID, ENGULFING_STRATEGY_KEY)
-                adapters.append(PriceActionObserverAdapter(
-                    conn,
-                    strategy_id=ENGULFING_STRATEGY_ID,
-                    instance_id=ENGULFING_INSTANCE_ID,
-                    strategy_key=ENGULFING_STRATEGY_KEY,
-                ))
+                from orchestration.adapters.price_action_observer import adapters_for_strategy
+                adapters.extend(adapters_for_strategy(conn, config, record["strategy_id"]))
         elif record.get("adapter") == "StrategyLibraryAdapter":
             if conn is not None:
                 from orchestration.adapters.strategy_library import StrategyLibraryAdapter

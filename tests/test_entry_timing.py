@@ -249,7 +249,10 @@ def test_new_pa_observer_persists_entry_before_candle_close(tmp_path):
     observer=NextOpenObserver(tmp_path,MANIFEST,strategy_filter='sr_retest')
     evaluator=SupportResistanceRetestEvaluator();evaluator.initialize(strategy_version(),parameter_set())
     history=events()[:-1]
-    for event in history:evaluator.consume_market_event(event)
+    from research.price_action_metadata import POLICY
+    for event in history:
+        evaluator.consume_market_event(replace(event,provenance={**event.provenance,'market_input_policy':POLICY}))
+    observer.state['instrument_tick_sizes']['SYNTH']=.01
     key='sr_retest|SYNTH'
     observer.state['evaluators'][key]={'snapshot':evaluator.snapshot_state(),'evaluations':0,'rejections':{}}
     at=history[-1].close_timestamp
