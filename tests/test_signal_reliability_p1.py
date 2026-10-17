@@ -433,7 +433,7 @@ class PriceActionAgeGateTests(unittest.TestCase):
         )
         return adapter, fake_conn
 
-    def test_fresh_pa_signal_classified_prospective(self):
+    def test_fresh_pa_completed_bar_signal_remains_research(self):
         adapter, _ = self._make_adapter_and_rows(age_s=60)
         with patch.dict(os.environ, {"PA_SIGNAL_MAX_AGE_S": "86400"}):
             import importlib
@@ -443,7 +443,7 @@ class PriceActionAgeGateTests(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         self.assertEqual(
             (signals[0].provenance or {}).get("signal_emission_class"),
-            "PROSPECTIVE",
+            "RETROSPECTIVE_RESEARCH_EVIDENCE",
         )
 
     def test_stale_pa_signal_classified_research_evidence(self):
@@ -467,10 +467,10 @@ class PriceActionAgeGateTests(unittest.TestCase):
             importlib.reload(mod)
             signals = adapter.discover_new_signals(set())
         self.assertEqual(len(signals), 1)
-        self.assertIn(
+        self.assertEqual(
             (signals[0].provenance or {}).get("signal_emission_class"),
-            ("PROSPECTIVE", None),
-            "Gate disabled: signal must be prospective or unclassified",
+            "RETROSPECTIVE_RESEARCH_EVIDENCE",
+            "Age settings cannot promote reconstructed evidence",
         )
 
 
@@ -808,10 +808,12 @@ class KubernetesProbeCompatibilityTests(unittest.TestCase):
         """liveness-check --max-age 1 exits 1 when heartbeat is missing."""
         import subprocess
         import sys
-        result = subprocess.run(
-            [sys.executable, "signal_orchestrator.py", "liveness-check", "--max-age", "1"],
-            capture_output=True, cwd=str(Path(__file__).parent.parent),
-        )
+        with tempfile.TemporaryDirectory() as empty_runtime:
+            result = subprocess.run(
+                [sys.executable, "signal_orchestrator.py", "liveness-check", "--max-age", "1"],
+                capture_output=True, cwd=str(Path(__file__).parent.parent),
+                env={**os.environ, "TRADING_PLATFORM_RUNTIME_DIR": empty_runtime},
+            )
         self.assertEqual(result.returncode, 1,
             "liveness-check must exit 1 when no heartbeat exists")
 

@@ -28,10 +28,9 @@ ACCEPTED_REASON = "ENTRY_OBSERVED_RESEARCH_ONLY"
 # the resolver uses this bound to time-exit unresolved signals rather than leaving them open.
 MAX_HOLD_MINUTES = 1440
 
-# Maximum age of an accepted PA observation before it is published as research evidence
-# rather than a prospective forward signal.  PA signals originate from a frozen evaluator;
-# an observation older than this threshold indicates the orchestrator was down when the
-# entry was detected.  Default: 86400s (1 day).  Set to 0 to disable.
+# Legacy environment parsing is retained for configuration compatibility. This
+# value cannot promote a reconstructed entry to prospective evidence. New
+# observed-open entries use the shared bounded entry-timing contract instead.
 _PA_MAX_AGE_RAW = os.environ.get("PA_SIGNAL_MAX_AGE_S", "86400").strip()
 try:
     PA_SIGNAL_MAX_AGE_S: float | None = float(_PA_MAX_AGE_RAW) if _PA_MAX_AGE_RAW else None
@@ -93,10 +92,12 @@ class PriceActionObserverAdapter:
             # Age gate: classify based on how long ago the information_cutoff was.
             decision_epoch = int(provenance["information_cutoff"])
             signal_age_s = max(0.0, now_wall - decision_epoch)
-            if PA_SIGNAL_MAX_AGE_S is not None and PA_SIGNAL_MAX_AGE_S > 0 and signal_age_s > PA_SIGNAL_MAX_AGE_S:
-                signal_emission_class = "RETROSPECTIVE_RESEARCH_EVIDENCE"
-                classification = "RETROSPECTIVE_RESEARCH_EVIDENCE"
-            else:
+            # Completed-bar observation is reconstructed regardless of delivery age.
+            signal_emission_class = "RETROSPECTIVE_RESEARCH_EVIDENCE"
+            classification = "RETROSPECTIVE_RESEARCH_EVIDENCE"
+            entry_timing = provenance.get("entry_timing") or {}
+            live_open = entry_timing.get("entry_classification") == "CONTEMPORANEOUS_CANDLE_OPEN"
+            if live_open:
                 signal_emission_class = "PROSPECTIVE"
                 classification = "PROSPECTIVE_ORCHESTRATOR_SIGNAL"
 
@@ -119,6 +120,8 @@ class PriceActionObserverAdapter:
                     "research_only": True, "execution_eligible": False,
                     "signal_emission_class": signal_emission_class,
                     "signal_age_s": round(signal_age_s, 1),
+                    "research_evidence_class": ("CONTEMPORANEOUS_CANDLE_OPEN" if live_open else "FORWARD_COMPLETED_CANDLE_RECONSTRUCTION"),
+                    **({"entry_timing": entry_timing} if live_open else {}),
                     "parameter_hash": provenance.get("parameter_hash"),
                     "data_snapshot_id": provenance.get("data_snapshot_id"),
                     "outcome_contract": {
@@ -133,7 +136,8 @@ class PriceActionObserverAdapter:
                 provenance={
                     "source_process": "research.price_action_forward_runtime",
                     "source_strategy_fingerprint": provenance.get("parameter_hash"),
-                    "source_market_data_timestamp": emitted_at, "source_data_age": 0,
+                    "source_market_data_timestamp": _iso_epoch(decision_epoch if live_open else decision_epoch + 900),
+                    "source_data_age": max(0.0, observed_at.timestamp() - decision_epoch - (0 if live_open else 900)),
                     "source_read_health": True, "gap_recovery": False,
                     "classification": classification,
                     "signal_emission_class": signal_emission_class,

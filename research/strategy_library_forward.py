@@ -16,6 +16,7 @@ from pathlib import Path
 import time
 
 from core.strategies.evaluation import canonical_hash
+from core.strategies.entry_timing import MAX_ENTRY_DELAY_SECONDS
 from market_data_cache.canonical import CanonicalMarketDataReader
 from market_data_cache.reader import default_store
 from market_data_cache.store import TIMEFRAMES
@@ -44,8 +45,11 @@ class RunConfig:
     max_age_seconds: float = 330
     prospective_max_delay: float = 120
     max_retained_bars: int = 10000
+    entry_mode: str = "COMPLETED_CANDLE_RECONSTRUCTION"
 
     def __post_init__(self):
+        if self.entry_mode not in {"COMPLETED_CANDLE_RECONSTRUCTION", "CONTEMPORANEOUS_CANDLE_OPEN"}:
+            raise ValueError("explicit supported entry mode required")
         if not self.run_id or not self.keys or len(set(self.keys)) != len(self.keys):
             raise ValueError('run_id and unique strategy keys required')
         if any(key not in BY_KEY for key in self.keys):
@@ -209,6 +213,23 @@ class ForwardObserver:
                                 'decision_time': bar.close_timestamp, 'evidence_class': evidence,
                                 'processing_delay_seconds': observed_at - bar.close_timestamp,
                                 'execution_eligible': False, 'payload': payload})
+        if self.config.entry_mode == 'CONTEMPORANEOUS_CANDLE_OPEN' and previous is not None:
+            from market_data_cache.opening import read_opening
+            raw = {'opening_observations': getattr(snapshot, 'opening_observations', {})}
+            opening = read_opening(raw, instrument, self.config.symbols[instrument], d.execution,
+                                   observed_at=observed_at)
+            pending = runtime.snapshot_state()['state']['pending'].get(instrument)
+            if opening is not None and pending is not None:
+                if opening.open_time == pending['intended_entry_time'] and 0 <= observed_at - opening.open_time <= MAX_ENTRY_DELAY_SECONDS:
+                    for evaluation in runtime.observe_open(opening, setup_available_at=observed_at, now=observed_at):
+                        payload = evaluation.to_dict()
+                        identity = canonical_hash({'binding': self.binding, 'stream': stream_id, 'evaluation': payload})
+                        records.append({'event_id': identity, 'kind': 'EVALUATION', 'strategy_key': key,
+                                        'instrument': instrument, 'observed_at': observed_at,
+                                        'decision_time': opening.open_time,
+                                        'evidence_class': 'CONTEMPORANEOUS_CANDLE_OPEN',
+                                        'processing_delay_seconds': observed_at-opening.open_time,
+                                        'execution_eligible': False, 'payload': payload})
         # Use the existing pure research resolver. Never write canonical or
         # broker outcome tables; every entry remains a candle reconstruction.
         for entry in runtime.accepted_entries():
