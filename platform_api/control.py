@@ -1466,7 +1466,7 @@ class PlatformControlApi:
                                        source="canonical_postgres")
             if path == "/api/v1/observers" and method == "GET":
                 try:
-                    with self._connect(readonly=True) as conn:
+                    with self.repository._connect(readonly=True) as conn:
                         return 200, self._body(list_observers(conn), source="canonical_postgres")
                 except Exception as exc:
                     raise CanonicalSourceUnavailable("price action observer state unavailable") from exc
