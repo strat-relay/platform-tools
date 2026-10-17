@@ -3,19 +3,19 @@
 Only the common guaranteed weekend window is covered: Friday 17:00 through
 Sunday 17:00 America/New_York. Symbol-specific later reopening, holidays and
 daily breaks remain unclassified. Broker session metadata is not available in
-the current bridge. BTC and unknown symbols must never inherit this policy.
+the current bridge. Crypto and unclassified instruments must never inherit this policy.
 """
 from datetime import datetime, time, timedelta, timezone
 import math
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-POLICY = 'library-exness-weekend-display.v1'
-SYMBOLS = frozenset({'XAUUSD', 'USDJPY'})
+POLICY = 'library-mt5-fx-metal-weekend-display.v1'
+WEEKEND_ASSET_CLASSES = frozenset({'FX', 'METAL'})
 STEPS = {'M5':300, 'M15':900, 'H1':3600, 'H4':14400}
 
 
-def expected_weekend(instrument, now, stream):
-    if instrument not in SYMBOLS or not math.isfinite(now):
+def expected_weekend(asset_class, now, stream):
+    if asset_class not in WEEKEND_ASSET_CLASSES or not math.isfinite(now):
         return None
     try:
         zone = ZoneInfo('America/New_York')

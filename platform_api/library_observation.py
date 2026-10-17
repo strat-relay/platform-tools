@@ -4,7 +4,8 @@ from copy import deepcopy
 from .library_market_schedule import expected_weekend
 
 
-def observation_status(state, key, *, now=None):
+def observation_status(state, key, *, now=None, asset_classes=None):
+    asset_classes = asset_classes or {}
     health = (state or {}).get('health', {})
     observed = health.get('observed_at')
     streams = [deepcopy(s) for s in health.get('streams', []) if s.get('key') == key]
@@ -12,7 +13,9 @@ def observation_status(state, key, *, now=None):
     fresh = isinstance(observed, (float,int)) and 0 <= now-observed <= 330
     for stream in streams:
         stored = (state or {}).get('streams', {}).get(key+':'+str(stream.get('instrument')), {})
-        closure = expected_weekend(stream.get('instrument'), now, stored) if fresh else None
+        asset_class = asset_classes.get(stream.get('instrument'))
+        stream['asset_class'] = asset_class
+        closure = expected_weekend(asset_class, now, stored) if fresh else None
         if stream.get('status') == 'BLOCKED' and stream.get('error_type') == 'ValueError' and closure:
             stream.update(raw_status=stream['status'], status='MARKET_CLOSED', schedule=closure,
                           last_finalized_close=stored.get('last_close'))
@@ -36,7 +39,15 @@ def load_observation(cur, attributes):
         return None
     cur.execute('SELECT state FROM research.strategy_library_forward_state WHERE run_id=%s', (run_id,))
     row = cur.fetchone()
-    result = observation_status(row[0] if row else None, key)
+    state = row[0] if row else None
+    instruments = sorted({s['instrument'] for s in (state or {}).get('health', {}).get('streams', [])
+                          if s.get('key') == key and s.get('instrument')})
+    cur.execute("""SELECT canonical_instrument, asset_class
+                   FROM platform.instrument_provider_mapping
+                   WHERE provider='MT5' AND state='ACTIVE'
+                     AND canonical_instrument=ANY(%s)""", (instruments,))
+    asset_classes = dict(cur.fetchall())
+    result = observation_status(state, key, asset_classes=asset_classes)
     cur.execute('''SELECT count(*), count(*) FILTER (
         WHERE payload->'payload'->'provenance'->'research_entry' IS NOT NULL)
         FROM research.strategy_library_forward_event
