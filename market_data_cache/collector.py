@@ -253,9 +253,12 @@ class MarketDataCollector:
                                                                     start_override=holes[0])
         for tf in TIMEFRAMES:        # write only after every timeframe validated
             self.store.set_bars(symbol, tf, merged[tf])
+        from .opening import opening_evidence
+        prior_snapshot = self.store.snapshot(symbol) or {}
+        openings = opening_evidence(rates, prior_snapshot.get("opening_observations", {}), self.clock())
         forming = {tf: _forming_time(rates[tf]) for tf in TIMEFRAMES}
         self.store.set_snapshot(symbol, {"fetched_at": now, "symbol_info": info, "quote": quote, "forming": forming,
-                                         "source_read_health": True, "full": full})
+                                         "source_read_health": True, "full": full, "opening_observations": openings})
         self.store.set_metadata(symbol, info, now)
         advanced = previous.get("forming", {}).get("M5") != forming["M5"]
         retries = 0 if advanced or full else int(previous.get("awaiting_new_bar_retries", 0)) + 1

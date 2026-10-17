@@ -25,7 +25,7 @@ def artifact_identity():
     root=Path(__file__).resolve().parents[1]
     paths=list((root/'strategy_backtest/library').glob('*.py'))+[
         root/'strategy_backtest/models.py',root/'strategy_backtest/research_outcomes.py',
-        root/'core/strategies/evaluation/models.py',Path(__file__).resolve(),
+        root/'core/strategies/evaluation/models.py',root/'core/strategies/entry_timing.py',Path(__file__).resolve(),
         root/'research/strategy_library_fixtures.py']
     manifest={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(paths)}
     return canonical_hash(manifest),manifest

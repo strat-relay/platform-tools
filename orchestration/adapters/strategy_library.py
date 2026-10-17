@@ -10,6 +10,7 @@ import math
 from typing import Any
 
 from orchestration.models import StrategySignal, stable_id
+from core.strategies.entry_timing import MAX_ENTRY_DELAY_SECONDS
 from research.strategy_library_registration import CANARY, registration
 from strategy_backtest.library import BY_KEY
 
@@ -78,19 +79,26 @@ class StrategyLibraryAdapter:
         entry_time = float(entry['entry_timestamp'])
         observed = float(record['observed_at'])
         cutoff = float(provenance['information_cutoff'])
-        step = {'M5':300,'M15':900,'H1':3600,'H4':14400}[BY_KEY[self.key].execution]
+        step = {'M5':300,'M15':900,'H1':3600,'H4':14400,'D1':86400}[BY_KEY[self.key].execution]
+        live_open = record.get('evidence_class') == 'CONTEMPORANEOUS_CANDLE_OPEN'
         if (not all(math.isfinite(x) for x in (entry_time,observed,cutoff)) or
-                not entry_time + step == cutoff <= observed or
                 entry_time < self.instance['publication_activation_time'] or
-                record.get('decision_time') != cutoff or
-                record.get('evidence_class') != 'FORWARD_COMPLETED_CANDLE_RECONSTRUCTION'):
+                record.get('decision_time') != cutoff):
+            raise ValueError('invalid entry timing')
+        if live_open:
+            timing = provenance.get('entry_timing') or {}
+            if cutoff != entry_time or not entry_time <= observed <= entry_time+MAX_ENTRY_DELAY_SECONDS or not timing:
+                raise ValueError('invalid contemporaneous entry timing')
+        elif not (entry_time + step == cutoff <= observed and
+                  record.get('evidence_class') == 'FORWARD_COMPLETED_CANDLE_RECONSTRUCTION'):
             raise ValueError('invalid reconstructed entry timing')
+        emission_class = 'PROSPECTIVE' if live_open else 'RETROSPECTIVE_RESEARCH_EVIDENCE'
         episode = entry['episode_id']
         source = 'strategy-library:'+self.instance['orchestrator_run_id']+':'+str(event_id)
         definition = BY_KEY[self.key]
         metadata = {
             'research_only': True, 'execution_eligible': False,
-            'signal_emission_class': 'RETROSPECTIVE_RESEARCH_EVIDENCE',
+            'signal_emission_class': emission_class,
             'research_evidence_class': record['evidence_class'],
             'parameter_set_id': self.identity['parameter_set_id'],
             'parameter_hash': self.identity['parameter_hash'],
@@ -104,13 +112,15 @@ class StrategyLibraryAdapter:
             'information_cutoff': iso(cutoff),
             'outcome_contract': {
                 'version': 'library-research-outcome.v1',
-                'timeframe_minutes': {'M5':5,'M15':15,'H1':60,'H4':240}[definition.execution],
+                'timeframe_minutes': {'M5':5,'M15':15,'H1':60,'H4':240,'D1':1440}[definition.execution],
                 'activation': 'SIGNAL_TIMESTAMP', 'price_basis': 'THEORETICAL_TOUCH',
                 'same_candle_priority': 'AMBIGUOUS_INTRABAR',
                 'time_exit_priority': 'AFTER_PRICE', 'time_exit_price': 'CLOSE',
                 'max_hold_minutes': None,
             },
         }
+        if live_open:
+            metadata['entry_timing'] = provenance['entry_timing']
         return StrategySignal(
             signal_id=stable_id('SIG', {'instance': self.instance['instance_id'],
                                       'run': self.instance['orchestrator_run_id'], 'episode': episode}),
@@ -125,11 +135,11 @@ class StrategyLibraryAdapter:
             risk_distance=abs(price-stop), target_distance=abs(target-price),
             target_r=abs(target-price)/abs(price-stop), timeframe=definition.execution,
             lower_timeframe=None, higher_timeframes=(definition.context,),
-            entry_mechanism=('COMPLETED_CANDLE_RECONSTRUCTION',), strategy_metadata=metadata,
+            entry_mechanism=(('CONTEMPORANEOUS_CANDLE_OPEN' if live_open else 'COMPLETED_CANDLE_RECONSTRUCTION'),), strategy_metadata=metadata,
             provenance={
                 'source_process': 'research.strategy_library_forward',
-                'classification': 'RETROSPECTIVE_RESEARCH_EVIDENCE',
-                'signal_emission_class': 'RETROSPECTIVE_RESEARCH_EVIDENCE',
+                'classification': emission_class,
+                'signal_emission_class': emission_class,
                 'source_strategy_fingerprint': self.identity['parameter_hash'],
                 'source_market_data_timestamp': iso(cutoff),
                 'source_data_age': observed-cutoff, 'source_read_health': True,
