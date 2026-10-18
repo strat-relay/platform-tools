@@ -259,7 +259,8 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         """When gate is disabled, retrospective signals carry signal_emission_class=RETROSPECTIVE."""
         decision_ts = _retrospective_decision_ts(21697)
         h1, m15 = _build_bars(decision_ts)
-        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15, max_age_s="0")
+        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15,
+                                max_age_s="0", now_ts=decision_ts + 21697)
         for sig in signals:
             self.assertEqual(sig.provenance.get("signal_emission_class"), "RETROSPECTIVE")
 
