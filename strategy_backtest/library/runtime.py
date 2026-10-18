@@ -21,7 +21,7 @@ from .primitives import VERSION
 
 STEPS = {'M5':300,'M15':900,'H1':3600,'H4':14400,'D1':86400}
 ENGINE = 'composed-research-engine.v1'
-CONTEXT_MODES = {'ict_fvg','fvg','liquidity_run','bos_retest','structure_pullback','ote','vwap_reclaim'}
+CONTEXT_MODES = {'ict_fvg','fvg','liquidity_run','bos_retest','structure_pullback','ote','vwap_reclaim','order_block_sequence'}
 
 
 def iso(timestamp):
@@ -68,8 +68,11 @@ class ComposedResearchRuntime:
         self.dataset_id=dataset_id
         self.artifact_digest=artifact_digest
         self.parameter_hash=canonical_hash(definition.manifest())
-        self.parameter_set_id=f'{self.strategy_id}@V1:experimental:{self.parameter_hash[:16]}'
+        self.parameter_set_id=f'{self.strategy_id}@{self.definition.version}:experimental:{self.parameter_hash[:16]}'
         self.dependency_hash=canonical_hash({'primitives':VERSION,'composition':definition.mode,'artifact':artifact_digest})
+        if definition.mode in {'judas_sequence','po3_sequence','order_block_sequence'}:
+            from .sequence_primitives import VERSION as SEQUENCE_VERSION
+            self.dependency_hash=canonical_hash({'primitives':VERSION,'sequence_primitives':SEQUENCE_VERSION,'composition':definition.mode,'artifact':artifact_digest})
         self._state={'seen':{},'episodes':[],'pending':{},'last_cutoff':{},'entries':[],'tick_sizes':{}}
 
     def _binding(self):
@@ -103,7 +106,7 @@ class ComposedResearchRuntime:
         if entry:
             candidate=entry['episode_id'];direction=entry['direction'];provenance['research_entry']=entry
         return Evaluation(self.strategy_id,instrument,iso(cutoff),trace.decision,trace,
-                          direction=direction,strategy_version='V1',parameter_set_id=self.parameter_set_id,
+                          direction=direction,strategy_version=self.definition.version,parameter_set_id=self.parameter_set_id,
                           candidate_id=candidate,reason_codes=(code,),trace_fidelity=TraceFidelity.L2,
                           runtime_version=ENGINE,evaluator_version=f'{self.definition.mode}.v1',provenance=provenance)
 
@@ -143,7 +146,7 @@ class ComposedResearchRuntime:
 
     def _proposal(self,p,bar,cutoff):
         direction='LONG' if p.direction==1 else 'SHORT'
-        episode=canonical_hash({'strategy':self.strategy_id,'version':'V1','parameters':self.parameter_hash,
+        episode=canonical_hash({'strategy':self.strategy_id,'version':self.definition.version,'parameters':self.parameter_hash,
                                 'instrument':bar.canonical_instrument,'direction':direction,'anchor':p.anchor})[:32]
         return {'episode_id':episode,'direction':direction,'anchor':p.anchor,
                 'confirmation_time':cutoff,'intended_entry_time':cutoff,'entry_reference':bar.close,
@@ -183,7 +186,7 @@ class ComposedResearchRuntime:
                     'data_available_at':current.provenance.get('data_available_at'),
                     'entry_classification':'COMPLETED_CANDLE_RECONSTRUCTION'}
             if reason=='ENTRY_ACCEPTED':
-                accepted=ResearchOutcomeEntry(pending['episode_id'],f'{self.strategy_id}@V1',instrument,
+                accepted=ResearchOutcomeEntry(pending['episode_id'],f'{self.strategy_id}@{self.definition.version}',instrument,
                           pending['direction'],current.open_timestamp,entry,stop,target,self.parameter_hash,
                           self.dependency_hash,self.dataset_id,provenance=detail)
                 detail.update({'entry_price':entry,'stop':stop,'target':target})
@@ -242,7 +245,7 @@ class ComposedResearchRuntime:
                 'observed_at':observation.observed_at, 'data_available_at':observation.available_at}
         accepted=None
         if reason=='ENTRY_ACCEPTED':
-            accepted=ResearchOutcomeEntry(pending['episode_id'],f'{self.strategy_id}@V1',instrument,
+            accepted=ResearchOutcomeEntry(pending['episode_id'],f'{self.strategy_id}@{self.definition.version}',instrument,
                       pending['direction'],observation.open_time,observation.price,pending['stop'],pending['target'],
                       self.parameter_hash,self.dependency_hash,self.dataset_id,provenance=detail)
             detail.update({'entry_price':observation.price,'stop':pending['stop'],'target':pending['target']})

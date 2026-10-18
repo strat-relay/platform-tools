@@ -1,0 +1,553 @@
+{
+  "artifact_digest": "d2e9a12380b5ecfc8c08ccc708c30e8de78ca93e2ce4006699ef4f8f853fe4ec",
+  "evidence_class": "SYNTHETIC_FIXTURE",
+  "execution_enabled": false,
+  "historical_validation": "NOT_RUN",
+  "registration_performed": false,
+  "results": [
+    {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "counts_reconcile": true,
+      "direction": 1,
+      "entries": [
+        {
+          "dataset_manifest_hash": "cb6792e0c46e427bb5696b5b258441b25c3e12330919b78d38865076ef0ff2e8",
+          "dependency_manifest_hash": "5f62db48c722f80b750c68394d707ee12c4df434170a247218c3cfb417d6c439",
+          "direction": "LONG",
+          "entry_price": 103.0,
+          "entry_timestamp": 1704959100,
+          "episode_id": "0ebd1786b63e3e941f2367196ee5f5e0",
+          "instrument": "EURUSD",
+          "parameter_hash": "bd4a80d43abc4c509f01ed8dab0324db6fb1d460beeb5c76354e8ecd0a57ec33",
+          "provenance": {
+            "data_available_at": null,
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 103.0,
+            "episode_id": "0ebd1786b63e3e941f2367196ee5f5e0",
+            "intended_entry_time": 1704959100,
+            "observed_at": null,
+            "reference_open_time": 1704959100,
+            "stop": 98.7957142857143,
+            "target": 110.0
+          },
+          "stop_price": 98.7957142857143,
+          "strategy_version": "ICT_JUDAS_SWING@V2",
+          "target_price": 110.0
+        }
+      ],
+      "evaluations": 65,
+      "family": "ICT",
+      "outcome_counts": {
+        "OPEN_AT_DATASET_END": 1
+      },
+      "outcomes": [
+        {
+          "adapter_version": "price-action-research-entry-adapter-v1",
+          "direction": "LONG",
+          "entry_price": 103.0,
+          "entry_timestamp": 1704959100,
+          "episode_id": "0ebd1786b63e3e941f2367196ee5f5e0",
+          "exit_price": null,
+          "exit_timestamp": null,
+          "gap_classification": null,
+          "holding_seconds": null,
+          "instrument": "EURUSD",
+          "policy_version": "price-action-research-outcome-policy-v1",
+          "provenance": {
+            "data_available_at": null,
+            "dataset_manifest_hash": "cb6792e0c46e427bb5696b5b258441b25c3e12330919b78d38865076ef0ff2e8",
+            "dependency_manifest_hash": "5f62db48c722f80b750c68394d707ee12c4df434170a247218c3cfb417d6c439",
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 103.0,
+            "episode_id": "0ebd1786b63e3e941f2367196ee5f5e0",
+            "intended_entry_time": 1704959100,
+            "observed_at": null,
+            "parameter_hash": "bd4a80d43abc4c509f01ed8dab0324db6fb1d460beeb5c76354e8ecd0a57ec33",
+            "reference_open_time": 1704959100,
+            "stop": 98.7957142857143,
+            "target": 110.0
+          },
+          "realized_r": null,
+          "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+          "resolver_version": "shared-research-outcome-resolver-v1",
+          "status": "OPEN_AT_DATASET_END",
+          "stop_price": 98.7957142857143,
+          "strategy_version": "ICT_JUDAS_SWING@V2",
+          "target_price": 110.0,
+          "valuation_status": "NOT_VALUED"
+        }
+      ],
+      "pending": 0,
+      "proposals": 1,
+      "reasons": {
+        "AWAITING_SEQUENCE_CONFIRMATION": 2,
+        "ENTRY_ACCEPTED": 1,
+        "INSUFFICIENT_WARMUP": 31,
+        "OUTSIDE_SESSION": 29,
+        "PROPOSAL": 1,
+        "SEQUENCE_ALREADY_CONFIRMED": 1
+      },
+      "strategy_ref": "ICT_JUDAS_SWING@V2",
+      "valuation": "GROSS_REFERENCE_PRICE_NO_BROKER_COSTS"
+    },
+    {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "counts_reconcile": true,
+      "direction": -1,
+      "entries": [
+        {
+          "dataset_manifest_hash": "5a0c237fb9aacf8b8a5f072d0d132a87dbb221f944156446055091dc7e806447",
+          "dependency_manifest_hash": "5f62db48c722f80b750c68394d707ee12c4df434170a247218c3cfb417d6c439",
+          "direction": "SHORT",
+          "entry_price": 97.0,
+          "entry_timestamp": 1704959100,
+          "episode_id": "3eb3f083e25abaa969c041f6e6b005d3",
+          "instrument": "EURUSD",
+          "parameter_hash": "bd4a80d43abc4c509f01ed8dab0324db6fb1d460beeb5c76354e8ecd0a57ec33",
+          "provenance": {
+            "data_available_at": null,
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 97.0,
+            "episode_id": "3eb3f083e25abaa969c041f6e6b005d3",
+            "intended_entry_time": 1704959100,
+            "observed_at": null,
+            "reference_open_time": 1704959100,
+            "stop": 101.2042857142857,
+            "target": 90.0
+          },
+          "stop_price": 101.2042857142857,
+          "strategy_version": "ICT_JUDAS_SWING@V2",
+          "target_price": 90.0
+        }
+      ],
+      "evaluations": 65,
+      "family": "ICT",
+      "outcome_counts": {
+        "OPEN_AT_DATASET_END": 1
+      },
+      "outcomes": [
+        {
+          "adapter_version": "price-action-research-entry-adapter-v1",
+          "direction": "SHORT",
+          "entry_price": 97.0,
+          "entry_timestamp": 1704959100,
+          "episode_id": "3eb3f083e25abaa969c041f6e6b005d3",
+          "exit_price": null,
+          "exit_timestamp": null,
+          "gap_classification": null,
+          "holding_seconds": null,
+          "instrument": "EURUSD",
+          "policy_version": "price-action-research-outcome-policy-v1",
+          "provenance": {
+            "data_available_at": null,
+            "dataset_manifest_hash": "5a0c237fb9aacf8b8a5f072d0d132a87dbb221f944156446055091dc7e806447",
+            "dependency_manifest_hash": "5f62db48c722f80b750c68394d707ee12c4df434170a247218c3cfb417d6c439",
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 97.0,
+            "episode_id": "3eb3f083e25abaa969c041f6e6b005d3",
+            "intended_entry_time": 1704959100,
+            "observed_at": null,
+            "parameter_hash": "bd4a80d43abc4c509f01ed8dab0324db6fb1d460beeb5c76354e8ecd0a57ec33",
+            "reference_open_time": 1704959100,
+            "stop": 101.2042857142857,
+            "target": 90.0
+          },
+          "realized_r": null,
+          "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+          "resolver_version": "shared-research-outcome-resolver-v1",
+          "status": "OPEN_AT_DATASET_END",
+          "stop_price": 101.2042857142857,
+          "strategy_version": "ICT_JUDAS_SWING@V2",
+          "target_price": 90.0,
+          "valuation_status": "NOT_VALUED"
+        }
+      ],
+      "pending": 0,
+      "proposals": 1,
+      "reasons": {
+        "AWAITING_SEQUENCE_CONFIRMATION": 2,
+        "ENTRY_ACCEPTED": 1,
+        "INSUFFICIENT_WARMUP": 31,
+        "OUTSIDE_SESSION": 29,
+        "PROPOSAL": 1,
+        "SEQUENCE_ALREADY_CONFIRMED": 1
+      },
+      "strategy_ref": "ICT_JUDAS_SWING@V2",
+      "valuation": "GROSS_REFERENCE_PRICE_NO_BROKER_COSTS"
+    },
+    {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "counts_reconcile": true,
+      "direction": 1,
+      "entries": [
+        {
+          "dataset_manifest_hash": "39ba800bae91c335085e9eb9f21a184b15b42a9165b57bd0a2e2db5aace58579",
+          "dependency_manifest_hash": "74b86657d740ac340de63a9c7db1c781db83c752282254486743384f33d9790f",
+          "direction": "LONG",
+          "entry_price": 103.0,
+          "entry_timestamp": 1704977100,
+          "episode_id": "0dd554391a3017e6d729ffc105e72505",
+          "instrument": "EURUSD",
+          "parameter_hash": "e5344f925184f2b24a54218b3d58c2101b0d51a1f214217819de975a869c420b",
+          "provenance": {
+            "data_available_at": null,
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 103.0,
+            "episode_id": "0dd554391a3017e6d729ffc105e72505",
+            "intended_entry_time": 1704977100,
+            "observed_at": null,
+            "reference_open_time": 1704977100,
+            "stop": 98.7957142857143,
+            "target": 111.4085714285714
+          },
+          "stop_price": 98.7957142857143,
+          "strategy_version": "ICT_POWER_OF_THREE@V1",
+          "target_price": 111.4085714285714
+        }
+      ],
+      "evaluations": 65,
+      "family": "ICT",
+      "outcome_counts": {
+        "OPEN_AT_DATASET_END": 1
+      },
+      "outcomes": [
+        {
+          "adapter_version": "price-action-research-entry-adapter-v1",
+          "direction": "LONG",
+          "entry_price": 103.0,
+          "entry_timestamp": 1704977100,
+          "episode_id": "0dd554391a3017e6d729ffc105e72505",
+          "exit_price": null,
+          "exit_timestamp": null,
+          "gap_classification": null,
+          "holding_seconds": null,
+          "instrument": "EURUSD",
+          "policy_version": "price-action-research-outcome-policy-v1",
+          "provenance": {
+            "data_available_at": null,
+            "dataset_manifest_hash": "39ba800bae91c335085e9eb9f21a184b15b42a9165b57bd0a2e2db5aace58579",
+            "dependency_manifest_hash": "74b86657d740ac340de63a9c7db1c781db83c752282254486743384f33d9790f",
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 103.0,
+            "episode_id": "0dd554391a3017e6d729ffc105e72505",
+            "intended_entry_time": 1704977100,
+            "observed_at": null,
+            "parameter_hash": "e5344f925184f2b24a54218b3d58c2101b0d51a1f214217819de975a869c420b",
+            "reference_open_time": 1704977100,
+            "stop": 98.7957142857143,
+            "target": 111.4085714285714
+          },
+          "realized_r": null,
+          "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+          "resolver_version": "shared-research-outcome-resolver-v1",
+          "status": "OPEN_AT_DATASET_END",
+          "stop_price": 98.7957142857143,
+          "strategy_version": "ICT_POWER_OF_THREE@V1",
+          "target_price": 111.4085714285714,
+          "valuation_status": "NOT_VALUED"
+        }
+      ],
+      "pending": 0,
+      "proposals": 1,
+      "reasons": {
+        "AWAITING_SEQUENCE_CONFIRMATION": 2,
+        "ENTRY_ACCEPTED": 1,
+        "INSUFFICIENT_WARMUP": 31,
+        "OUTSIDE_SESSION": 29,
+        "PROPOSAL": 1,
+        "SEQUENCE_ALREADY_CONFIRMED": 1
+      },
+      "strategy_ref": "ICT_POWER_OF_THREE@V1",
+      "valuation": "GROSS_REFERENCE_PRICE_NO_BROKER_COSTS"
+    },
+    {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "counts_reconcile": true,
+      "direction": -1,
+      "entries": [
+        {
+          "dataset_manifest_hash": "3842b9b44743ea5fa151c779312c2fa04e3e104c2cfe7face6417aead98bfa62",
+          "dependency_manifest_hash": "74b86657d740ac340de63a9c7db1c781db83c752282254486743384f33d9790f",
+          "direction": "SHORT",
+          "entry_price": 97.0,
+          "entry_timestamp": 1704977100,
+          "episode_id": "22613921aa1d601935c743bc752f8c59",
+          "instrument": "EURUSD",
+          "parameter_hash": "e5344f925184f2b24a54218b3d58c2101b0d51a1f214217819de975a869c420b",
+          "provenance": {
+            "data_available_at": null,
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 97.0,
+            "episode_id": "22613921aa1d601935c743bc752f8c59",
+            "intended_entry_time": 1704977100,
+            "observed_at": null,
+            "reference_open_time": 1704977100,
+            "stop": 101.2042857142857,
+            "target": 88.5914285714286
+          },
+          "stop_price": 101.2042857142857,
+          "strategy_version": "ICT_POWER_OF_THREE@V1",
+          "target_price": 88.5914285714286
+        }
+      ],
+      "evaluations": 65,
+      "family": "ICT",
+      "outcome_counts": {
+        "OPEN_AT_DATASET_END": 1
+      },
+      "outcomes": [
+        {
+          "adapter_version": "price-action-research-entry-adapter-v1",
+          "direction": "SHORT",
+          "entry_price": 97.0,
+          "entry_timestamp": 1704977100,
+          "episode_id": "22613921aa1d601935c743bc752f8c59",
+          "exit_price": null,
+          "exit_timestamp": null,
+          "gap_classification": null,
+          "holding_seconds": null,
+          "instrument": "EURUSD",
+          "policy_version": "price-action-research-outcome-policy-v1",
+          "provenance": {
+            "data_available_at": null,
+            "dataset_manifest_hash": "3842b9b44743ea5fa151c779312c2fa04e3e104c2cfe7face6417aead98bfa62",
+            "dependency_manifest_hash": "74b86657d740ac340de63a9c7db1c781db83c752282254486743384f33d9790f",
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 97.0,
+            "episode_id": "22613921aa1d601935c743bc752f8c59",
+            "intended_entry_time": 1704977100,
+            "observed_at": null,
+            "parameter_hash": "e5344f925184f2b24a54218b3d58c2101b0d51a1f214217819de975a869c420b",
+            "reference_open_time": 1704977100,
+            "stop": 101.2042857142857,
+            "target": 88.5914285714286
+          },
+          "realized_r": null,
+          "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+          "resolver_version": "shared-research-outcome-resolver-v1",
+          "status": "OPEN_AT_DATASET_END",
+          "stop_price": 101.2042857142857,
+          "strategy_version": "ICT_POWER_OF_THREE@V1",
+          "target_price": 88.5914285714286,
+          "valuation_status": "NOT_VALUED"
+        }
+      ],
+      "pending": 0,
+      "proposals": 1,
+      "reasons": {
+        "AWAITING_SEQUENCE_CONFIRMATION": 2,
+        "ENTRY_ACCEPTED": 1,
+        "INSUFFICIENT_WARMUP": 31,
+        "OUTSIDE_SESSION": 29,
+        "PROPOSAL": 1,
+        "SEQUENCE_ALREADY_CONFIRMED": 1
+      },
+      "strategy_ref": "ICT_POWER_OF_THREE@V1",
+      "valuation": "GROSS_REFERENCE_PRICE_NO_BROKER_COSTS"
+    },
+    {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "counts_reconcile": true,
+      "direction": 1,
+      "entries": [
+        {
+          "dataset_manifest_hash": "f1b57dfcd7156885ad3ad9376ed3fb5b8f2e4856cb360ca648c21a41a734b455",
+          "dependency_manifest_hash": "84653c787b8101f6eb6afbf6d8446405e212be8dd6a0cbc13f22a1e50a641f0e",
+          "direction": "LONG",
+          "entry_price": 102.0,
+          "entry_timestamp": 1704988800,
+          "episode_id": "321086dcd684e8904f04cce2ecc03a1c",
+          "instrument": "EURUSD",
+          "parameter_hash": "b9834306a670eb9a7be531569d2c97c2b5cc77f9cf43c035838a6375a7020b82",
+          "provenance": {
+            "data_available_at": null,
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 102.0,
+            "episode_id": "321086dcd684e8904f04cce2ecc03a1c",
+            "intended_entry_time": 1704988800,
+            "observed_at": null,
+            "reference_open_time": 1704988800,
+            "stop": 99.37785714285714,
+            "target": 107.24428571428572
+          },
+          "stop_price": 99.37785714285714,
+          "strategy_version": "SMC_ORDER_BLOCK_RETRACEMENT@V2",
+          "target_price": 107.24428571428572
+        }
+      ],
+      "evaluations": 42,
+      "family": "SMC",
+      "outcome_counts": {
+        "OPEN_AT_DATASET_END": 1
+      },
+      "outcomes": [
+        {
+          "adapter_version": "price-action-research-entry-adapter-v1",
+          "direction": "LONG",
+          "entry_price": 102.0,
+          "entry_timestamp": 1704988800,
+          "episode_id": "321086dcd684e8904f04cce2ecc03a1c",
+          "exit_price": null,
+          "exit_timestamp": null,
+          "gap_classification": null,
+          "holding_seconds": null,
+          "instrument": "EURUSD",
+          "policy_version": "price-action-research-outcome-policy-v1",
+          "provenance": {
+            "data_available_at": null,
+            "dataset_manifest_hash": "f1b57dfcd7156885ad3ad9376ed3fb5b8f2e4856cb360ca648c21a41a734b455",
+            "dependency_manifest_hash": "84653c787b8101f6eb6afbf6d8446405e212be8dd6a0cbc13f22a1e50a641f0e",
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 102.0,
+            "episode_id": "321086dcd684e8904f04cce2ecc03a1c",
+            "intended_entry_time": 1704988800,
+            "observed_at": null,
+            "parameter_hash": "b9834306a670eb9a7be531569d2c97c2b5cc77f9cf43c035838a6375a7020b82",
+            "reference_open_time": 1704988800,
+            "stop": 99.37785714285714,
+            "target": 107.24428571428572
+          },
+          "realized_r": null,
+          "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+          "resolver_version": "shared-research-outcome-resolver-v1",
+          "status": "OPEN_AT_DATASET_END",
+          "stop_price": 99.37785714285714,
+          "strategy_version": "SMC_ORDER_BLOCK_RETRACEMENT@V2",
+          "target_price": 107.24428571428572,
+          "valuation_status": "NOT_VALUED"
+        }
+      ],
+      "pending": 0,
+      "proposals": 1,
+      "reasons": {
+        "ENTRY_ACCEPTED": 1,
+        "INSUFFICIENT_WARMUP": 31,
+        "NO_SETUP": 9,
+        "PROPOSAL": 1
+      },
+      "strategy_ref": "SMC_ORDER_BLOCK_RETRACEMENT@V2",
+      "valuation": "GROSS_REFERENCE_PRICE_NO_BROKER_COSTS"
+    },
+    {
+      "accepted_reconstructed_entries": 1,
+      "cancellations": 0,
+      "counts_reconcile": true,
+      "direction": -1,
+      "entries": [
+        {
+          "dataset_manifest_hash": "24f58b4109da925e2462b199ae903d79cf3c685d1d4e6b6634ab6cb2a0109a84",
+          "dependency_manifest_hash": "84653c787b8101f6eb6afbf6d8446405e212be8dd6a0cbc13f22a1e50a641f0e",
+          "direction": "SHORT",
+          "entry_price": 98.0,
+          "entry_timestamp": 1704988800,
+          "episode_id": "e8a5931aee2a08a7a499f93c423cc5c8",
+          "instrument": "EURUSD",
+          "parameter_hash": "b9834306a670eb9a7be531569d2c97c2b5cc77f9cf43c035838a6375a7020b82",
+          "provenance": {
+            "data_available_at": null,
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 98.0,
+            "episode_id": "e8a5931aee2a08a7a499f93c423cc5c8",
+            "intended_entry_time": 1704988800,
+            "observed_at": null,
+            "reference_open_time": 1704988800,
+            "stop": 100.62214285714286,
+            "target": 92.75571428571428
+          },
+          "stop_price": 100.62214285714286,
+          "strategy_version": "SMC_ORDER_BLOCK_RETRACEMENT@V2",
+          "target_price": 92.75571428571428
+        }
+      ],
+      "evaluations": 42,
+      "family": "SMC",
+      "outcome_counts": {
+        "OPEN_AT_DATASET_END": 1
+      },
+      "outcomes": [
+        {
+          "adapter_version": "price-action-research-entry-adapter-v1",
+          "direction": "SHORT",
+          "entry_price": 98.0,
+          "entry_timestamp": 1704988800,
+          "episode_id": "e8a5931aee2a08a7a499f93c423cc5c8",
+          "exit_price": null,
+          "exit_timestamp": null,
+          "gap_classification": null,
+          "holding_seconds": null,
+          "instrument": "EURUSD",
+          "policy_version": "price-action-research-outcome-policy-v1",
+          "provenance": {
+            "data_available_at": null,
+            "dataset_manifest_hash": "24f58b4109da925e2462b199ae903d79cf3c685d1d4e6b6634ab6cb2a0109a84",
+            "dependency_manifest_hash": "84653c787b8101f6eb6afbf6d8446405e212be8dd6a0cbc13f22a1e50a641f0e",
+            "entry_cancelled": false,
+            "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+            "entry_price": 98.0,
+            "episode_id": "e8a5931aee2a08a7a499f93c423cc5c8",
+            "intended_entry_time": 1704988800,
+            "observed_at": null,
+            "parameter_hash": "b9834306a670eb9a7be531569d2c97c2b5cc77f9cf43c035838a6375a7020b82",
+            "reference_open_time": 1704988800,
+            "stop": 100.62214285714286,
+            "target": 92.75571428571428
+          },
+          "realized_r": null,
+          "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+          "resolver_version": "shared-research-outcome-resolver-v1",
+          "status": "OPEN_AT_DATASET_END",
+          "stop_price": 100.62214285714286,
+          "strategy_version": "SMC_ORDER_BLOCK_RETRACEMENT@V2",
+          "target_price": 92.75571428571428,
+          "valuation_status": "NOT_VALUED"
+        }
+      ],
+      "pending": 0,
+      "proposals": 1,
+      "reasons": {
+        "ENTRY_ACCEPTED": 1,
+        "INSUFFICIENT_WARMUP": 31,
+        "NO_SETUP": 9,
+        "PROPOSAL": 1
+      },
+      "strategy_ref": "SMC_ORDER_BLOCK_RETRACEMENT@V2",
+      "valuation": "GROSS_REFERENCE_PRICE_NO_BROKER_COSTS"
+    }
+  ],
+  "schema": "ict-smc-research-expansion.v1",
+  "source_files": {
+    "core/strategies/entry_timing.py": "bd0711a3303fa4bdc227448e51529a6166e399c2759ecd6e0db0c26c5a8bec71",
+    "core/strategies/evaluation/models.py": "42110cec40cc8842f6ebaab0b3ccaba392aabc194a8a9931b71ec22b4f7d6ab2",
+    "docs/strategy_library/ICT_SMC_EXPANSION.md": "dcfc5860e687748c4d1fca290c904f83c11d5293574c6e208484fbac56947d6a",
+    "research/ict_smc_expansion.py": "fdad9986c66f3fcfd02bfeab273124bb207fcbb15a4a648ae81a1a4c36a1ced9",
+    "research/ict_smc_fixtures.py": "1e21fcc490ac8b3ac89ab4da6b5281ec70a00e173ef2ba17b5904465ff5e4b5e",
+    "research/strategy_library.py": "a698b4769fb733e6ba2dbd429ea3f3dd4dbb8fb0fca89a2166aa1c2bfc4bccdb",
+    "research/strategy_library_fixtures.py": "0229b22c2d1482ca6712d1073d15df82bdc3a33db9034de9e1e5784745ea37b0",
+    "strategy_backtest/library/__init__.py": "ffb87df7d363369f409538228b8f4cfeeb885475176616efffc78a5203976b0d",
+    "strategy_backtest/library/catalog.py": "d45e78cf1807defba888cca64f41d0de392c6035c8bbf52442171da423c18637",
+    "strategy_backtest/library/compositions.py": "c005d2ff540e13c02871ea8a22f91cd75b870dcb6eb67abbb05021fb1aff1f23",
+    "strategy_backtest/library/expansion.py": "edea48767b2f947c34683468f205cd427a6ee8e7c2d930c9cb5aed84341d9f5b",
+    "strategy_backtest/library/primitives.py": "4dbfdb72ef07d72cf3c25e74f5fd7ef15f0d4c936e0c996fa87370b2d827a2b7",
+    "strategy_backtest/library/runtime.py": "14dd28c1d8fcad8f2ac0ab423f5e42c28fcfdfd06c2a04e3a5023db4d7943e2d",
+    "strategy_backtest/library/sequence_compositions.py": "9b719d68ceea7efa5bdbf77d621f3b6bd83de697f188883a37ce84e896aafadf",
+    "strategy_backtest/library/sequence_primitives.py": "42a31b403d2e8cae876cda23c8bf6c062c13b9b77e759d330ca32a763473308a",
+    "strategy_backtest/models.py": "5c3928d7a0976ca859c0b48524c424b00d10656d1ee003061c56f936f9896e13",
+    "strategy_backtest/research_outcomes.py": "de2eb6d0d5e2e30746fb2328009e0ddb7a85a7cd46279471434deb659e48a07c"
+  }
+}

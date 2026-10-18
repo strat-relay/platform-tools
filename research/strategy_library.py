@@ -106,8 +106,8 @@ def synthetic():
             'reports':reports}
 
 
-def replay(key,dataset_path):
-    raw=Path(dataset_path).read_bytes();data=json.loads(raw);d=BY_KEY[key]
+def replay(key,dataset_path,*,definition=None,artifact_override=None):
+    raw=Path(dataset_path).read_bytes();data=json.loads(raw);d=definition or BY_KEY[key]
     for required in ('source','timestamp_semantics','tick_size','bars','context','evidence_class'):
         if required not in data:raise ValueError(f'dataset missing {required}')
     if data['timestamp_semantics']!='UTC_OPEN_SECONDS':raise ValueError('normalize timestamps in a separately audited step')
@@ -118,7 +118,7 @@ def replay(key,dataset_path):
     cutoff=bars[-1].close_timestamp;instrument=bars[-1].canonical_instrument
     validate_series(bars,d.execution,instrument,cutoff)
     validate_series(context,d.context,instrument,cutoff)
-    artifact,files=artifact_identity();dataset=hashlib.sha256(raw).hexdigest()
+    artifact,files=artifact_override or artifact_identity();dataset=hashlib.sha256(raw).hexdigest()
     runtime=ComposedResearchRuntime(d,dataset_id=dataset,artifact_digest=artifact)
     records=[]
     # Every prefix retains the same indicator seed/history; no rolling re-seed.

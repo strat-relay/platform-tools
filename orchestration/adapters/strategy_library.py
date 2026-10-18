@@ -11,8 +11,9 @@ from typing import Any
 
 from orchestration.models import StrategySignal, stable_id
 from core.strategies.entry_timing import MAX_ENTRY_DELAY_SECONDS
-from research.strategy_library_registration import CANARY, registration
-from strategy_backtest.library import BY_KEY
+from research.strategy_library_registration import PUBLICATION_KEYS, registration
+from strategy_backtest.library.selection import EXPANSION_KEYS
+from strategy_backtest.library.selection import resolve_definition
 
 
 def iso(epoch):
@@ -23,15 +24,19 @@ class StrategyLibraryAdapter:
     strategy_version = 'V1'
 
     def __init__(self, conn: Any, key: str, instance: dict):
-        if key not in CANARY:
+        if key not in PUBLICATION_KEYS:
             raise ValueError('strategy not authorized for library canary publication')
         self.conn, self.key, self.instance = conn, key, instance
         self.identity = registration(key)
         self.strategy_id = self.identity['strategy_id']
+        self.definition = resolve_definition(key)
+        self.strategy_version = self.definition.version
         if (instance['instance_id'] != self.identity['instance_id'] or
                 instance.get('parameter_set_fingerprint') != self.identity['parameter_hash'] or
                 not instance.get('orchestrator_run_id')):
             raise ValueError('library publication identity/configuration mismatch')
+        if key in EXPANSION_KEYS and (instance.get('execution_mode')!='OFF' or instance.get('status')!='RESEARCH' or instance.get('signal_publication') is not True):
+            raise ValueError('expansion publication requires activated research-only OFF instance')
         activation = instance.get('publication_activation_time')
         if type(activation) is not int or activation <= 0:
             raise ValueError('explicit publication activation boundary required')
@@ -59,6 +64,7 @@ class StrategyLibraryAdapter:
         if (record.get('execution_eligible') is not False or
                 record.get('strategy_key') != self.key or record.get('instrument') != instrument or
                 evaluation.get('strategy_id') != self.strategy_id or
+                (self.key in EXPANSION_KEYS and evaluation.get('strategy_version') != self.strategy_version) or
                 evaluation.get('parameter_set_id') != self.identity['parameter_set_id'] or
                 provenance.get('reason') != 'ENTRY_ACCEPTED' or
                 provenance.get('execution_eligible') is not False or
@@ -67,7 +73,7 @@ class StrategyLibraryAdapter:
                 entry.get('parameter_hash') != self.identity['parameter_hash'] or
                 instrument not in self.instance.get('active_instruments', []) or
                 entry['instrument'] != instrument or
-                entry['strategy_version'] != self.strategy_id+'@V1' or
+                entry['strategy_version'] != self.strategy_id+'@'+self.strategy_version or
                 entry.get('provenance', {}).get('entry_cancelled') is not False):
             raise ValueError('invalid library entry provenance')
         price, stop, target = (float(entry[k]) for k in ('entry_price','stop_price','target_price'))
@@ -79,7 +85,7 @@ class StrategyLibraryAdapter:
         entry_time = float(entry['entry_timestamp'])
         observed = float(record['observed_at'])
         cutoff = float(provenance['information_cutoff'])
-        step = {'M5':300,'M15':900,'H1':3600,'H4':14400,'D1':86400}[BY_KEY[self.key].execution]
+        step = {'M5':300,'M15':900,'H1':3600,'H4':14400,'D1':86400}[self.definition.execution]
         live_open = record.get('evidence_class') == 'CONTEMPORANEOUS_CANDLE_OPEN'
         if (not all(math.isfinite(x) for x in (entry_time,observed,cutoff)) or
                 entry_time < self.instance['publication_activation_time'] or
@@ -95,7 +101,7 @@ class StrategyLibraryAdapter:
         emission_class = 'PROSPECTIVE' if live_open else 'RETROSPECTIVE_RESEARCH_EVIDENCE'
         episode = entry['episode_id']
         source = 'strategy-library:'+self.instance['orchestrator_run_id']+':'+str(event_id)
-        definition = BY_KEY[self.key]
+        definition = self.definition
         metadata = {
             'research_only': True, 'execution_eligible': False,
             'signal_emission_class': emission_class,
@@ -119,13 +125,16 @@ class StrategyLibraryAdapter:
                 'max_hold_minutes': None,
             },
         }
+        if self.key in EXPANSION_KEYS:
+            metadata.update(strategy_version=self.strategy_version,strategy_family=definition.family,
+                            sequence_primitive_version=provenance.get('sequence_primitive_version'))
         if live_open:
             metadata['entry_timing'] = provenance['entry_timing']
         return StrategySignal(
             signal_id=stable_id('SIG', {'instance': self.instance['instance_id'],
                                       'run': self.instance['orchestrator_run_id'], 'episode': episode}),
             schema_version='strategy-signal-v1', strategy_id=self.strategy_id,
-            strategy_version='V1', strategy_instance_id=self.instance['instance_id'],
+            strategy_version=self.strategy_version, strategy_instance_id=self.instance['instance_id'],
             source_event_id=source, market_event_id=source, setup_id=episode,
             entry_opportunity_id=episode, economic_position_id=None,
             created_at=iso(observed), signal_timestamp=iso(entry_time),

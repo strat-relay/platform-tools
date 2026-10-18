@@ -218,13 +218,15 @@ def load_adapters(config: dict[str, Any], freeze_timestamp: str,
         elif record.get("adapter") == "StrategyLibraryAdapter":
             if conn is not None:
                 from orchestration.adapters.strategy_library import StrategyLibraryAdapter
-                from research.strategy_library_registration import CANARY, registration
-                keys = {registration(key)['strategy_id']: key for key in CANARY}
-                key = keys.get(record['strategy_id'])
-                if key is None:
+                from research.strategy_library_registration import PUBLICATION_KEYS, registration
+                keys = {key:registration(key)['strategy_id'] for key in PUBLICATION_KEYS}
+                if record['strategy_id'] not in keys.values():
                     raise ValueError('unauthorized library adapter strategy')
                 for instance in config.get('instances', []):
                     if instance.get('enabled') and instance.get('strategy_id') == record['strategy_id']:
+                        key = instance.get('library_key') or next((k for k,sid in keys.items() if sid==record['strategy_id']),None)
+                        if keys.get(key)!=record['strategy_id']:
+                            raise ValueError('unauthorized library adapter strategy/version')
                         adapters.append(StrategyLibraryAdapter(conn, key, instance))
         elif record["strategy_id"] == "KOJO_STRUCTURE_RECLAIM_V1":
             # Pipeline-created instances from strategy_instance_v2.

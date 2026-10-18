@@ -8,7 +8,7 @@ from strategy_backtest.research_outcomes import ResearchOutcomeEntry, resolve_re
 
 def resolve_library_signal(signal, candles, timeframe_minutes):
     entry = ResearchOutcomeEntry(
-        signal.signal_id, signal.strategy_id+'@V1', signal.instrument,
+        signal.signal_id, signal.strategy_id+'@'+str(signal.strategy_metadata.get('strategy_version','V1')), signal.instrument,
         signal.direction, int(signal.decision_time.timestamp()), signal.entry,
         signal.stop, signal.target,
         parameter_hash=signal.strategy_metadata.get('parameter_hash'))

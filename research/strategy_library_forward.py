@@ -23,7 +23,8 @@ from market_data_cache.store import TIMEFRAMES
 from postgres.config import PostgresConfig
 from postgres.db import connect
 from research.strategy_library import artifact_identity
-from strategy_backtest.library import BY_KEY, ComposedResearchRuntime
+from strategy_backtest.library import ComposedResearchRuntime
+from strategy_backtest.library.selection import DEFINITIONS_BY_SELECTOR as BY_KEY
 from strategy_backtest.library.runtime import STEPS, validate_series
 from strategy_backtest.models import MarketEvent
 from strategy_backtest.research_outcomes import resolve_research_entry
@@ -231,7 +232,7 @@ class ForwardObserver:
                                         'processing_delay_seconds': observed_at-opening.open_time,
                                         'execution_eligible': False, 'payload': payload})
         # Use the existing pure research resolver. Never write canonical or
-        # broker outcome tables; every entry remains a candle reconstruction.
+        # broker outcome tables; reference outcomes remain theoretical for both entry modes.
         for entry in runtime.accepted_entries():
             outcome = resolve_research_entry(entry, execution,
                                             timeframe_seconds=STEPS[d.execution]).to_dict()

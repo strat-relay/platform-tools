@@ -8,6 +8,7 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from postgres.db import connect
+from core.strategies.families import family_for, family_strategy_ids, catalog as family_catalog
 from outcome_attribution import THEORETICAL_OUTCOME_DISCLAIMER
 
 
@@ -117,6 +118,8 @@ def _row_dict(cursor: Any, row: Any) -> dict[str, Any]:
 def _project(row: dict[str, Any]) -> dict[str, Any]:
     """Return canonical fields plus precise aliases used by the current Console."""
     result = dict(row)
+    result["strategy_family"] = family_for(result.get("strategy_id"))
+    result["strategy_family_taxonomy_version"] = family_catalog()["version"]
     result["entry_mechanisms"] = list(result.get("entry_mechanisms") or [])
     # These aliases have direct canonical equivalents; no values are inferred.
     result["symbol"] = result.get("instrument")
@@ -136,6 +139,8 @@ def _project(row: dict[str, Any]) -> dict[str, Any]:
 def _project_lite(row: dict[str, Any]) -> dict[str, Any]:
     """Minimal projection for list-mode rows — only fields the Signals table renders."""
     result = dict(row)
+    result["strategy_family"] = family_for(result.get("strategy_id"))
+    result["strategy_family_taxonomy_version"] = family_catalog()["version"]
     result["symbol"] = result.get("instrument")
     result["signal_timestamp"] = result.get("decision_time")
     result["market_event_id"] = result.get("source_event_id")
@@ -404,6 +409,11 @@ class CanonicalSignalRepository:
             if value is not None:
                 where.append(clause)
                 params.append(value)
+        family=query.get("family")
+        if family:
+            ids=family_strategy_ids(family)
+            where.append("s.strategy_id <> ALL(%s)" if family=="Unclassified" else "s.strategy_id = ANY(%s)")
+            params.append(ids)
         for name, operator in (("date_from", ">="), ("date_to", "<=")):
             value = query.get(name)
             if value:
@@ -501,7 +511,7 @@ class PlatformSignalApi:
                          "outcome_schema_version": OUTCOME_SCHEMA_VERSION}
         if path == "/api/v1/signals":
             allowed = {"strategy_id", "strategy", "symbol", "instrument", "direction",
-                       "search", "date_from", "date_to", "limit", "offset", "evidence_class", "lite"}
+                       "search", "date_from", "date_to", "limit", "offset", "evidence_class", "lite", "family"}
             unsupported = sorted(set(query) - allowed)
             if unsupported:
                 return 400, self._envelope(error="UNSUPPORTED_QUERY_PARAMETER",

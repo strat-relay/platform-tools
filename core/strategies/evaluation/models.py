@@ -167,6 +167,17 @@ def default_reason_codes() -> ReasonCodeRegistry:
     )
     # Additive research-library reasons; existing codes/consumers are unchanged.
     definitions += (
+        ("LIBRARY_MANIPULATION_WINDOW_EXPIRED", "research_library", "Manipulation window expired", True),
+        ("LIBRARY_NO_SESSION_SWEEP", "research_library", "No session sweep", True),
+        ("LIBRARY_AMBIGUOUS_SESSION_SWEEP", "research_library", "Ambiguous session sweep", True),
+        ("LIBRARY_SEQUENCE_INVALIDATED", "research_library", "Sequence invalidated", True),
+        ("LIBRARY_SEQUENCE_EXPIRED", "research_library", "Sequence expired", True),
+        ("LIBRARY_AWAITING_SEQUENCE_CONFIRMATION", "research_library", "Awaiting sequence confirmation", True),
+        ("LIBRARY_SEQUENCE_ALREADY_CONFIRMED", "research_library", "Sequence already confirmed", True),
+        ("LIBRARY_ACCUMULATION_TOO_WIDE", "research_library", "Accumulation too wide", True),
+        ("LIBRARY_BLOCK_INVALIDATED", "research_library", "Block invalidated", True),
+        ("LIBRARY_BLOCK_EXPIRED", "research_library", "Block expired", True),
+        ("LIBRARY_BLOCK_RETEST_NOT_CONFIRMED", "research_library", "Block retest not confirmed", True),
         ("LIBRARY_INSUFFICIENT_WARMUP", "research_library", "Insufficient warmup", True),
         ("LIBRARY_ZERO_VOLATILITY", "research_library", "Zero volatility", True),
         ("LIBRARY_EXECUTION_DATA_GAP", "research_library", "Execution data gap", True),

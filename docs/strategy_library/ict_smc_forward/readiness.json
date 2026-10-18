@@ -1,0 +1,44 @@
+{
+  "schema": "ict-smc-forward-preparation.v1",
+  "status": "PREPARED_NOT_ACTIVATED",
+  "live_migration_state": "UNKNOWN",
+  "live_cluster_checks": "NOT_AVAILABLE_IN_THIS_WORKSPACE",
+  "changes_applied_to_cluster_or_db_by_this_session": false,
+  "activation_time": null,
+  "runtime_image": null,
+  "run_id": null,
+  "migration_file": "066_ict_smc_forward_registration.sql",
+  "migration_sha256": "a1b848adb6c06861a21b4b766d851c5ed9c9961bb6da8d44d7108fb7bac0769b",
+  "instances": [
+    {
+      "selector": "judas_swing@V2",
+      "strategy_id": "ICT_JUDAS_SWING",
+      "version": "V2",
+      "instance_id": "4a411452-1440-5f91-bb95-eaf6dabbccc2",
+      "parameter_set_id": "ICT_JUDAS_SWING@V2:experimental:bd4a80d43abc4c50",
+      "parameter_hash": "bd4a80d43abc4c509f01ed8dab0324db6fb1d460beeb5c76354e8ecd0a57ec33",
+      "execution_eligible": false,
+      "execution_mode": "OFF"
+    },
+    {
+      "selector": "power_of_three@V1",
+      "strategy_id": "ICT_POWER_OF_THREE",
+      "version": "V1",
+      "instance_id": "3441a68f-6209-56fa-b3ad-c0e8d6c3cb86",
+      "parameter_set_id": "ICT_POWER_OF_THREE@V1:experimental:e5344f925184f2b2",
+      "parameter_hash": "e5344f925184f2b24a54218b3d58c2101b0d51a1f214217819de975a869c420b",
+      "execution_eligible": false,
+      "execution_mode": "OFF"
+    },
+    {
+      "selector": "order_block_retracement@V2",
+      "strategy_id": "SMC_ORDER_BLOCK_RETRACEMENT",
+      "version": "V2",
+      "instance_id": "b2af32aa-e42d-5ff6-9a42-2aece970459f",
+      "parameter_set_id": "SMC_ORDER_BLOCK_RETRACEMENT@V2:experimental:b9834306a670eb9a",
+      "parameter_hash": "b9834306a670eb9a7be531569d2c97c2b5cc77f9cf43c035838a6375a7020b82",
+      "execution_eligible": false,
+      "execution_mode": "OFF"
+    }
+  ]
+}
