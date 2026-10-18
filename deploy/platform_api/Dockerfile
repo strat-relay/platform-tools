@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir --disable-pip-version-check \
 
 COPY postgres ./postgres
 COPY platform_api ./platform_api
+# Shared signal-family taxonomy includes its JSON catalog alongside Python code.
+COPY core ./core
 # The instance-scoped observation repository resolves library evaluator keys through
 # strategy_backtest.library. Keep that package in the control-api image; omitting it
 # causes every observation request to fail before its first database query.
@@ -29,6 +31,9 @@ COPY trade_management ./trade_management
 # execution consumer/worker. Runtime authority is resolved from PostgreSQL, not the policy file.
 COPY execution_v2/__init__.py execution_v2/risk.py execution_v2/risk_policy_store.py execution_v2/authority_store.py execution_v2/canary_windows.py ./execution_v2/
 COPY orchestration/config/v2_execution_risk_policy.json ./orchestration/config/v2_execution_risk_policy.json
+
+# Exercise startup imports and packaged taxonomy data before publishing an image.
+RUN python -c "from platform_api.signals import UnifiedPlatformApi; from core.strategies.families import family_for; assert family_for('ICT_JUDAS_SWING') == 'ICT'; UnifiedPlatformApi()"
 
 USER 65532:65532
 EXPOSE 22350
