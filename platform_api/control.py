@@ -7,6 +7,7 @@ and (for the active strategy definition only) the mounted platform config.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -1040,8 +1041,13 @@ class PlatformControlApi:
                     return (404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")) if result is None else (200, self._body(result, source="canonical_postgres"))
                 except ValueError as exc:
                     return 400, self._body(None, source="canonical_postgres", error="INVALID_QUERY", message=str(exc))
-                except Exception:
-                    return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE", error="SOURCE_UNAVAILABLE", message="Observation evidence is temporarily unavailable")
+                except Exception as exc:
+                    # Never log exception text/SQL/connection strings: they may contain secrets.
+                    sqlstate = getattr(exc, "sqlstate", None)
+                    failure = {"57014": "QUERY_TIMEOUT", "42501": "READ_PERMISSION_DENIED",
+                               "42P01": "SCHEMA_UNAVAILABLE", "42703": "SCHEMA_UNAVAILABLE"}.get(sqlstate, "SOURCE_UNAVAILABLE")
+                    logging.getLogger(__name__).warning("strategy_observation_read_failed category=%s sqlstate=%s", failure, sqlstate if isinstance(sqlstate,str) and len(sqlstate)==5 and sqlstate.isalnum() else "unknown")
+                    return 503, {**self._body(None, source="canonical_postgres", status="UNAVAILABLE", error="SOURCE_UNAVAILABLE", message="Observation evidence is temporarily unavailable"), "failure_category": failure}
         # Server-side instrument read models.  The query contract is deliberately distinct from
         # the capped strategy report so 200+ instruments never require client-side aggregation.
         if path.startswith("/api/v1/strategies/") and "/instances/" in path and "/instruments" in path:

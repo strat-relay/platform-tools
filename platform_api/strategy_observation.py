@@ -79,12 +79,12 @@ class ObservationRepository:
         rows=cur.fetchall()
         from strategy_backtest.library import BY_KEY
         keys={**PA_KEYS,'kojo_structure_reclaim_v3':'KOJO_STRUCTURE_RECLAIM_V3',
-              'kojo_structure_reclaim':'KOJO_STRUCTURE_RECLAIM_V1'}
+              'kojo_structure_reclaim':'KOJO_STRUCTURE_RECLAIM'}
         for key,definition in BY_KEY.items():keys['library.'+key+'@V1']=definition.strategy_id
         for iid,key,attrs,instruments,parameter,family in rows:
             attrs=attrs or {};sid=keys.get(key) or attrs.get('strategy_id') or family
             if sid==strategy_id or 'LIBRARY:'+sid==strategy_id or family==strategy_id or (strategy_id=='CONTEXT_STRUCTURE_RETRACE' and sid in {'CONTEXT_STRUCTURE_RETRACE_V1','CONTEXT_STRUCTURE_RETRACE_V2'}):
-                return {'id':iid,'strategy_id':sid,'canonical_id':attrs.get('legacy_instance_id') or iid,
+                return {'id':iid,'strategy_id':sid,'canonical_id':attrs.get('legacy_instance_id') or attrs.get('instance_id') or iid,
                         'attributes':attrs,'instruments':instruments or [],'parameter_set':parameter}
         cur.execute('SELECT instance_id,strategy_id,attributes FROM platform.strategy_instance WHERE instance_id=%s AND strategy_id=%s',
                     (instance_id,strategy_id))
@@ -113,10 +113,15 @@ class ObservationRepository:
         else:
             sql="""SELECT e.evaluation_id AS event_id,e.instrument,e.created_at AS observed_at,
                 e.canonical_payload AS evaluation,NULL::text AS source_event_id
-                FROM strategy.evaluations e WHERE e.strategy_id=%s AND
-                (e.provenance->>'strategy_instance_id'=%s OR EXISTS
-                  (SELECT 1 FROM strategy.entry_signals s WHERE s.evaluation_id=e.evaluation_id AND s.strategy_instance_id=%s))"""
-            params=[strategy_id,owner['canonical_id'],owner['canonical_id']]
+                FROM strategy.evaluations e WHERE e.strategy_id=%s AND e.provenance->>'strategy_instance_id'=%s
+                UNION
+                SELECT e.evaluation_id AS event_id,e.instrument,e.created_at AS observed_at,
+                e.canonical_payload AS evaluation,NULL::text AS source_event_id
+                FROM (SELECT DISTINCT evaluation_id FROM strategy.entry_signals
+                      WHERE strategy_id=%s AND strategy_instance_id=%s) owned
+                JOIN strategy.evaluations e ON e.evaluation_id=owned.evaluation_id
+                WHERE e.strategy_id=%s"""
+            params=[strategy_id,owner['canonical_id'],strategy_id,owner['canonical_id'],strategy_id]
             coverage='PARTIAL';source='CANONICAL_EVALUATIONS'
         return state,run_id,key,sql,params,coverage,source
 
@@ -141,6 +146,14 @@ class ObservationRepository:
                 if start is None:start=timestamp(state.get('t0')) or timestamp(earliest) or end
                 if start>end:raise ValueError('Range starts after end')
                 active=self.active_instruments(state,owner,key)
+                if source=='CANONICAL_EVALUATIONS' and active:
+                    # Legacy managed registrations may contain provider symbols.
+                    # Resolve through stored mappings; never strip a guessed suffix.
+                    cur.execute("""SELECT canonical_instrument,provider_symbol FROM platform.instrument_provider_mapping
+                        WHERE provider='MT5' AND state='ACTIVE'
+                        AND (canonical_instrument=ANY(%s) OR provider_symbol=ANY(%s))""",(active,active))
+                    aliases={symbol:canonical for canonical,provider in cur.fetchall() for symbol in (canonical,provider)}
+                    active=sorted({aliases.get(symbol,symbol) for symbol in active})
                 scope=" AND observed_at >= %s AND observed_at < %s";args=params+[start,end]
                 if instrument:scope+=' AND instrument=%s';args.append(instrument)
                 elif active:scope+=' AND instrument=ANY(%s)';args.append(active)

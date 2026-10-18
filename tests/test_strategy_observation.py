@@ -140,10 +140,42 @@ def test_library_and_generic_sources_keep_ownership_and_coverage_distinct():
     owner={'id':IID,'canonical_id':'legacy-instance','attributes':{},'instruments':[]}
     _,run,_,sql,args,coverage,source=repo.source(cur,owner,'OTHER')
     assert coverage=='PARTIAL' and source=='CANONICAL_EVALUATIONS'
-    assert args==['OTHER','legacy-instance','legacy-instance']
+    assert args==['OTHER','legacy-instance','OTHER','legacy-instance','OTHER']
     assert "e.provenance->>'strategy_instance_id'=%s" in sql
     owner['attributes']={'library_key':'ema_pullback','orchestrator_run_id':'frozen-run'}
     _,run,key,sql,args,coverage,source=repo.source(cur,owner,'TREND_FOLLOWING_EMA_PULLBACK')
     assert run=='frozen-run' and key=='ema_pullback' and coverage=='COMPLETE_LEDGER'
     assert args==['frozen-run','ema_pullback'] and "kind='EVALUATION'" in sql
     assert lifecycle({'decision':'REJECT','provenance':{'reason':'ENTRY_ACCEPTED'}})=='ACCEPTED_AWAITING_PUBLICATION'
+
+
+def test_kojo_named_runtime_identity_and_provider_mapping_are_preserved():
+    class KojoCursor(Cursor):
+        def execute(self,sql,args=()):
+            super().execute(sql,args)
+            if 'FROM strategy_mgmt.strategy_instance_v2' in sql:
+                self.result=[('managed-uuid','kojo_structure_reclaim_v3',{'instance_id':'kojo-v3-forward'},
+                              [{'canonical_instrument':'XAUUSDm'}],'kojo-v3-default','KOJO')]
+            elif 'SELECT canonical_instrument,provider_symbol' in sql:
+                self.result=[('XAUUSD','XAUUSDm')]
+    c=KojoCursor(groups=[('XAUUSD','SIGNAL','SIGNAL',True,'PUBLISHED',2,NOW)])
+    repo,_=repository(c)
+    report=repo.read('KOJO_STRUCTURE_RECLAIM_V3','kojo-v3-forward',{'period':['RUN'],'offset':['0'],'limit':['25']})
+    assert report['active_instruments']==['XAUUSD']
+    assert report['counts']['evaluations']==2 and report['counts']['published']==2
+    assert report['counts']['setups'] is None and report['coverage']=='PARTIAL'
+    sql,args=next((s,a) for s,a in c.calls if 'GROUP BY f.instrument' in s)
+    assert args[:5]==('KOJO_STRUCTURE_RECLAIM_V3','kojo-v3-forward','KOJO_STRUCTURE_RECLAIM_V3','kojo-v3-forward','KOJO_STRUCTURE_RECLAIM_V3')
+    assert 'EXISTS' not in sql and 'SELECT DISTINCT evaluation_id' in sql
+    assert ['XAUUSD'] in args
+
+
+@pytest.mark.parametrize('sqlstate,category',[('57014','QUERY_TIMEOUT'),('42501','READ_PERMISSION_DENIED'),('42P01','SCHEMA_UNAVAILABLE'),(None,'SOURCE_UNAVAILABLE')])
+def test_observation_failure_category_is_safe_and_diagnosable(sqlstate,category,caplog):
+    class DatabaseFailure(RuntimeError):pass
+    exc=DatabaseFailure('password=secret; raw SQL must not leak');exc.sqlstate=sqlstate
+    api=PlatformControlApi(repository=MagicMock(),environ={})
+    with patch('platform_api.strategy_observation.ObservationRepository.read',side_effect=exc):
+        status,body=api.execute('GET','/api/v1/strategies/KOJO_STRUCTURE_RECLAIM_V3/instances/kojo-v3-forward/observation?period=RUN&offset=0&limit=25')
+    assert status==503 and category in str(body) and category in caplog.text
+    assert 'password=secret' not in str(body)+caplog.text
