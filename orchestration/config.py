@@ -201,7 +201,10 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
         instruments = [i for i in (membership_instruments or []) if i]
         if not instruments and v2_instruments_json:
             raw = v2_instruments_json if isinstance(v2_instruments_json, list) else []
-            instruments = [str(x.get("canonical_instrument") or x) for x in raw if x]
+            for entry in raw:
+                instrument = entry.get("canonical_instrument") if isinstance(entry, dict) else entry
+                if isinstance(instrument, str) and instrument:
+                    instruments.append(instrument)
         result.append({
             **(attrs_json or {}),
             "instance_id": (str(inst_id) if (attrs_json or {}).get("market_input_policy") == "pa-provider-tick.v1"
