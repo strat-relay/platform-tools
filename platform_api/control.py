@@ -640,6 +640,34 @@ class PlatformControlRepository:
             observability_version="entry-outcomes.v1",
         )
 
+    def breakout_donchian_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "BREAKOUT_DONCHIAN_BREAKOUT", "ENTRY_ONLY", instance_id,
+            display_name="Breakout Donchian",
+            observability_version="entry-outcomes.v1",
+        )
+
+    def trend_ema_pullback_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "TREND_FOLLOWING_EMA_PULLBACK", "ENTRY_ONLY", instance_id,
+            display_name="EMA Pullback",
+            observability_version="entry-outcomes.v1",
+        )
+
+    def ict_judas_swing_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "ICT_JUDAS_SWING", "ENTRY_ONLY", instance_id,
+            display_name="ICT Judas Swing",
+            observability_version="entry-outcomes.v1",
+        )
+
+    def ict_power_of_three_entry_outcome_report(self, instance_id: str | None = None) -> dict[str, Any]:
+        return self.strategy_entry_outcome_report(
+            "ICT_POWER_OF_THREE", "ENTRY_ONLY", instance_id,
+            display_name="ICT Power of Three",
+            observability_version="entry-outcomes.v1",
+        )
+
 
 STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
     "CONTEXT_STRUCTURE_RETRACE_V1": {
@@ -664,6 +692,22 @@ STRATEGY_REPORT_REGISTRY: dict[str, dict[str, str]] = {
     },
     "PRICE_ACTION_ENGULFING_CONTINUATION": {
         "reader": "pa_engulfing_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
+    },
+    "BREAKOUT_DONCHIAN_BREAKOUT": {
+        "reader": "breakout_donchian_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
+    },
+    "TREND_FOLLOWING_EMA_PULLBACK": {
+        "reader": "trend_ema_pullback_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
+    },
+    "ICT_JUDAS_SWING": {
+        "reader": "ict_judas_swing_entry_outcome_report",
+        "outcome_type": "ENTRY_ONLY",
+    },
+    "ICT_POWER_OF_THREE": {
+        "reader": "ict_power_of_three_entry_outcome_report",
         "outcome_type": "ENTRY_ONLY",
     },
 }
