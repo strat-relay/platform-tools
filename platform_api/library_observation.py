@@ -33,8 +33,28 @@ def observation_status(state, key, *, now=None, asset_classes=None):
             'closed_instruments':sorted({s['instrument'] for s in streams if s.get('status') == 'MARKET_CLOSED'})}
 
 
+def _resolve_run_id(cur, key, run_id=None):
+    """Resolve a library instance to its authoritative forward run.
+
+    Older registrations may contain ``library_key`` without copying the run ID
+    into instance attributes.  The forward-event ledger is the source of truth;
+    never invent a run ID or fall back to generic strategy evaluations here.
+    """
+    if run_id:
+        return run_id
+    cur.execute('''SELECT run_id
+                   FROM research.strategy_library_forward_event
+                   WHERE strategy_key=%s
+                   GROUP BY run_id
+                   ORDER BY max(observed_at) DESC, run_id DESC
+                   LIMIT 1''', (key,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 def load_observation(cur, attributes):
-    key, run_id = attributes.get('library_key'), attributes.get('orchestrator_run_id')
+    key = attributes.get('library_key')
+    run_id = _resolve_run_id(cur, key, attributes.get('orchestrator_run_id')) if key else None
     if not key or not run_id:
         return None
     cur.execute('SELECT state FROM research.strategy_library_forward_state WHERE run_id=%s', (run_id,))
