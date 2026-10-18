@@ -29,6 +29,17 @@ def state_at(close, now):
 
 
 class WeekendDisplayTests(unittest.TestCase):
+    def test_catalog_observation_recovers_missing_run_id_from_forward_ledger(self):
+        from platform_api.library_observation import load_observation
+        cur=MagicMock()
+        state={'health':{'streams':[{'key':'k','instrument':'EURUSD'}]}}
+        cur.fetchone.side_effect=[('recovered-run',),(state,),(3,0)]
+        cur.fetchall.return_value=[('EURUSD','FX')]
+        result=load_observation(cur,{'library_key':'k'})
+        self.assertEqual(result['run_id'],'recovered-run')
+        self.assertEqual(result['evaluations'],3)
+        self.assertIn('GROUP BY run_id',cur.execute.call_args_list[0].args[0])
+
     def test_read_model_takes_asset_classes_from_active_mt5_catalog(self):
         from platform_api.library_observation import load_observation
         cur=MagicMock()

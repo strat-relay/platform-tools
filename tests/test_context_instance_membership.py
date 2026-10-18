@@ -60,12 +60,15 @@ class ContextInstanceMembershipTest(unittest.TestCase):
             with patch.dict(os.environ, {"CONTEXT_RUNNER_STATE_DIR": directory}):
                 adapter = ContextStructureRetraceAdapter(
                     Path(directory), "2026-01-01T00:00:00Z",
-                    {"active_instruments": ["BTCUSD"], "instance_policy": {"reentry_enabled": True}},
+                    {"instance_id": "context-v1-test", "active_instruments": ["BTCUSD"],
+                     "instance_policy": {"reentry_enabled": True}},
                     max_signal_age_seconds=None,
                 )
                 signals = adapter.discover_new_signals(set())
 
             self.assertEqual(len(signals), 1)
+            self.assertEqual(signals[0].strategy_instance_id, "context-v1-test")
+            self.assertTrue(signals[0].source_event_id.startswith("context-v1-test:economic_position:"))
             self.assertEqual(signals[0].canonical_symbol, "BTCUSD")
             self.assertEqual(signals[0].broker_symbol_hint, "BTCUSDm")
 

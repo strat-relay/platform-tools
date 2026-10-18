@@ -88,9 +88,9 @@ class ContextStructureRetraceAdapter:
                 fill_ts = self._epoch(position.get("fill_timestamp") or 0)
                 if fill_ts < boundary:
                     continue
-                source_event_id = f"phase6:economic_position:{position['economic_position_id']}"
+                source_event_id = f"{self.instance_id}:economic_position:{position['economic_position_id']}"
                 identity = {"strategy_id": self.strategy_id, "strategy_version": self.strategy_version,
-                            "strategy_instance_id": "phase6", "economic_position_id": position.get("economic_position_id"),
+                            "strategy_instance_id": self.instance_id, "economic_position_id": position.get("economic_position_id"),
                             "entry_opportunity_id": position.get("entry_opportunity_id"), "source_event_id": source_event_id}
                 signal_id = stable_id("SIG", identity)
                 if signal_id in seen_signal_ids:
