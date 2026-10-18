@@ -1023,6 +1023,25 @@ class PlatformControlApi:
             except CanonicalSourceUnavailable as exc:
                 return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE",
                                        error="SOURCE_UNAVAILABLE", message=str(exc))
+        # Instance-scoped observation ledger; no broker or runtime mutation.
+        if path.startswith("/api/v1/strategies/") and "/instances/" in path and "/observation" in path:
+            parts = [unquote(p) for p in path[len("/api/v1/strategies/"):].strip("/").split("/")]
+            if len(parts) in {4, 6} and parts[1] == "instances" and parts[3] == "observation":
+                if method != "GET":
+                    return 405, self._body(None, source="canonical_postgres", error="METHOD_NOT_ALLOWED")
+                if len(parts) == 6 and parts[4] != "evaluations":
+                    return 404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")
+                from .strategy_observation import ObservationRepository
+                sid = MANAGED_FAMILY_TO_CANONICAL.get(parts[0], parts[0])
+                try:
+                    result = ObservationRepository(self.repository._connect).read(
+                        sid, parts[2], parse_qs(parsed.query, keep_blank_values=True),
+                        event_id=parts[5] if len(parts) == 6 else None)
+                    return (404, self._body(None, source="canonical_postgres", error="RESOURCE_NOT_FOUND")) if result is None else (200, self._body(result, source="canonical_postgres"))
+                except ValueError as exc:
+                    return 400, self._body(None, source="canonical_postgres", error="INVALID_QUERY", message=str(exc))
+                except Exception:
+                    return 503, self._body(None, source="canonical_postgres", status="UNAVAILABLE", error="SOURCE_UNAVAILABLE", message="Observation evidence is temporarily unavailable")
         # Server-side instrument read models.  The query contract is deliberately distinct from
         # the capped strategy report so 200+ instruments never require client-side aggregation.
         if path.startswith("/api/v1/strategies/") and "/instances/" in path and "/instruments" in path:
