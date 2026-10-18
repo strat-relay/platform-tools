@@ -62,6 +62,9 @@ def _prior_calendar_range(bars, cutoff, step, weekly=False):
 
 def detect(d: Definition, bars: Sequence[MarketEvent], context: Sequence[MarketEvent], tick: float) -> Detection:
     """Inputs are already validated, completed and cutoff-bounded by the SDK."""
+    if d.mode in {'judas_sequence','po3_sequence','order_block_sequence'}:
+        from .sequence_compositions import detect as sequence_detect
+        return sequence_detect(d,bars,context,tick)
     if len(bars) < max(32, d.slow+2 if d.mode in {'ema_cross','ema_pullback','session_pullback','momentum','ema_momentum'} else 32):
         return Detection('INSUFFICIENT_WARMUP')
     current, previous = bars[-1], bars[-2]
