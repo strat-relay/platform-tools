@@ -50,12 +50,12 @@ def policy(**overrides) -> RiskPolicy:
 
 
 def seeded_conn(signal_id="SIG1", entry_signal_hash="hash-1", strategy_id="STRAT1",
-                strategy_version=1, strategy_ref="strat-ref") -> FakeConnection:
+                strategy_version=1, strategy_ref="strat-ref", **signal_fields) -> FakeConnection:
     conn = FakeConnection()
     conn.seed_entry_signal(signal_id=signal_id, strategy_id=strategy_id, strategy_version=strategy_version,
                            strategy_ref=strategy_ref, instrument="EURUSD", direction="LONG",
                            decision_time=NOW, signal_emitted_at=NOW, entry_price=1.1000, stop_price=1.0950,
-                           target_price=1.1100, entry_signal_hash=entry_signal_hash)
+                           target_price=1.1100, entry_signal_hash=entry_signal_hash, **signal_fields)
     return conn
 
 
@@ -154,6 +154,22 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(row["block_reason"], "EXECUTION_AUTHORITY_DISABLED")
         self.assertEqual(len(conn.tables["execution_v2.execution_attempt"]), 0)
         self.assertEqual(len(conn.tables["platform.outbox_events"]), 1)
+
+    def test_shadow_signal_cannot_reach_broker_even_when_global_authority_is_enabled(self):
+        conn = seeded_conn(
+            strategy_metadata={"execution_mode": "SHADOW", "execution_mode_revision": 7},
+            source_provenance={"execution_mode_at_decision": "SHADOW", "execution_mode_revision": 7},
+        )
+        broker = FakeBroker(mode="fill")
+        worker = make_worker(conn, broker=broker)
+
+        outcome = run(worker, conn, broker)
+
+        self.assertEqual(outcome.status, "BLOCKED")
+        self.assertEqual(outcome.detail, "SIGNAL_NOT_LIVE_AT_DECISION")
+        self.assertEqual(broker.calls, 0)
+        self.assertEqual(len(conn.tables["execution_v2.execution_intent"]), 0)
+        self.assertEqual(len(conn.tables["execution_v2.execution_attempt"]), 0)
 
     def test_normal_execution_does_not_require_active_or_unexhausted_canary(self):
         """Historical canary state must not be consulted on the normal broker path."""

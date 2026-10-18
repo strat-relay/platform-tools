@@ -206,6 +206,12 @@ class FakeConnection:
         return {**self.tables.get(table, {}), **self.pending.get(table, {})}
 
     def seed_entry_signal(self, **fields: Any) -> None:
+        # Existing execution tests model a fully valid LIVE signal unless they explicitly
+        # provide mode metadata.  Real production rows must carry the same provenance.
+        fields.setdefault("strategy_metadata", {"execution_mode": "LIVE", "execution_mode_revision": 0})
+        fields.setdefault("source_provenance", {
+            "execution_mode_at_decision": "LIVE", "execution_mode_revision": 0,
+        })
         self.entry_signals[fields["signal_id"]] = {k: fields.get(k) for k in _ENTRY_SIGNAL_COLUMNS}
 
     # -- platform.ownership_leases / acquire_ownership / assert_generation simulation ----------
