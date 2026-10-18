@@ -89,8 +89,16 @@ def _prospective_decision_ts() -> int:
 
 
 def _retrospective_decision_ts(latency_s: int) -> int:
-    """Return a decision_ts that yields the specified emission_latency_s (RETROSPECTIVE)."""
-    return int(time.time()) - latency_s
+    """Return a stable decision timestamp for retrospective replay tests.
+
+    Use a synthetic UTC midday rather than the wall clock.  This keeps the
+    reaction-zone fixture inside the decision's UTC day even when the suite is
+    run shortly after midnight, while the test supplies the matching replay
+    clock to the adapter.
+    """
+    now = int(time.time())
+    utc_day = (now // 86400) * 86400
+    return utc_day + 12 * 3600 - latency_s
 
 
 def _make_adapter(instance_id: str = "test-inst", instrument: str = "XAUUSD") -> Any:
@@ -124,6 +132,7 @@ def _run_discover(
     m15_bars: list,
     seen: set | None = None,
     max_age_s: str | None = None,
+    now_ts: int | None = None,
 ) -> list:
     """Run discover_new_signals with mocked Redis."""
     os.environ["MARKET_DATA_REDIS_URL"] = "redis://fake:6379/0"
@@ -134,7 +143,11 @@ def _run_discover(
         os.environ.pop("KOJO_V3_MAX_SIGNAL_AGE_S", None)
 
     mock_r = _mock_redis(h1_bars, m15_bars)
-    with patch("redis.from_url", return_value=mock_r):
+    clock_patch = patch(
+        "orchestration.adapters.kojo_structure_reclaim_v3_adapter._utc_now_ts",
+        return_value=now_ts if now_ts is not None else int(time.time()),
+    )
+    with patch("redis.from_url", return_value=mock_r), clock_patch:
         result = adapter.discover_new_signals(seen or set())
     return result
 
@@ -167,7 +180,8 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         """After a 6-hour outage, stale signals are published as RETROSPECTIVE_RESEARCH_EVIDENCE."""
         decision_ts = _retrospective_decision_ts(6 * 3600)
         h1, m15 = _build_bars(decision_ts)
-        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15)
+        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15,
+                                now_ts=decision_ts + 6 * 3600)
         self.assertGreater(len(signals), 0,
             "6h outage: stale signal must be published as research evidence, not suppressed")
         for sig in signals:
@@ -179,7 +193,8 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         incident_latency = 21697  # seconds — matches the Oct 15 incident
         decision_ts = _retrospective_decision_ts(incident_latency)
         h1, m15 = _build_bars(decision_ts)
-        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15)
+        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15,
+                                now_ts=decision_ts + incident_latency)
         self.assertGreater(len(signals), 0,
             "54h outage: signal must be preserved as research evidence")
         for sig in signals:
@@ -191,7 +206,8 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         published as RETROSPECTIVE_RESEARCH_EVIDENCE, not suppressed."""
         decision_ts = _retrospective_decision_ts(1201)
         h1, m15 = _build_bars(decision_ts)
-        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15)
+        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15,
+                                now_ts=decision_ts + 1201)
         self.assertGreater(len(signals), 0,
             "emission_latency_s=1201 must emit as research evidence")
         for sig in signals:
@@ -202,7 +218,8 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         """Setting KOJO_V3_MAX_SIGNAL_AGE_S=0 disables the gate (research override)."""
         decision_ts = _retrospective_decision_ts(21697)
         h1, m15 = _build_bars(decision_ts)
-        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15, max_age_s="0")
+        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15,
+                                max_age_s="0", now_ts=decision_ts + 21697)
         # Gate disabled — retrospective signal should be returned
         self.assertGreater(len(signals), 0, "With gate disabled, retrospective signal must be published")
         classes = [s.provenance.get("signal_emission_class") for s in signals]
@@ -212,7 +229,8 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         """KOJO_V3_MAX_SIGNAL_AGE_S=3600 should pass a 1500s-late signal."""
         decision_ts = _retrospective_decision_ts(1500)
         h1, m15 = _build_bars(decision_ts)
-        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15, max_age_s="3600")
+        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15,
+                                max_age_s="3600", now_ts=decision_ts + 1500)
         # 1500s < 3600s threshold → should be published even though RETROSPECTIVE
         self.assertGreater(len(signals), 0, "1500s latency with 3600s threshold must be published")
 
@@ -220,7 +238,8 @@ class PublicationEligibilityGateTests(unittest.TestCase):
         """KOJO_V3_MAX_SIGNAL_AGE_S=3600: a 3601s-late signal emits as research evidence."""
         decision_ts = _retrospective_decision_ts(3601)
         h1, m15 = _build_bars(decision_ts)
-        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15, max_age_s="3600")
+        signals = _run_discover(_make_adapter(), self._tmpdir.name, h1, m15,
+                                max_age_s="3600", now_ts=decision_ts + 3601)
         self.assertGreater(len(signals), 0,
             "3601s latency beyond 3600s threshold must emit as RETROSPECTIVE_RESEARCH_EVIDENCE")
         for sig in signals:
