@@ -318,7 +318,8 @@ def run_once(config):
                                      'last_finalized_close': observer.state['streams'][key + ':' + instrument]['last_close']})
                 except (ValueError, KeyError, RuntimeError) as exc:
                     statuses.append({'key': key, 'instrument': instrument, 'status': 'BLOCKED',
-                                     'error_type': type(exc).__name__})
+                                     'error_type': type(exc).__name__,
+                                     'error_message': str(exc)})
         observer.state['health'] = {
             'observed_at': time.time(), 'streams': statuses,
             'status': 'OK' if statuses and any(s['status']=='OK' for s in statuses)

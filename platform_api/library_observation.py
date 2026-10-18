@@ -1,7 +1,7 @@
 """Read-only library observer facts, independent of publication/execution gates."""
 from datetime import datetime, timezone
 from copy import deepcopy
-from .library_market_schedule import expected_weekend
+from .library_market_schedule import expected_weekend, weekend_window
 
 
 def observation_status(state, key, *, now=None, asset_classes=None):
@@ -16,6 +16,10 @@ def observation_status(state, key, *, now=None, asset_classes=None):
         asset_class = asset_classes.get(stream.get('instrument'))
         stream['asset_class'] = asset_class
         closure = expected_weekend(asset_class, now, stored) if fresh else None
+        if (closure is None and fresh and stream.get('status') == 'BLOCKED'
+                and stream.get('error_type') == 'ValueError'
+                and stream.get('error_message') == 'completed candle watermark is stale'):
+            closure = weekend_window(asset_class, now)
         if stream.get('status') == 'BLOCKED' and stream.get('error_type') == 'ValueError' and closure:
             stream.update(raw_status=stream['status'], status='MARKET_CLOSED', schedule=closure,
                           last_finalized_close=stored.get('last_close'))
