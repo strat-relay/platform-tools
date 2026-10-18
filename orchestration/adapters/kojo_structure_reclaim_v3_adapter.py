@@ -22,12 +22,22 @@ Parameter set hot-reload:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from orchestration.symbols import canonical_to_broker_hint
 
 STRATEGY_ID = "KOJO_STRUCTURE_RECLAIM_V3"
 EVALUATOR_KEY = "kojo_structure_reclaim_v3"
+
+
+def _utc_now_ts() -> int:
+    """Return the wall-clock timestamp used for candle and publication checks.
+
+    Keeping this behind a small seam makes historical replay tests deterministic
+    without changing the production clock source.
+    """
+    return int(datetime.now(timezone.utc).timestamp())
 
 
 class KojoStructureReclaimV3Adapter:
@@ -203,7 +213,7 @@ class KojoStructureReclaimV3Adapter:
                     broker_symbol = canonical_to_broker_hint(canonical_instrument)
                     raw_h1 = json.loads(r.get(f"md:bars:{broker_symbol}:H1") or "[]")
                     raw_m15 = json.loads(r.get(f"md:bars:{broker_symbol}:M15") or "[]")
-                    now_ts = int(datetime.now(timezone.utc).timestamp())
+                    now_ts = _utc_now_ts()
                     # Exclude any bar whose close time (open + duration) is still in the
                     # future — these are forming candles, not closed bars.  Treating a
                     # forming candle as completed is lookahead bias.
@@ -411,7 +421,7 @@ class KojoStructureReclaimV3Adapter:
             .isoformat(timespec="microseconds")
             .replace("+00:00", "Z")
         )
-        now_ts_wall = int(datetime.now(timezone.utc).timestamp())
+        now_ts_wall = _utc_now_ts()
         result: list[Any] = []
 
         # Phase 2a — re-emit unconfirmed pending signals from a PREVIOUS cycle.
