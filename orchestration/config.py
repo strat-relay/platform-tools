@@ -186,8 +186,8 @@ def _load_v2_instances_from_database(conn: Any) -> list[dict[str, Any]]:
         "price_action_sr_retest_v1": "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST",
         "price_action_engulfing_continuation_v1": "PRICE_ACTION_ENGULFING_CONTINUATION",
     }
-    from research.strategy_library_registration import CANARY, registration
-    _KEY_TO_STRATEGY.update({'library.'+key+'@V1': registration(key)['strategy_id'] for key in CANARY})
+    from research.strategy_library_registration import PUBLICATION_KEYS, registration
+    _KEY_TO_STRATEGY.update({registration(key)['evaluator_key']: registration(key)['strategy_id'] for key in PUBLICATION_KEYS})
     result = []
     for row in rows:
         (inst_id, evaluator_key, display_name, online, membership_instruments,

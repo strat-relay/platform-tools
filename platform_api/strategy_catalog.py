@@ -127,6 +127,9 @@ SELECT coalesce(v.attributes->>'instance_id', v.id::text) AS instance_id,
          WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key)
        END AS strategy_id,
        v.display_name, v.online AS enabled, v.attributes,
@@ -150,6 +153,9 @@ LEFT JOIN platform.strategy_definition pd ON pd.strategy_id = CASE sv.evaluator_
   WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key) END
 LEFT JOIN LATERAL (
     SELECT count(*) AS signals,
@@ -163,6 +169,9 @@ LEFT JOIN LATERAL (
       WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) sig ON TRUE
 LEFT JOIN LATERAL (
@@ -179,6 +188,9 @@ LEFT JOIN LATERAL (
       WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)) o ON TRUE
 LEFT JOIN LATERAL (
@@ -200,6 +212,9 @@ LEFT JOIN LATERAL (
           WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key) END
           AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
         UNION ALL
@@ -213,6 +228,9 @@ LEFT JOIN LATERAL (
           WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key) END
           AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
           AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
@@ -229,6 +247,9 @@ LEFT JOIN LATERAL (
           WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key) END
       AND s.strategy_instance_id = coalesce(v.attributes->>'instance_id', v.id::text)
     ORDER BY s.signal_emitted_at DESC NULLS LAST LIMIT 1) obs ON TRUE
@@ -242,6 +263,9 @@ WHERE NOT EXISTS (
       WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
+         WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
+         WHEN 'library.power_of_three@V1' THEN 'ICT_POWER_OF_THREE'
+         WHEN 'library.order_block_retracement@V2' THEN 'SMC_ORDER_BLOCK_RETRACEMENT'
          ELSE upper(sv.evaluator_key) END
       AND legacy.instance_id = coalesce(v.attributes->>'instance_id', v.id::text))
 ORDER BY strategy_id, instance_id"""

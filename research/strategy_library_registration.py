@@ -6,26 +6,27 @@ from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from core.strategies.evaluation import canonical_hash
-from strategy_backtest.library import BY_KEY
+from strategy_backtest.library.selection import resolve_definition, EXPANSION_KEYS
 
 CANARY = ('donchian_breakout', 'ema_pullback', 'fvg_retracement')
+PUBLICATION_KEYS = CANARY + EXPANSION_KEYS
 SCHEMA_ID = 'STRATEGY_LIBRARY_COMPOSITION_V1'
 CREATOR = 'strategy-library-forward-candidate-v1'
 
 
 def registration(key):
-    d = BY_KEY[key]
+    d = resolve_definition(key)
     fingerprint = canonical_hash(d.manifest())
     def identity(role):
-        return str(uuid5(NAMESPACE_URL, 'https://stratrelay.app/library/'+d.strategy_id+'/V1/'+role))
+        return str(uuid5(NAMESPACE_URL, 'https://stratrelay.app/library/'+d.strategy_id+'/'+d.version+'/'+role))
     return {'key': key, 'strategy_id': d.strategy_id, 'name': d.name, 'family': d.family,
-            'definition_id': identity('definition'), 'version_id': identity('version'),
+            'definition_id': str(uuid5(NAMESPACE_URL, 'https://stratrelay.app/library/'+d.strategy_id+'/V1/definition')), 'version_id': identity('version'),
             'parameter_uuid': str(uuid5(NAMESPACE_URL, identity('version')+'/'+fingerprint)),
             'instance_id': identity('forward-canary-instance'),
-            'parameter_set_id': f'{d.strategy_id}@V1:experimental:{fingerprint[:16]}',
+            'parameter_set_id': f'{d.strategy_id}@{d.version}:experimental:{fingerprint[:16]}',
             'parameter_hash': fingerprint, 'parameters': d.manifest(),
             'catalog_key': 'LIBRARY:'+d.strategy_id,
-            'evaluator_key': 'library.'+key+'@V1'}
+            'evaluator_key': 'library.'+d.key+'@'+d.version}
 
 
 def quote(value):

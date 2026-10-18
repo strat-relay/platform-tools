@@ -27,6 +27,9 @@ from .observers import list_observers
 # strategy_mgmt keeps dedicated frozen family keys, while the legacy
 # /api/v1/strategies contract uses canonical operational identifiers.
 MANAGED_FAMILY_TO_CANONICAL: dict[str, str] = {
+    "LIBRARY:ICT_JUDAS_SWING": "ICT_JUDAS_SWING",
+    "LIBRARY:ICT_POWER_OF_THREE": "ICT_POWER_OF_THREE",
+    "LIBRARY:SMC_ORDER_BLOCK_RETRACEMENT": "SMC_ORDER_BLOCK_RETRACEMENT",
     "LIBRARY:BREAKOUT_DONCHIAN_BREAKOUT": "BREAKOUT_DONCHIAN_BREAKOUT",
     "LIBRARY:TREND_FOLLOWING_EMA_PULLBACK": "TREND_FOLLOWING_EMA_PULLBACK",
     "LIBRARY:SMC_FVG_RETRACEMENT": "SMC_FVG_RETRACEMENT",
