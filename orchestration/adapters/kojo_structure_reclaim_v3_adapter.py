@@ -307,6 +307,11 @@ class KojoStructureReclaimV3Adapter:
                                     observed_at=int(quote.get("timestamp") or now_ts),
                                 )
                                 for live_out in evaluator.consume_live_entry_price(live_obs):
+                                    # Live quote entries bypass consume_market_event, so stamp
+                                    # the immutable execution decision provenance here too.
+                                    live_out = _stamp_execution_mode(
+                                        live_out, self._execution_mode, self._execution_mode_revision
+                                    )
                                     if isinstance(live_out, EntrySignal):
                                         entry_signals.append((live_out, canonical_instrument, "LIVE_ENTRY"))
                         except Exception as live_exc:

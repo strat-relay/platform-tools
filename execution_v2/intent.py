@@ -80,6 +80,42 @@ class IntentResult:
     reason: str | None = None
 
 
+def signal_execution_mode(record: dict[str, Any]) -> tuple[str | None, int | None, str | None]:
+    """Validate the immutable execution mode stamped on a canonical signal.
+
+    ``strategy_metadata`` is useful diagnostic context, but is not authoritative: a signal
+    must carry the mode and revision captured at its decision boundary in
+    ``source_provenance``.  This prevents a later instance-mode change from making an old
+    SHADOW/OFF signal executable and fails closed for legacy or malformed records.
+    """
+    provenance = record.get("source_provenance") or {}
+    metadata = record.get("strategy_metadata") or {}
+    mode = provenance.get("execution_mode_at_decision")
+    revision = provenance.get("execution_mode_revision")
+    if mode is None or revision is None:
+        return mode, None, "EXECUTION_MODE_PROVENANCE_MISSING"
+    mode = str(mode).upper()
+    try:
+        revision = int(revision)
+    except (TypeError, ValueError):
+        return mode, None, "EXECUTION_MODE_PROVENANCE_INVALID"
+    if revision < 0:
+        return mode, revision, "EXECUTION_MODE_PROVENANCE_INVALID"
+    metadata_mode = metadata.get("execution_mode")
+    if metadata_mode is not None and str(metadata_mode).upper() != mode:
+        return mode, revision, "EXECUTION_MODE_PROVENANCE_MISMATCH"
+    metadata_revision = metadata.get("execution_mode_revision")
+    if metadata_revision is not None:
+        try:
+            if int(metadata_revision) != revision:
+                return mode, revision, "EXECUTION_MODE_PROVENANCE_MISMATCH"
+        except (TypeError, ValueError):
+            return mode, revision, "EXECUTION_MODE_PROVENANCE_MISMATCH"
+    if mode != "LIVE":
+        return mode, revision, "SIGNAL_NOT_LIVE_AT_DECISION"
+    return mode, revision, None
+
+
 def signal_age_seconds(record: dict[str, Any], *, now_utc: datetime) -> float | None:
     """Return the canonical decision-to-emission age used by the stale-signal gate.
 
@@ -176,6 +212,15 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
         trace_emit("INTENT_SIGNAL_LOADED", signal_id=signal_id,
                    signal_emitted_at=record.get("signal_emitted_at"),
                    step_ms=round((time.perf_counter() - started) * 1000, 3))
+        execution_mode, execution_mode_revision, execution_mode_reason = signal_execution_mode(record)
+        if execution_mode_reason is not None:
+            trace_emit("INTENT_EXECUTION_MODE_REJECTED", signal_id=signal_id,
+                       strategy_id=record.get("strategy_id"),
+                       execution_mode_at_decision=execution_mode,
+                       execution_mode_revision=execution_mode_revision,
+                       reason=execution_mode_reason)
+            return IntentResult(status="BLOCKED", execution_intent_id=None,
+                                eligible=False, reason=execution_mode_reason)
         if claimed_entry_signal_hash is not None and claimed_entry_signal_hash != record["entry_signal_hash"]:
             with conn.cursor() as cur:
                 cur.execute("""INSERT INTO execution_v2.reconciliation_finding

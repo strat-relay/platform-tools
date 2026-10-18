@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from execution_v2.fakes import FakeConnection
 from execution_v2.intent import (EntrySignalRecordMissing, check_eligibility,
-                                 create_execution_intent)
+                                 create_execution_intent, signal_execution_mode)
 from execution_v2.risk import RiskPolicy
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=timezone.utc)
@@ -96,6 +96,46 @@ class CreateExecutionIntentTests(unittest.TestCase):
         fields.update(overrides)
         conn.seed_entry_signal(**fields)
         return conn
+
+    def test_signal_execution_mode_requires_immutable_live_provenance(self):
+        record = valid_record(source_provenance={"execution_mode_at_decision": "SHADOW",
+                                                 "execution_mode_revision": 2},
+                              strategy_metadata={"execution_mode": "LIVE", "execution_mode_revision": 3})
+        mode, revision, reason = signal_execution_mode(record)
+        self.assertEqual((mode, revision, reason), ("SHADOW", 2, "EXECUTION_MODE_PROVENANCE_MISMATCH"))
+
+    def test_shadow_signal_is_blocked_before_intent_creation(self):
+        conn = self._seeded_conn(strategy_metadata={"execution_mode": "SHADOW", "execution_mode_revision": 4},
+                                 source_provenance={"execution_mode_at_decision": "SHADOW",
+                                                    "execution_mode_revision": 4})
+        result = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT,
+                                         risk_policy=policy(), now_utc=NOW)
+        self.assertEqual((result.status, result.reason), ("BLOCKED", "SIGNAL_NOT_LIVE_AT_DECISION"))
+        self.assertEqual(conn.tables.get("execution_v2.execution_intent", {}), {})
+
+    def test_missing_mode_provenance_is_blocked_before_intent_creation(self):
+        conn = self._seeded_conn(strategy_metadata={"execution_mode": "LIVE", "execution_mode_revision": 1},
+                                 source_provenance={})
+        result = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT,
+                                         risk_policy=policy(), now_utc=NOW)
+        self.assertEqual((result.status, result.reason), ("BLOCKED", "EXECUTION_MODE_PROVENANCE_MISSING"))
+        self.assertEqual(conn.tables.get("execution_v2.execution_intent", {}), {})
+
+    def test_shadow_signal_remains_blocked_after_instance_changes_to_live(self):
+        conn = self._seeded_conn(strategy_metadata={"execution_mode": "LIVE", "execution_mode_revision": 5},
+                                 source_provenance={"execution_mode_at_decision": "SHADOW",
+                                                    "execution_mode_revision": 4})
+        result = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT,
+                                         risk_policy=policy(), now_utc=NOW)
+        self.assertEqual((result.status, result.reason), ("BLOCKED", "EXECUTION_MODE_PROVENANCE_MISMATCH"))
+
+    def test_off_signal_is_blocked_before_intent_creation(self):
+        conn = self._seeded_conn(strategy_metadata={"execution_mode": "OFF", "execution_mode_revision": 1},
+                                 source_provenance={"execution_mode_at_decision": "OFF",
+                                                    "execution_mode_revision": 1})
+        result = create_execution_intent(conn, signal_id="SIG1", account_id=ACCOUNT,
+                                         risk_policy=policy(), now_utc=NOW)
+        self.assertEqual((result.status, result.reason), ("BLOCKED", "SIGNAL_NOT_LIVE_AT_DECISION"))
 
     def test_raises_when_entry_signal_record_is_missing(self):
         conn = FakeConnection()
