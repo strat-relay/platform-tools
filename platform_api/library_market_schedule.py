@@ -14,6 +14,24 @@ WEEKEND_ASSET_CLASSES = frozenset({'FX', 'METAL'})
 STEPS = {'M5':300, 'M15':900, 'H1':3600, 'H4':14400}
 
 
+def weekend_window(asset_class, now):
+    """Return the supported weekend window without asserting feed health."""
+    if asset_class not in WEEKEND_ASSET_CLASSES or not math.isfinite(now):
+        return None
+    try:
+        zone = ZoneInfo('America/New_York')
+    except ZoneInfoNotFoundError:
+        return None
+    local = datetime.fromtimestamp(now, timezone.utc).astimezone(zone)
+    friday = local.date()-timedelta(days=(local.weekday()-4)%7)
+    start = datetime.combine(friday,time(17),zone).timestamp()
+    end = datetime.combine(friday+timedelta(days=2),time(17),zone).timestamp()
+    if not start <= now < end:
+        return None
+    return {'policy': POLICY, 'basis': 'EXPECTED_PROVIDER_WEEKEND',
+            'closure_start': int(start), 'review_after': int(end)}
+
+
 def expected_weekend(asset_class, now, stream):
     if asset_class not in WEEKEND_ASSET_CLASSES or not math.isfinite(now):
         return None

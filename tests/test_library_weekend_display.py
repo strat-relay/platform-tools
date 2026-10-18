@@ -84,6 +84,25 @@ class WeekendDisplayTests(unittest.TestCase):
         self.assertEqual(result['last_finalized_close'],now//900*900)
         self.assertEqual(state,before)
 
+    def test_explicit_stale_watermark_is_market_closed_without_prior_stream_state(self):
+        now=epoch('2026-10-17T12:00:00')
+        state={'health':{'observed_at':now,'status':'DEGRADED','streams':[
+            {'key':'k','instrument':'XAUUSD','status':'BLOCKED','error_type':'ValueError',
+             'error_message':'completed candle watermark is stale'},
+            {'key':'k','instrument':'BTCUSD','status':'OK','last_finalized_close':now//900*900},
+        ]},'streams':{}}
+        result=observation_status(state,'k',now=now)
+        self.assertEqual(result['status'],'RUNNING')
+        self.assertEqual(result['closed_instruments'],['XAUUSD'])
+
+    def test_generic_value_error_without_explicit_stale_reason_stays_degraded(self):
+        now=epoch('2026-10-17T12:00:00')
+        state={'health':{'observed_at':now,'status':'DEGRADED','streams':[
+            {'key':'k','instrument':'XAUUSD','status':'BLOCKED','error_type':'ValueError'},
+            {'key':'k','instrument':'BTCUSD','status':'OK'},
+        ]},'streams':{}}
+        self.assertEqual(observation_status(state,'k',now=now)['status'],'DEGRADED')
+
     def test_all_closed_is_explicit_not_evaluating(self):
         now=epoch('2026-10-17T12:00:00');close=epoch('2026-10-16T21:00:00')
         state=state_at(close,now)
