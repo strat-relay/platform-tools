@@ -13,6 +13,10 @@ RUN pip install --no-cache-dir --disable-pip-version-check \
 
 COPY postgres ./postgres
 COPY platform_api ./platform_api
+# The instance-scoped observation repository resolves library evaluator keys through
+# strategy_backtest.library. Keep that package in the control-api image; omitting it
+# causes every observation request to fail before its first database query.
+COPY strategy_backtest ./strategy_backtest
 # Signals expose the theoretical-outcome disclaimer at import time.
 COPY outcome_attribution.py ./outcome_attribution.py
 # Redis-first broker reads (BROKER_VIEW_REDIS_URL); populated by broker_view.service.
