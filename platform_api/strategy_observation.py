@@ -102,14 +102,37 @@ class ObservationRepository:
                 'price-action-observer:'||event_id AS source_event_id
                 FROM research.price_action_observer_evaluation WHERE instance_id=%s AND strategy_key=%s"""
             params=[owner['id'],key];coverage='COMPLETE_LEDGER';source='PA_OBSERVER'
-        elif attrs.get('library_key') and attrs.get('orchestrator_run_id'):
-            key=attrs['library_key'];run_id=attrs['orchestrator_run_id']
-            cur.execute('SELECT state FROM research.strategy_library_forward_state WHERE run_id=%s',(run_id,));row=cur.fetchone()
-            if row:state=row[0] or {}
-            sql="""SELECT event_id,instrument,observed_at,payload->'payload' AS evaluation,
-                'strategy-library:'||run_id||':'||event_id AS source_event_id
-                FROM research.strategy_library_forward_event WHERE run_id=%s AND strategy_key=%s AND kind='EVALUATION'"""
-            params=[run_id,key];coverage='COMPLETE_LEDGER';source='LIBRARY_OBSERVER'
+        elif attrs.get('library_key'):
+            # The run identity is authoritative in the forward evidence ledger. Older
+            # registrations may have the library key but lack the copied orchestrator_run_id
+            # instance attribute; do not fall through to generic canonical evaluations, which
+            # are a different evidence source and can produce a misleading SOURCE_UNAVAILABLE.
+            key=attrs['library_key'];run_id=attrs.get('orchestrator_run_id')
+            if not run_id:
+                cur.execute('''SELECT run_id
+                    FROM research.strategy_library_forward_event
+                    WHERE strategy_key=%s
+                    GROUP BY run_id
+                    ORDER BY max(observed_at) DESC, run_id DESC
+                    LIMIT 1''',(key,))
+                discovered=cur.fetchone()
+                run_id=discovered[0] if discovered else None
+            if run_id:
+                cur.execute('SELECT state FROM research.strategy_library_forward_state WHERE run_id=%s',(run_id,));row=cur.fetchone()
+                if row:state=row[0] or {}
+                sql="""SELECT event_id,instrument,observed_at,payload->'payload' AS evaluation,
+                    'strategy-library:'||run_id||':'||event_id AS source_event_id
+                    FROM research.strategy_library_forward_event WHERE run_id=%s AND strategy_key=%s AND kind='EVALUATION'"""
+                params=[run_id,key];coverage='COMPLETE_LEDGER';source='LIBRARY_OBSERVER'
+            else:
+                # No forward run exists for this registered library key. Preserve the generic
+                # fallback for other instances, but never manufacture a library run identity.
+                sql="""SELECT e.evaluation_id AS event_id,e.instrument,e.created_at AS observed_at,
+                    e.canonical_payload AS evaluation,NULL::text AS source_event_id
+                    FROM strategy.evaluations e WHERE e.strategy_id=%s AND
+                    (e.provenance->>'strategy_instance_id'=%s OR EXISTS
+                      (SELECT 1 FROM strategy.entry_signals s WHERE s.evaluation_id=e.evaluation_id AND s.strategy_instance_id=%s))"""
+                params=[strategy_id,owner['canonical_id'],owner['canonical_id']];coverage='PARTIAL';source='CANONICAL_EVALUATIONS'
         else:
             sql="""SELECT e.evaluation_id AS event_id,e.instrument,e.created_at AS observed_at,
                 e.canonical_payload AS evaluation,NULL::text AS source_event_id
@@ -292,4 +315,3 @@ class ObservationRepository:
                             'required_minimum':tick*minimum,'tick_size_used':tick,
                             'basis':'Derived from matching retained input event and recorded parameters; not a persisted stage result.'}
         return item
-

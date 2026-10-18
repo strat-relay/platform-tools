@@ -147,3 +147,27 @@ def test_library_and_generic_sources_keep_ownership_and_coverage_distinct():
     assert run=='frozen-run' and key=='ema_pullback' and coverage=='COMPLETE_LEDGER'
     assert args==['frozen-run','ema_pullback'] and "kind='EVALUATION'" in sql
     assert lifecycle({'decision':'REJECT','provenance':{'reason':'ENTRY_ACCEPTED'}})=='ACCEPTED_AWAITING_PUBLICATION'
+
+
+def test_library_source_recovers_missing_run_id_from_authoritative_forward_ledger():
+    class LibraryCursor(Cursor):
+        def execute(self, sql, args=()):
+            if 'SELECT run_id' in sql and 'strategy_library_forward_event' in sql:
+                self.result=[('donchian-run',)]
+                self.calls.append((sql,args))
+                return
+            if 'SELECT state FROM research.strategy_library_forward_state' in sql:
+                self.result=[({'health': {}},)]
+                self.calls.append((sql,args))
+                return
+            super().execute(sql,args)
+
+    repo,_=repository(LibraryCursor())
+    owner={'id': 'library-instance', 'canonical_id': 'library-instance',
+           'attributes': {'library_key': 'donchian_breakout'}, 'instruments': []}
+    state,run,key,sql,args,coverage,source=repo.source(LibraryCursor(),owner,'BREAKOUT_DONCHIAN_BREAKOUT')
+    assert run=='donchian-run'
+    assert key=='donchian_breakout'
+    assert coverage=='COMPLETE_LEDGER'
+    assert source=='LIBRARY_OBSERVER'
+    assert args==['donchian-run','donchian_breakout']
