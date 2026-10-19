@@ -313,7 +313,8 @@ def resolve_candle_path(*, direction: str, entry: float, stop: float, target: fl
             )
     return OutcomeResolution(
         "OPEN", None, None, "INSUFFICIENT_DATA", "CANDLE_REPLAY_V2",
-        {"observed_candles": observed, "coverage_end": (
+        {"activated_at": activated_at.isoformat() if activated_at is not None else None,
+         "observed_candles": observed, "coverage_end": (
             _utc(ordered[-1].close_timestamp).isoformat() if ordered else None)},
     )
 

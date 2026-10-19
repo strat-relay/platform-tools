@@ -21,6 +21,8 @@ COPY core ./core
 COPY strategy_backtest ./strategy_backtest
 # Signals expose the theoretical-outcome disclaimer at import time.
 COPY outcome_attribution.py ./outcome_attribution.py
+# The theoretical signal projection shares the canonical activation contract.
+COPY outcome_resolver.py ./outcome_resolver.py
 # Redis-first broker reads (BROKER_VIEW_REDIS_URL); populated by broker_view.service.
 COPY broker_view ./broker_view
 # PlatformControlApi exposes Trade Manager mode as part of the unified API

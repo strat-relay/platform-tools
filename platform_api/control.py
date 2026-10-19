@@ -309,6 +309,31 @@ class PlatformControlRepository:
                 "versions": sorted({r["tm_version_id"] for r in rows}),
                 "source": "canonical_postgres"}
 
+    def monitored_signals(self, limit: int, offset: int) -> list[dict[str, Any]]:
+        from trade_management.signal_monitoring import monitoring_state
+        rows = self._trade_management_query("""SELECT s.signal_id, s.strategy_id, s.instrument, s.direction,
+            s.decision_time, s.entry_type, s.entry_price, s.stop_price, s.target_price,
+            s.strategy_metadata, o.status AS outcome_status, o.resolution_state, o.resolution_evidence,
+            mt.managed_trade_id, mt.time_exit_at, mt.state AS managed_state,
+            d.action AS latest_action, d.reason_codes AS latest_reason_codes,
+            d.decision_time AS latest_decision_at
+            FROM strategy.entry_signals s
+            LEFT JOIN strategy.entry_signal_outcomes o ON o.signal_id=s.signal_id
+            LEFT JOIN trade_management.managed_trade mt ON mt.entry_signal_id=s.signal_id
+            LEFT JOIN LATERAL (SELECT action, reason_codes, decision_time
+                FROM trade_management.trade_manager_decision
+                WHERE managed_trade_id=mt.managed_trade_id
+                ORDER BY observation_seq DESC, persisted_at DESC LIMIT 1) d ON TRUE
+            ORDER BY (CASE WHEN o.status IS NULL OR o.status='OPEN' THEN 0 ELSE 1 END),
+                     s.decision_time DESC, s.signal_id
+            LIMIT %s OFFSET %s""", (limit, offset))
+        for row in rows:
+            row["monitoring_state"] = monitoring_state(row)
+            row["management_status"] = "REGISTERED" if row.get("managed_trade_id") else "NOT_REGISTERED"
+            row.pop("strategy_metadata", None)
+            row.pop("resolution_evidence", None)
+        return rows
+
     def managed_trades(self, limit: int, offset: int, trade_id: str | None = None) -> list[dict[str, Any]]:
         where = "WHERE mt.managed_trade_id = %s" if trade_id else ""
         params: tuple[Any, ...] = (trade_id,) if trade_id else (limit, offset)
@@ -1467,6 +1492,10 @@ class PlatformControlApi:
                                        source="platform_and_bridge", status=overall)
             if path == "/api/v1/trade-manager/summary":
                 return 200, self._body(self.repository.trade_manager_summary(), source="canonical_postgres")
+            if path == "/api/v1/trade-manager/signals":
+                limit = min(max(int(query.get("limit", LIMIT)), 1), 500)
+                offset = max(int(query.get("offset", 0)), 0)
+                return 200, self._body(self.repository.monitored_signals(limit, offset), source="canonical_postgres")
             if path == "/api/v1/trade-manager/live":
                 from .trade_manager_live import TradeManagerLiveProjection
                 projection = TradeManagerLiveProjection(

@@ -30,6 +30,12 @@ class HealthState:
             if detail is not None:
                 self._detail[component] = detail
 
+    def mark_unready(self, component: str, *, detail: Any = None) -> None:
+        with self._lock:
+            self._ready_components[component] = False
+            if detail is not None:
+                self._detail[component] = detail
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {"components": dict(self._ready_components), "detail": dict(self._detail)}

@@ -95,11 +95,15 @@ def _broker_symbol_map() -> dict[str, str]:
 
 
 def resolve_broker_symbol(canonical_instrument: str) -> str:
-    try:
-        return _broker_symbol_map()[canonical_instrument]
-    except KeyError as exc:
-        raise BrokerSymbolUnavailable(
-            f"no broker symbol mapping for canonical instrument {canonical_instrument!r}") from exc
+    mapping = _broker_symbol_map()
+    if canonical_instrument in mapping:
+        return mapping[canonical_instrument]
+    # Legacy signals may already carry the provider symbol. Accept it only when
+    # explicitly present in the active mapping; never strip or invent a suffix.
+    if canonical_instrument in mapping.values():
+        return canonical_instrument
+    raise BrokerSymbolUnavailable(
+        f"no broker symbol mapping for canonical instrument {canonical_instrument!r}")
 
 
 def _normalize_source_timestamp(value: Any) -> str:
