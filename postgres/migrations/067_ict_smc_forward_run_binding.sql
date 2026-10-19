@@ -8,8 +8,7 @@ SET attributes = attributes || jsonb_build_object(
     'publication_activation_time', 1792377096,
     'forward_image', 'ghcr.io/strat-relay/trading-platform-runtime@sha256:533e86147574e0a9c9735a9117aff8d9529f0c129ccce106a7d1754c912dc236'
 ),
-updated_at = now(),
-updated_by = 'migration:067'
+updated_at = now()
 WHERE id IN (
     '4a411452-1440-5f91-bb95-eaf6dabbccc2'::uuid,
     '3441a68f-6209-56fa-b3ad-c0e8d6c3cb86'::uuid,
