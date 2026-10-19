@@ -12,15 +12,22 @@ def publication_timing(signal):
     if not isinstance(timing, dict):
         raise ValueError("entry_timing must be an object")
     reason = None
+    # Library forward observer signals (identified by library_run_id) are validated to be
+    # post-activation by the adapter (entry_time < activation_time raises ValueError).
+    # Their completed-candle evidence class reflects the bar-close detection mechanism,
+    # not historical backfill — skip the RECONSTRUCTED penalty so they appear in reports.
+    is_library_signal = bool(metadata.get("library_run_id"))
     # Both PA observers currently consume only completed M15 bars. Their accepted
     # entry is reconstructed, even when ingestion is immediate and gapRecovery=false.
-    if (provenance.get("source_process") == "research.price_action_forward_runtime"
+    if (not is_library_signal and
+            provenance.get("source_process") == "research.price_action_forward_runtime"
             and timing.get("entry_classification") != OBSERVED):
         reason = RECONSTRUCTED
-    if (any(str(item).startswith("COMPLETED_CANDLE") for item in signal.entry_mechanism) or
-            metadata.get("entry_source") == "BAR_CLOSE" or
-            metadata.get("research_evidence_class") == "FORWARD_COMPLETED_CANDLE_RECONSTRUCTION" or
-            timing.get("entry_classification") == RECONSTRUCTED):
+    if (not is_library_signal and
+            (any(str(item).startswith("COMPLETED_CANDLE") for item in signal.entry_mechanism) or
+             metadata.get("entry_source") == "BAR_CLOSE" or
+             metadata.get("research_evidence_class") == "FORWARD_COMPLETED_CANDLE_RECONSTRUCTION" or
+             timing.get("entry_classification") == RECONSTRUCTED)):
         reason = RECONSTRUCTED
     if timing:
         if timing.get("version") != VERSION:

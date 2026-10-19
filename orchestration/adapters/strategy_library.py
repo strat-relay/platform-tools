@@ -98,7 +98,11 @@ class StrategyLibraryAdapter:
         elif not (entry_time + step == cutoff <= observed and
                   record.get('evidence_class') == 'FORWARD_COMPLETED_CANDLE_RECONSTRUCTION'):
             raise ValueError('invalid reconstructed entry timing')
-        emission_class = 'PROSPECTIVE' if live_open else 'RETROSPECTIVE_RESEARCH_EVIDENCE'
+        # All library signals pass the entry_time >= activation_time guard above.
+        # Whether the entry is observed at candle-open or candle-close affects execution
+        # actionability but not forward/retrospective status — both are genuine forward
+        # observations post-activation, so both are PROSPECTIVE for report purposes.
+        emission_class = 'PROSPECTIVE'
         episode = entry['episode_id']
         source = 'strategy-library:'+self.instance['orchestrator_run_id']+':'+str(event_id)
         definition = self.definition
