@@ -132,10 +132,11 @@ def load_instances_from_database(conn: Any) -> list[dict[str, Any]]:
     # These bridge strategy_instance_v2 records into the existing instance format so
     # load_adapters() can discover them without duplicating the identity model.
     v2 = _load_v2_instances_from_database(conn)
-    # V2 rows carry execution_mode; drop legacy platform rows for the same instance_id
-    # so the execution-eligible row always wins and no duplicate adapters are created.
-    v2_ids = {inst["instance_id"] for inst in v2 if inst.get("instance_id")}
-    legacy = [inst for inst in instances if inst.get("instance_id") not in v2_ids]
+    # V2 rows carry execution_mode; drop ALL legacy platform rows for any strategy_id
+    # that has a v2 row, regardless of instance_id differences between the two tables.
+    # This ensures the v2 (execution-eligible) row wins for strategies that were migrated.
+    v2_strategy_ids = {inst["strategy_id"] for inst in v2 if inst.get("strategy_id")}
+    legacy = [inst for inst in instances if inst.get("strategy_id") not in v2_strategy_ids]
     return legacy + v2
 
 
