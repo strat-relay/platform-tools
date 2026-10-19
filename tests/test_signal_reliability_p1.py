@@ -66,15 +66,7 @@ def _prospective_ts() -> int:
 
 
 def _stale_ts() -> int:
-    """Stable stale decision timestamp anchored to UTC midday.
-
-    Anchoring to midday keeps the reaction-zone M15 bar (decision_ts - 3600)
-    on the same UTC calendar day as decision_ts, so _detect_m15_reaction_events
-    always finds the reaction zone regardless of what hour the suite runs.
-    """
-    now = int(time.time())
-    utc_day = (now // 86400) * 86400
-    return utc_day + 12 * 3600 - 7200  # 2 hours before midday, still on the same day
+    return int(time.time()) - 7200  # 2 hours ago — well past 1200s gate
 
 
 def _make_kojo_adapter():
@@ -96,19 +88,14 @@ def _mock_redis_with_bars(h1_bars, m15_bars):
     return r
 
 
-def _run_kojo(adapter, h1_bars, m15_bars, seen: set | None = None, env_overrides=None,
-              now_ts: int | None = None):
+def _run_kojo(adapter, h1_bars, m15_bars, seen: set | None = None, env_overrides=None):
     """Run adapter.discover_new_signals with mocked Redis and MT5 provider."""
     seen = seen or set()
     env = {"MARKET_DATA_REDIS_URL": "redis://fake:6379/0", **(env_overrides or {})}
     mock_r = _mock_redis_with_bars(h1_bars, m15_bars)
     broker_target = "orchestration.brokers.MT5ShadowProvider"
-    clock_patch = patch(
-        "orchestration.adapters.kojo_structure_reclaim_v3_adapter._utc_now_ts",
-        return_value=now_ts if now_ts is not None else int(time.time()),
-    )
     with patch.dict(os.environ, env):
-        with patch("redis.from_url", return_value=mock_r), clock_patch:
+        with patch("redis.from_url", return_value=mock_r):
             provider_cls = MagicMock()
             provider_cls.return_value.quote.return_value = {"bid": 0, "ask": 0}
             with patch(broker_target, provider_cls):
@@ -190,8 +177,7 @@ class KojoResearchEvidenceTests(unittest.TestCase):
                          env_overrides={
                              "TRADING_PLATFORM_RUNTIME_DIR": tmpdir,
                              "KOJO_V3_MAX_SIGNAL_AGE_S": "1200",
-                         },
-                         now_ts=decision_ts + 7200)
+                         })
 
     def test_stale_signal_not_silently_discarded(self):
         with tempfile.TemporaryDirectory() as tmpdir:
