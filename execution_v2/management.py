@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from math import isfinite
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -61,7 +62,11 @@ def _same(a: float | None, b: float | None) -> bool:
 
 def stop_is_safe(direction: str, broker_stop: float, requested_stop: float) -> bool:
     """legacy trade_manager.central.stop_is_safe, plus: a stop can never be removed."""
-    if requested_stop is None or requested_stop <= 0:
+    if direction not in {"LONG", "SHORT"}:
+        return False
+    if requested_stop is None or not isfinite(requested_stop) or requested_stop <= 0:
+        return False
+    if not isfinite(broker_stop):
         return False
     if not broker_stop:
         return True
@@ -247,7 +252,10 @@ class ManagementWorker:
                 decided = decided.replace(tzinfo=timezone.utc)
         except (TypeError, ValueError):
             return self._reject(base, "DECISION_TIME_INVALID")
-        if (now_utc - decided).total_seconds() > MAX_DECISION_AGE_SECONDS:
+        age_seconds = (now_utc - decided).total_seconds()
+        if age_seconds < 0:
+            return self._reject(base, "DECISION_TIME_IN_FUTURE")
+        if age_seconds > MAX_DECISION_AGE_SECONDS:
             return self._reject(base, "STALE_DECISION")
 
         try:
@@ -257,11 +265,21 @@ class ManagementWorker:
         position = next((p for p in positions if str(p.get("ticket")) == link["ticket"]), None)
         if position is None:
             return self._reject(base, "POSITION_NOT_FOUND")
-        position_direction = "LONG" if int(position.get("type", -1)) == 0 else "SHORT"
+        if position.get("symbol") != link["symbol"]:
+            return self._reject(base, "POSITION_SYMBOL_MISMATCH")
+        raw_position_type = position.get("type")
+        if isinstance(raw_position_type, bool) or raw_position_type not in (0, 1, "0", "1"):
+            return self._reject(base, "POSITION_TYPE_INVALID")
+        position_direction = "LONG" if int(raw_position_type) == 0 else "SHORT"
         if position_direction != link["direction"]:
             return self._reject(base, "POSITION_DIRECTION_MISMATCH")
-        broker_stop = float(position.get("sl") or 0.0)
-        broker_target = float(position.get("tp") or 0.0)
+        try:
+            broker_stop = float(position.get("sl") or 0.0)
+            broker_target = float(position.get("tp") or 0.0)
+        except (TypeError, ValueError, OverflowError):
+            return self._reject(base, "INVALID_BROKER_PRICE_LEVEL")
+        if not all(isfinite(level) and level >= 0 for level in (broker_stop, broker_target)):
+            return self._reject(base, "INVALID_BROKER_PRICE_LEVEL")
         base.update(broker_stop_before=broker_stop, broker_target_before=broker_target)
 
         params = payload.get("parameters") or {}
@@ -321,8 +339,13 @@ class ManagementWorker:
                     return self._reject(base, "PROFIT_PIPS_TARGET_NOT_REACHED",
                                         broker_response={"observed_profit_pips": observed_pips, "target": target})
         if broker_action == "MODIFY":
-            requested_stop = float(params["new_stop"]) if params.get("new_stop") is not None else broker_stop
-            requested_target = float(params["new_target"]) if params.get("new_target") is not None else broker_target
+            try:
+                requested_stop = float(params["new_stop"]) if params.get("new_stop") is not None else broker_stop
+                requested_target = float(params["new_target"]) if params.get("new_target") is not None else broker_target
+            except (TypeError, ValueError, OverflowError):
+                return self._reject(base, "INVALID_PRICE_LEVEL")
+            if not all(isfinite(level) for level in (broker_stop, broker_target, requested_stop, requested_target)):
+                return self._reject(base, "INVALID_PRICE_LEVEL")
             base.update(requested_stop=requested_stop, requested_target=requested_target)
             if not stop_is_safe(link["direction"], broker_stop, requested_stop):
                 return self._reject(base, "RISK_INCREASING_STOP_CHANGE")
@@ -357,6 +380,10 @@ class ManagementWorker:
             self._update(intent_id, status="FENCED", reason=f"OWNERSHIP_ACQUISITION_FAILED: {exc}"[:300],
                          completed_at=datetime.now(timezone.utc))
             return ManagementOutcome("FENCED", intent_id, "OWNERSHIP_ACQUISITION_FAILED")
+        if self.tm_mode_reader() != "LIVE":
+            self._update(intent_id, status="FENCED", reason="TRADE_MANAGER_NOT_LIVE_BEFORE_SUBMISSION",
+                         generation=generation, completed_at=datetime.now(timezone.utc))
+            return ManagementOutcome("FENCED", intent_id, "TRADE_MANAGER_NOT_LIVE_BEFORE_SUBMISSION")
         if self.w.authority_provider is not None and self.w.authority_provider() != "ENABLED":
             self._update(intent_id, status="FENCED", reason="AUTHORITY_DISABLED_BEFORE_SUBMISSION",
                          generation=generation, completed_at=datetime.now(timezone.utc))
