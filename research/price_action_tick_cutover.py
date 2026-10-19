@@ -131,7 +131,7 @@ def prepare(documents, *, run_id, activation_time, image, db_secret):
             " AND state->>'entry_timing_binding'=" + quote(timing_binding) +
             " AND state->>'status'='RUNNING' AND (state->'runtime'->>'successful_instrument_count')::int=3 "
             "AND state->'instrument_tick_sizes' ?& ARRAY['XAUUSD','BTCUSD','USDJPY'] "
-            "AND last_observed_at > now()-interval '120 seconds' AND last_observed_at <= now())",
+            "AND last_observed_at > clock_timestamp()-interval '120 seconds' AND last_observed_at <= clock_timestamp())",
             'fresh corrected checkpoint required: ' + key))
         activation.append(gate("(SELECT count(*)=3 AND bool_and(canonical_instrument=ANY(ARRAY['XAUUSD','BTCUSD','USDJPY'])) "
             "FROM strategy.instrument_membership WHERE strategy_instance_id=" + quote(instance) +
