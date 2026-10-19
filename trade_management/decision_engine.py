@@ -89,7 +89,7 @@ def _load_trade(conn: Any, managed_trade_id: str) -> dict[str, Any] | None:
                            ORDER BY o.created_at DESC, o.event_id
                            LIMIT 1
                       ) AS publication ON TRUE
-                     WHERE mt.managed_trade_id=%s""",
+                     WHERE mt.managed_trade_id=%s FOR UPDATE OF mt""",
                     (managed_trade_id,))
         row = cur.fetchone()
     if row is None:
@@ -267,16 +267,34 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
             mark_inbox_processed(conn, consumer_name, event_id)
             return DecisionResult(status="TRADE_NOT_OPEN", decision_id=None, action=None)
 
+        with conn.cursor() as cur:
+            cur.execute("""SELECT decision_id FROM trade_management.trade_manager_decision
+                           WHERE managed_trade_id=%s AND action='EXIT'
+                             AND parameters->>'exit_reason'='TIME_EXIT' LIMIT 1""",
+                        (observation["managed_trade_id"],))
+            prior_exit = cur.fetchone()
+        if prior_exit is not None:
+            mark_inbox_processed(conn, consumer_name, event_id)
+            return DecisionResult(status="TIME_EXIT_ALREADY_RECORDED", decision_id=prior_exit[0], action=None)
+
+        from .signal_monitoring import load_signal_state, monitoring_state
+        signal_state = load_signal_state(conn, observation["managed_trade_id"])
+        theoretical_state = monitoring_state(signal_state, now_utc=now_utc)
+
         snapshot = _load_market_snapshot(conn, observation["market_snapshot_id"]) or {}
         # Expiry does not need stop/target geometry or any market data.
         due = trade.get("time_exit_at") is not None and _epoch(observation["effective_at"]) >= _epoch(trade["time_exit_at"])
         current_stop, current_target = ((0.0, None) if due else
                                        _effective_levels(conn, trade, observation["managed_trade_id"]))
 
-        action, reason_codes, parameters = _evaluate(
-            evaluator_id=version["evaluator_id"], manifest=version["manifest"], trade=trade,
-            snapshot=snapshot, current_stop=current_stop, current_target=current_target,
-            as_of=observation["effective_at"], bars_provider=bars_provider)
+        if (theoretical_state in ("PENDING_ENTRY", "EXPIRED", "INVALIDATED", "DATA_UNAVAILABLE")
+                or (theoretical_state == "CLOSED" and signal_state.get("outcome_status") != "TIME_EXIT")):
+            action, reason_codes, parameters = "HOLD", ("THEORETICAL_" + theoretical_state,), {}
+        else:
+            action, reason_codes, parameters = _evaluate(
+                evaluator_id=version["evaluator_id"], manifest=version["manifest"], trade=trade,
+                snapshot=snapshot, current_stop=current_stop, current_target=current_target,
+                as_of=observation["effective_at"], bars_provider=bars_provider)
 
         persisted_at = now_utc.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
         with conn.cursor() as cur:

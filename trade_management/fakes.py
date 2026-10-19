@@ -47,6 +47,13 @@ class FakeCursor:
     # -- SELECT ------------------------------------------------------------------------
 
     def _select(self, upper: str, sql: str, params: Any) -> None:
+        if upper.startswith("SELECT S.STRATEGY_ID, S.ENTRY_TYPE"):
+            trade = self.conn.view("trade_management.managed_trade").get(params[0])
+            signal = self.conn.view("strategy.entry_signals").get(trade["entry_signal_id"], {})
+            outcome = self.conn.view("strategy.entry_signal_outcomes").get(trade["entry_signal_id"], {})
+            self._result = (signal.get("strategy_id"), signal.get("entry_type"), signal.get("strategy_metadata"),
+                            outcome.get("status"), outcome.get("resolution_evidence"), outcome.get("resolution_state"))
+            return
         if "S.ENTRY_TYPE" in upper and "MT.TIME_EXIT_MINUTES" in upper:
             rows = []
             for trade in self.conn.view("trade_management.managed_trade").values():
@@ -55,7 +62,7 @@ class FakeCursor:
                 if trade["state"] == "OPEN" and outcome.get("status") in (None, "OPEN", "TIME_EXIT"):
                     rows.append((trade["managed_trade_id"], trade["decision_time"], trade["strategy_id"],
                                  signal.get("entry_type"), signal.get("strategy_metadata"), trade.get("time_exit_minutes"),
-                                 outcome.get("status"), outcome.get("exit_timestamp")))
+                                 outcome.get("status"), outcome.get("exit_timestamp"), outcome.get("resolution_evidence")))
             self._rows, self._result = rows, "MULTI"
             return
         if upper.startswith("SELECT STATE, TM_VERSION_ID, LAST_OBSERVATION_SEQ"):
@@ -180,6 +187,12 @@ class FakeCursor:
             else:
                 self._result = (row["observation_id"], row["managed_trade_id"], row["observation_seq"],
                                 row["tm_version_id"], row["effective_at"], row["data_status"])
+            return
+        if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper and "PARAMETERS->>'EXIT_REASON'" in upper:
+            row = next((d for d in self.conn.view("trade_management.trade_manager_decision").values()
+                        if d["managed_trade_id"] == params[0] and d["action"] == "EXIT"
+                        and json.loads(d["parameters"]).get("exit_reason") == "TIME_EXIT"), None)
+            self._result = (row["decision_id"],) if row else None
             return
         if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper and "ACTION IN" in upper:
             # decision_engine._effective_levels: level-setting decisions, newest first.

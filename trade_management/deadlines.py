@@ -18,11 +18,11 @@ def _utc(value: Any) -> datetime:
 
 def theoretical_deadline(*, signal_time: Any, strategy_id: str, entry_type: str | None,
                          metadata: Any, captured_minutes: int | None,
-                         outcome_status: str | None = None, outcome_exit: Any = None) -> datetime | None:
+                         outcome_status: str | None = None, outcome_exit: Any = None, activation_evidence: Any = None) -> datetime | None:
     """Match the canonical resolver's signal-time hold clock.
 
-    Pending entries need canonical TIME_EXIT evidence: an elapsed clock alone is not
-    proof that a limit/retrace entry activated. Market entries activate at signal time.
+    Pending entries need canonical activation or TIME_EXIT evidence: an elapsed clock
+    alone does not prove a limit/retrace entry activated. Market entries activate at signal time.
     No broker fill or notification/publication timestamp is an entry-time substitute.
     """
     metadata = json.loads(metadata) if isinstance(metadata, str) else metadata or {}
@@ -33,7 +33,8 @@ def theoretical_deadline(*, signal_time: Any, strategy_id: str, entry_type: str 
         return None
     deadline = _utc(signal_time) + timedelta(minutes=minutes)
     if contract.activation == "ENTRY_PRICE_TOUCH":
-        return deadline if outcome_status == "TIME_EXIT" and outcome_exit is not None else None
+        evidence = json.loads(activation_evidence) if isinstance(activation_evidence, str) else activation_evidence or {}
+        return deadline if (evidence.get("activated_at") or (outcome_status == "TIME_EXIT" and outcome_exit is not None)) else None
     return deadline
 
 
@@ -68,7 +69,7 @@ def process_deadlines(conn: Any, *, now_utc: datetime) -> int:
         return 0
     with conn.cursor() as cur:
         cur.execute("""SELECT mt.managed_trade_id, mt.decision_time, mt.strategy_id, s.entry_type,
-                              s.strategy_metadata, mt.time_exit_minutes, o.status, o.exit_timestamp
+                              s.strategy_metadata, mt.time_exit_minutes, o.status, o.exit_timestamp, o.resolution_evidence
                        FROM trade_management.managed_trade mt
                        JOIN strategy.entry_signals s ON s.signal_id=mt.entry_signal_id
                        LEFT JOIN strategy.entry_signal_outcomes o ON o.signal_id=mt.entry_signal_id
@@ -77,10 +78,10 @@ def process_deadlines(conn: Any, *, now_utc: datetime) -> int:
                        ORDER BY mt.managed_trade_id""")
         candidates = cur.fetchall()
     processed = 0
-    for trade_id, signal_time, strategy_id, entry_type, metadata, minutes, status, exit_at in candidates:
+    for trade_id, signal_time, strategy_id, entry_type, metadata, minutes, status, exit_at, evidence in candidates:
         deadline = theoretical_deadline(signal_time=signal_time, strategy_id=strategy_id,
                                         entry_type=entry_type, metadata=metadata, captured_minutes=minutes,
-                                        outcome_status=status, outcome_exit=exit_at)
+                                        outcome_status=status, outcome_exit=exit_at, activation_evidence=evidence)
         if deadline is None:
             continue
         observation_id = "TMCLOCK_" + hashlib.sha256(f"{trade_id}|{deadline.isoformat()}".encode()).hexdigest()[:24]

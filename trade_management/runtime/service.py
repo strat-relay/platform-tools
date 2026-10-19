@@ -118,9 +118,13 @@ async def main_async() -> None:
         except NotImplementedError:
             pass
 
+    from .deadline_scheduler import DeadlineScheduler
+    deadlines = DeadlineScheduler(lambda: connect(config.postgres), health)
+    deadlines.start()
     try:
         await run(ctx, stop)
     finally:
+        deadlines.close()
         await nc.drain()
         conn.close()
 

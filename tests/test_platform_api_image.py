@@ -35,7 +35,9 @@ class PlatformApiImageTests(unittest.TestCase):
             result = subprocess.run([sys.executable, '-c',
                 "from platform_api.signals import UnifiedPlatformApi; "
                 "from core.strategies.families import family_for; "
-                "assert family_for('ICT_JUDAS_SWING') == 'ICT'; UnifiedPlatformApi()"],
+                "assert family_for('ICT_JUDAS_SWING') == 'ICT'; "
+                "from trade_management.signal_monitoring import monitoring_state; "
+                "assert monitoring_state({}) == 'ACTIVE_THEORETICAL'; UnifiedPlatformApi()"],
                 cwd=target, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
