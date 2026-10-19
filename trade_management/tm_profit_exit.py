@@ -72,12 +72,17 @@ def evaluate_exit_policy(*, trade_state: str, direction: str, entry_price: float
         "observed_quote": {"bid": bid, "ask": ask},
         "quote_age_seconds": quote_age_seconds,
     }
-    if quote_age_seconds is not None and quote_age_seconds > max_quote_age_seconds:
+    if (quote_age_seconds is not None and quote_age_seconds > max_quote_age_seconds
+            and not (policy.time_exit_at is not None and _utc(as_of) >= _utc(policy.time_exit_at))):
         return "HOLD", ("QUOTE_STALE",), parameters
 
     triggered: list[tuple[str, str]] = []
     if policy.time_exit_at is not None and _utc(as_of) >= _utc(policy.time_exit_at):
         triggered.append(("TIME_EXIT", "TIME_EXIT_DUE"))
+
+    if quote_age_seconds is not None and quote_age_seconds > max_quote_age_seconds:
+        parameters.update(triggered_rules=["TIME_EXIT"], exit_reason="TIME_EXIT", exit_trigger_reason="TIME_EXIT_DUE")
+        return "EXIT", ("TIME_EXIT_DUE",), parameters
 
     executable = None
     if bid is not None and ask is not None:

@@ -51,6 +51,12 @@ def close_terminal_trades(conn: Any, *, now_utc: datetime,
              FROM trade_management.managed_trade mt
              JOIN strategy.entry_signal_outcomes o ON o.signal_id = mt.entry_signal_id
             WHERE mt.state = 'OPEN' AND o.status IN ('TARGET_HIT', 'STOPPED', 'TIME_EXIT', 'PROFIT_EXIT', 'INVALIDATED')"""
+    # Do not let canonical TIME_EXIT reconciliation suppress a subscriber exit decision.
+    # Once that decision is recorded, closure follows on the next scheduler tick.
+    sql += """ AND (o.status <> 'TIME_EXIT' OR (mt.time_exit_minutes IS NULL AND mt.time_exit_at IS NULL) OR EXISTS (
+        SELECT 1 FROM trade_management.trade_manager_decision d
+         WHERE d.managed_trade_id=mt.managed_trade_id AND d.action='EXIT'
+           AND d.parameters->>'exit_reason'='TIME_EXIT'))"""
     params: tuple[Any, ...] = ()
     if managed_trade_id is not None:
         sql += " AND mt.managed_trade_id = %s"

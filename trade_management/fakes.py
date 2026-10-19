@@ -8,6 +8,7 @@ never inserts into that P2-owned table), via `FakeConnection.seed_entry_signal(.
 """
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -46,6 +47,25 @@ class FakeCursor:
     # -- SELECT ------------------------------------------------------------------------
 
     def _select(self, upper: str, sql: str, params: Any) -> None:
+        if "S.ENTRY_TYPE" in upper and "MT.TIME_EXIT_MINUTES" in upper:
+            rows = []
+            for trade in self.conn.view("trade_management.managed_trade").values():
+                signal = self.conn.view("strategy.entry_signals").get(trade["entry_signal_id"], {})
+                outcome = self.conn.view("strategy.entry_signal_outcomes").get(trade["entry_signal_id"], {})
+                if trade["state"] == "OPEN" and outcome.get("status") in (None, "OPEN", "TIME_EXIT"):
+                    rows.append((trade["managed_trade_id"], trade["decision_time"], trade["strategy_id"],
+                                 signal.get("entry_type"), signal.get("strategy_metadata"), trade.get("time_exit_minutes"),
+                                 outcome.get("status"), outcome.get("exit_timestamp")))
+            self._rows, self._result = rows, "MULTI"
+            return
+        if upper.startswith("SELECT STATE, TM_VERSION_ID, LAST_OBSERVATION_SEQ"):
+            row = self.conn.view("trade_management.managed_trade").get(params[0])
+            self._result = (row["state"], row["tm_version_id"], row["last_observation_seq"]) if row else None
+            return
+        if upper.startswith("SELECT ENTRY_SIGNAL_ID FROM TRADE_MANAGEMENT.MANAGED_TRADE"):
+            row = self.conn.view("trade_management.managed_trade").get(params[0])
+            self._result = (row["entry_signal_id"],) if row else None
+            return
         if "STRATEGY.ENTRY_SIGNAL_OUTCOMES" in upper:
             # trade_management.lifecycle.close_terminal_trades: OPEN trades joined to a terminal
             # canonical strategy outcome, optionally restricted to one managed_trade_id.
@@ -55,6 +75,12 @@ class FakeCursor:
             for trade in sorted(self.conn.view("trade_management.managed_trade").values(),
                                 key=lambda r: r["managed_trade_id"]):
                 outcome = outcomes.get(trade["entry_signal_id"])
+                if (outcome and outcome["status"] == "TIME_EXIT"
+                        and (trade.get("time_exit_minutes") is not None or trade.get("time_exit_at") is not None)
+                        and not any(d["managed_trade_id"] == trade["managed_trade_id"] and d["action"] == "EXIT"
+                                    and json.loads(d["parameters"]).get("exit_reason") == "TIME_EXIT"
+                                    for d in self.conn.view("trade_management.trade_manager_decision").values())):
+                    continue
                 if (trade["state"] == "OPEN" and outcome and outcome["status"] in ("TARGET_HIT", "STOPPED", "TIME_EXIT", "PROFIT_EXIT")
                         and (only is None or trade["managed_trade_id"] == only)):
                     rows.append((trade["managed_trade_id"], trade["entry_signal_id"], outcome["status"],
@@ -224,6 +250,12 @@ class FakeCursor:
             updated = dict(row)
             updated["status"] = "PROCESSED"
             self.conn.pending["platform.inbox_events"][key] = updated
+            self.rowcount = 1
+            return
+        if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "SET TIME_EXIT_AT=" in upper:
+            deadline, trade_id = params
+            row = self.conn.view("trade_management.managed_trade").get(trade_id)
+            self.conn.pending["trade_management.managed_trade"][trade_id] = {**row, "time_exit_at": deadline}
             self.rowcount = 1
             return
         if "TRADE_MANAGEMENT.MANAGED_TRADE" in upper and "LAST_OBSERVATION_SEQ" in upper:
