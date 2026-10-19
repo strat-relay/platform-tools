@@ -204,7 +204,9 @@ class ContextStructureRetraceAdapter:
                                 "source_read_health": position_provenance.get("source_read_health", source_provenance.get("source_read_health")),
                                 # Preserve absent safety provenance as absent;
                                 # the execution consumer rejects it closed.
-                                "gap_recovery": gap_recovery }))
+                                "gap_recovery": gap_recovery,
+                                "execution_mode_at_decision": self.instance.get("execution_mode"),
+                                "execution_mode_revision": self.instance.get("execution_mode_revision") }))
                 candidate = result[-1]
                 trace_emit("SIGNAL_DISCOVERED", signal_id=candidate.signal_id,
                            decision_time=candidate.decision_time,
