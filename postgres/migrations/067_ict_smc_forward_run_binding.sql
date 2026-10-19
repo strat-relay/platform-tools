@@ -14,7 +14,10 @@ WHERE id IN (
     '3441a68f-6209-56fa-b3ad-c0e8d6c3cb86'::uuid,
     'b2af32aa-e42d-5ff6-9a42-2aece970459f'::uuid
 )
-AND attributes->>'orchestrator_run_id' = 'ict-smc-forward-20261018-1845'
+AND (
+    attributes->>'orchestrator_run_id' IS NULL
+    OR attributes->>'orchestrator_run_id' = 'ict-smc-forward-20261018-1845'
+)
 AND execution_eligible = false
 AND execution_mode = 'OFF';
 
