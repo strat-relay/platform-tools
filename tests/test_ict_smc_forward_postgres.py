@@ -22,7 +22,23 @@ class IctSmcForwardPostgresTests(unittest.TestCase):
                 cur.execute("SET LOCAL statement_timeout='8s'")
                 sql=registration_sql();cur.execute(sql);cur.execute(sql)
                 cur.execute("INSERT INTO platform.schema_migrations(version,filename,checksum_sha256) VALUES('066','066_ict_smc_forward_registration.sql',%s) ON CONFLICT DO NOTHING",(hashlib.sha256(sql.encode()).hexdigest(),))
-                _,activate=plan('ict-postgres-test',1792346400,'ghcr.io/strat-relay/trading-platform-runtime@sha256:'+'a'*64)
+                # The full CI database applies all repository migrations before
+                # this test, so migration 067 may already have bound these
+                # deterministic instances to the reviewed observer run.  Use
+                # that existing binding for the idempotency assertion; on a
+                # clean 066-only database, exercise the fresh activation path.
+                cur.execute("""
+                    SELECT attributes->>'orchestrator_run_id',
+                           (attributes->>'publication_activation_time')::bigint,
+                           attributes->>'forward_image'
+                    FROM strategy_mgmt.strategy_instance_v2
+                    WHERE id='4a411452-1440-5f91-bb95-eaf6dabbccc2'::uuid
+                """)
+                bound_run, bound_activation, bound_image = cur.fetchone()
+                run_id = bound_run or 'ict-postgres-test'
+                activation = bound_activation or 1792346400
+                image = bound_image or ('ghcr.io/strat-relay/trading-platform-runtime@sha256:'+'a'*64)
+                _,activate=plan(run_id,activation,image)
                 # Activation is emitted as a standalone transaction. Keep this
                 # test inside its rollback-only fixture transaction instead.
                 activate=activate.removeprefix('BEGIN; ').removesuffix('COMMIT;\n')
