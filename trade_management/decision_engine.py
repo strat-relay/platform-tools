@@ -169,6 +169,12 @@ def _epoch(value: Any) -> float:
 def _evaluate(*, evaluator_id: str, manifest: dict[str, Any], trade: dict[str, Any],
              snapshot: dict[str, Any], current_stop: float, current_target: float | None = None,
              as_of: Any = None, bars_provider: BarsProvider | None = None) -> tuple[str, tuple[str, ...], dict]:
+    # A captured theoretical deadline applies independently of the bound price evaluator.
+    # It must also fire for the TM-NONE fallback and cannot require a usable quote.
+    if trade.get("time_exit_at") is not None and as_of is not None:
+        timed = evaluate_time_exit(trade_state=trade["state"], time_exit_at=trade["time_exit_at"], as_of=as_of)
+        if timed[0] == "EXIT":
+            return timed
     if evaluator_id == STRUCTURE_EVALUATOR_ID:
         bundle = dict(manifest.get("policy_bundle") or [])
         bars = None
@@ -262,7 +268,10 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
             return DecisionResult(status="TRADE_NOT_OPEN", decision_id=None, action=None)
 
         snapshot = _load_market_snapshot(conn, observation["market_snapshot_id"]) or {}
-        current_stop, current_target = _effective_levels(conn, trade, observation["managed_trade_id"])
+        # Expiry does not need stop/target geometry or any market data.
+        due = trade.get("time_exit_at") is not None and _epoch(observation["effective_at"]) >= _epoch(trade["time_exit_at"])
+        current_stop, current_target = ((0.0, None) if due else
+                                       _effective_levels(conn, trade, observation["managed_trade_id"]))
 
         action, reason_codes, parameters = _evaluate(
             evaluator_id=version["evaluator_id"], manifest=version["manifest"], trade=trade,
@@ -284,7 +293,7 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
 
             # Only the explicitly publishable Context time-exit version may reach the existing
             # execution-v2 management consumer. All legacy versions retain the old shadow gate.
-            publishable = version["evaluator_id"] in (TIME_EXIT_EVALUATOR_ID, EXIT_POLICY_EVALUATOR_ID) and bool(trade.get("entry_signal_published"))
+            publishable = (version["evaluator_id"] in (TIME_EXIT_EVALUATOR_ID, EXIT_POLICY_EVALUATOR_ID) or parameters.get("exit_reason") == "TIME_EXIT") and bool(trade.get("entry_signal_published"))
             outcome, reason = evaluate_publication_gate(
                 GateInputs(action=action, entry_signal_published=publishable,
                            tm_version_publication_eligibility="PUBLISHABLE" if publishable else "SHADOW_ONLY"))
@@ -307,6 +316,11 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
                         observation["managed_trade_id"], observation["observation_seq"],
                         "event-envelope.v1", canonical_bytes(payload).decode("utf-8"),
                         persisted_at, observation["managed_trade_id"], observation_id))
+
+        if outcome == "PUBLISHED" and parameters.get("exit_reason") == "TIME_EXIT":
+            from .deadlines import publish_time_exit
+            publish_time_exit(conn, managed_trade_id=observation["managed_trade_id"],
+                              decision_payload=payload, occurred_at=persisted_at)
 
         mark_inbox_processed(conn, consumer_name, event_id)
         return DecisionResult(status="RECORDED", decision_id=decision_id, action=action,

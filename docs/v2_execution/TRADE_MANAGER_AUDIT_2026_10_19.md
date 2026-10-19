@@ -59,3 +59,41 @@ No production service, database, broker position or operating mode was changed.
   between definite pre-dispatch failure and ambiguous broker effect.
 
 These items are not deployment validation and are not resolved by the boundary fixes.
+
+
+## Theoretical time-exit correction
+
+The scheduler now evaluates strategy-theoretical time exits before quote fetching and
+terminal lifecycle reconciliation. Clock observations have no market snapshot; migration
+068 permits that shape explicitly, without inventing prices. Existing open broker-anchored
+deadlines are cleared and recomputed from canonical strategy time/policy on the next tick.
+
+For SIGNAL_TIMESTAMP activation, the deadline follows the canonical resolver:
+`signal.decision_time + captured time_exit_minutes`, or the outcome contract's
+`max_hold_minutes` when no explicit TM hold was captured. A delayed broker fill does not
+move this clock. ENTRY_PRICE_TOUCH signals require canonical TIME_EXIT evidence, because
+an elapsed clock alone cannot prove a pending entry filled. Pending activation is not
+inferred from broker execution. Strategies without a hold policy do not gain one.
+
+A due deadline takes priority over the bound price evaluator, including TM-NONE. It
+produces an EXIT/TIME_EXIT decision through the existing durable decision/outbox path.
+An already-known STOPPED/TARGET_HIT or other non-time terminal outcome suppresses the
+clock event; a canonical TIME_EXIT must not close the managed trade before that decision
+is recorded. Stale quotes and missing stop geometry cannot block the clock path.
+
+For a published entry, the same transaction inserts one deterministic
+`signal.management.published.v1` event per managed trade/deadline. It includes the entry
+signal id, management decision, theoretical outcome classification and TIME_EXIT reason.
+The existing outbox relay reconciles the subject into TRADING_CORE and publishes it.
+Retries/restarts reuse the observation and notification ids. This repository contains no
+subscriber notification sender: delivery to a subscriber's channel must consume this new
+subject; actual message delivery has not been tested here.
+
+Broker closes still use the existing `trade.decision.made.v1` consumer, platform-linked
+position checks, LIVE mode, authority and fencing. No canonical outcome/P&L is fabricated
+by the timer. The broker-only Live view is unchanged by this correction.
+
+Expanded validation: **279 passed, 23 skipped, 20 subtests passed**, including theoretical
+deadlines, no-fill/no-quote expiry, canonical terminal precedence, duplicate suppression,
+crash recovery, stale-quote expiry and lifecycle closure after the decision. PostgreSQL
+migration and live NATS/subscriber delivery still require integration verification.
