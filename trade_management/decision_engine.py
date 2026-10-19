@@ -284,6 +284,18 @@ def record_decision(conn: Any, *, observation_id: str, event_id: str, now_utc: d
         snapshot = _load_market_snapshot(conn, observation["market_snapshot_id"]) or {}
         # Expiry does not need stop/target geometry or any market data.
         due = trade.get("time_exit_at") is not None and _epoch(observation["effective_at"]) >= _epoch(trade["time_exit_at"])
+        # An operator exit ends price management, while the theoretical deadline must
+        # still be observed and published independently of the broker lifecycle.
+        if not due:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT decision_id FROM trade_management.trade_manager_decision
+                    WHERE managed_trade_id=%s AND action='EXIT'
+                      AND parameters->>'exit_reason'='OPERATOR_EXIT' LIMIT 1""",
+                    (observation["managed_trade_id"],))
+                operator_exit = cur.fetchone()
+            if operator_exit is not None:
+                mark_inbox_processed(conn, consumer_name, event_id)
+                return DecisionResult(status="OPERATOR_EXIT_ALREADY_RECORDED", decision_id=operator_exit[0], action=None)
         current_stop, current_target = ((0.0, None) if due else
                                        _effective_levels(conn, trade, observation["managed_trade_id"]))
 
