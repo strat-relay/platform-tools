@@ -139,12 +139,31 @@ class OperatorActionTests(unittest.TestCase):
 import test_trade_manager_live_real_postgres as live_fixtures
 
 
-@unittest.skipUnless(live_fixtures._database_available(), 'PostgreSQL is not available; set TRADING_POSTGRES_DSN')
+def operator_database_available():
+    import os
+    from postgres.config import PostgresConfig
+    from postgres.db import connect
+    target = os.environ.get('TRADING_POSTGRES_DSN') or os.environ.get('OUTCOME_RESOLVER_TEST_DSN')
+    if not target:
+        return False
+    try:
+        with connect(PostgresConfig(dsn=target)):
+            return True
+    except Exception:
+        return False
+
+
+@unittest.skipUnless(operator_database_available(), 'PostgreSQL is not available; set TRADING_POSTGRES_DSN')
 class OperatorActionPostgresTests(unittest.TestCase):
     _signal = live_fixtures.LiveTradeManagerRealPostgresTests._signal
     _managed_trade = live_fixtures.LiveTradeManagerRealPostgresTests._managed_trade
 
     def setUp(self):
+        import os
+        target = os.environ.get('TRADING_POSTGRES_DSN') or os.environ['OUTCOME_RESOLVER_TEST_DSN']
+        environment = patch.dict(os.environ, {'TRADING_POSTGRES_DSN': target})
+        environment.start()
+        self.addCleanup(environment.stop)
         from test_integration_tm_membership_runner import FreshDatabase
         from postgres.db import apply_migrations
         self.db = FreshDatabase()
