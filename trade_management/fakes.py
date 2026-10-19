@@ -191,7 +191,7 @@ class FakeCursor:
         if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper and "PARAMETERS->>'EXIT_REASON'" in upper:
             row = next((d for d in self.conn.view("trade_management.trade_manager_decision").values()
                         if d["managed_trade_id"] == params[0] and d["action"] == "EXIT"
-                        and json.loads(d["parameters"]).get("exit_reason") == "TIME_EXIT"), None)
+                        and json.loads(d["parameters"]).get("exit_reason") == ("OPERATOR_EXIT" if "OPERATOR_EXIT" in upper else "TIME_EXIT")), None)
             self._result = (row["decision_id"],) if row else None
             return
         if "TRADE_MANAGEMENT.TRADE_MANAGER_DECISION" in upper and "ACTION IN" in upper:

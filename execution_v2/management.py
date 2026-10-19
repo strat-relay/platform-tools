@@ -221,6 +221,9 @@ class ManagementWorker:
 
     # ---- entry point -----------------------------------------------------------------------
     def process_decision(self, payload: dict[str, Any], *, now_utc: datetime) -> ManagementOutcome:
+        scope = (payload.get("parameters") or {}).get("execution_scope")
+        if scope is not None and scope != "LINKED_LIVE":
+            return ManagementOutcome("IGNORED", reason="THEORETICAL_ONLY")
         tm_action = str(payload.get("action") or "")
         broker_action = MANAGEMENT_ACTIONS.get(tm_action)
         decision_id, managed_trade_id = payload.get("decision_id"), payload.get("managed_trade_id")
@@ -341,8 +344,10 @@ class ManagementWorker:
         if broker_action == "MODIFY":
             try:
                 requested_stop = float(params["new_stop"]) if params.get("new_stop") is not None else broker_stop
+                if tm_action == "MOVE_TO_BREAKEVEN" and params.get("operator_action"):
+                    requested_stop = float(position["price_open"])
                 requested_target = float(params["new_target"]) if params.get("new_target") is not None else broker_target
-            except (TypeError, ValueError, OverflowError):
+            except (KeyError, TypeError, ValueError, OverflowError):
                 return self._reject(base, "INVALID_PRICE_LEVEL")
             if not all(isfinite(level) for level in (broker_stop, broker_target, requested_stop, requested_target)):
                 return self._reject(base, "INVALID_PRICE_LEVEL")

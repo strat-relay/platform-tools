@@ -314,16 +314,29 @@ class PlatformControlRepository:
         rows = self._trade_management_query("""SELECT s.signal_id, s.strategy_id, s.instrument, s.direction,
             s.decision_time, s.entry_type, s.entry_price, s.stop_price, s.target_price,
             s.strategy_metadata, o.status AS outcome_status, o.resolution_state, o.resolution_evidence,
-            mt.managed_trade_id, mt.time_exit_at, mt.state AS managed_state,
+            mt.managed_trade_id, mt.time_exit_at, mt.state AS managed_state, mt.last_observation_seq,
             d.action AS latest_action, d.reason_codes AS latest_reason_codes,
-            d.decision_time AS latest_decision_at
+            d.decision_time AS latest_decision_at, d.persisted_at AS latest_decision_persisted_at,
+            mt.risk_distance, quote.bid AS current_bid, quote.ask AS current_ask,
+            quote.source_timestamp AS quote_timestamp,
+            EXISTS (SELECT 1 FROM trade_management.trade_manager_decision ed
+                WHERE ed.managed_trade_id=mt.managed_trade_id AND ed.action='EXIT') AS exit_recommended,
+            EXISTS (SELECT 1 FROM execution_v2.execution_intent ei
+                JOIN execution_v2.execution_attempt ea ON ea.execution_intent_id=ei.execution_intent_id
+                JOIN execution_v2.execution_result er ON er.attempt_id=ea.attempt_id
+                WHERE ei.entry_signal_id=s.signal_id AND er.outcome='FILLED') AS has_execution_fill
             FROM strategy.entry_signals s
             LEFT JOIN strategy.entry_signal_outcomes o ON o.signal_id=s.signal_id
             LEFT JOIN trade_management.managed_trade mt ON mt.entry_signal_id=s.signal_id
-            LEFT JOIN LATERAL (SELECT action, reason_codes, decision_time
+            LEFT JOIN LATERAL (SELECT action, reason_codes, decision_time, persisted_at
                 FROM trade_management.trade_manager_decision
                 WHERE managed_trade_id=mt.managed_trade_id
                 ORDER BY observation_seq DESC, persisted_at DESC LIMIT 1) d ON TRUE
+            LEFT JOIN LATERAL (SELECT ms.bid, ms.ask, ms.source_timestamp
+                FROM trade_management.trade_observation obs
+                JOIN trade_management.market_snapshot ms ON ms.market_snapshot_id=obs.market_snapshot_id
+                WHERE obs.managed_trade_id=mt.managed_trade_id
+                ORDER BY obs.observation_seq DESC LIMIT 1) quote ON TRUE
             ORDER BY (CASE WHEN o.status IS NULL OR o.status='OPEN' THEN 0 ELSE 1 END),
                      s.decision_time DESC, s.signal_id
             LIMIT %s OFFSET %s""", (limit, offset))
@@ -1255,6 +1268,9 @@ class PlatformControlApi:
                 return self.execution_authority_api.read()
             if method == "POST":
                 return self.execution_authority_api.save(body)
+        if path == "/api/v1/trade-manager/actions" and method == "POST":
+            from .trade_manager_actions import save_action
+            return save_action(body, self.repository._connect)
         if path == self.TRADE_MANAGER_MODE_PATH:
             if method == "GET":
                 return self.trade_manager_mode_api.read()
