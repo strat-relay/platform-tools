@@ -11,9 +11,8 @@ from typing import Any
 
 from orchestration.models import StrategySignal, stable_id
 from core.strategies.entry_timing import MAX_ENTRY_DELAY_SECONDS
-from research.strategy_library_registration import PUBLICATION_KEYS, registration
-from strategy_backtest.library.selection import EXPANSION_KEYS
-from strategy_backtest.library.selection import resolve_definition
+from research.strategy_library_registration import PUBLICATION_KEYS, VERSIONED_RESEARCH_KEYS, registration
+from strategy_backtest.library.forward_selection import resolve_forward_definition as resolve_definition
 
 
 def iso(epoch):
@@ -35,7 +34,7 @@ class StrategyLibraryAdapter:
                 instance.get('parameter_set_fingerprint') != self.identity['parameter_hash'] or
                 not instance.get('orchestrator_run_id')):
             raise ValueError('library publication identity/configuration mismatch')
-        if key in EXPANSION_KEYS and (instance.get('execution_mode')!='OFF' or instance.get('status')!='RESEARCH' or instance.get('signal_publication') is not True):
+        if key in VERSIONED_RESEARCH_KEYS and (instance.get('execution_mode')!='OFF' or instance.get('status')!='RESEARCH' or instance.get('signal_publication') is not True):
             raise ValueError('expansion publication requires activated research-only OFF instance')
         activation = instance.get('publication_activation_time')
         if type(activation) is not int or activation <= 0:
@@ -64,7 +63,7 @@ class StrategyLibraryAdapter:
         if (record.get('execution_eligible') is not False or
                 record.get('strategy_key') != self.key or record.get('instrument') != instrument or
                 evaluation.get('strategy_id') != self.strategy_id or
-                (self.key in EXPANSION_KEYS and evaluation.get('strategy_version') != self.strategy_version) or
+                (self.key in VERSIONED_RESEARCH_KEYS and evaluation.get('strategy_version') != self.strategy_version) or
                 evaluation.get('parameter_set_id') != self.identity['parameter_set_id'] or
                 provenance.get('reason') != 'ENTRY_ACCEPTED' or
                 provenance.get('execution_eligible') is not False or
@@ -125,7 +124,7 @@ class StrategyLibraryAdapter:
                 'max_hold_minutes': None,
             },
         }
-        if self.key in EXPANSION_KEYS:
+        if self.key in VERSIONED_RESEARCH_KEYS:
             metadata.update(strategy_version=self.strategy_version,strategy_family=definition.family,
                             sequence_primitive_version=provenance.get('sequence_primitive_version'))
         if live_open:

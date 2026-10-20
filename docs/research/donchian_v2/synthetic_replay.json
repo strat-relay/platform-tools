@@ -1,0 +1,576 @@
+{
+  "schema": "donchian-v2-development-replay.v1",
+  "research_only": true,
+  "execution_eligible": false,
+  "broker_calls": 0,
+  "artifact_digest": "76ffbf77bdad30c137e90ccfb832f044843c018c76ae8de6e047a13ca0b8eb0e",
+  "code_manifest": {
+    "strategy_backtest/library/donchian_v2.py": "f1397b3e5cc612c550bf320282503131d79510b22b5cd23bb4e435321e2d0b53",
+    "strategy_backtest/library/breakout_retest.py": "8ea68c83aeff27b7458bd93a22de2c0c9819fa4916c4f04b7d8ea466d5bd6ee0",
+    "strategy_backtest/library/runtime.py": "14dd28c1d8fcad8f2ac0ab423f5e42c28fcfdfd06c2a04e3a5023db4d7943e2d",
+    "strategy_backtest/library/primitives.py": "4dbfdb72ef07d72cf3c25e74f5fd7ef15f0d4c936e0c996fa87370b2d827a2b7",
+    "strategy_backtest/research_outcomes.py": "de2eb6d0d5e2e30746fb2328009e0ddb7a85a7cd46279471434deb659e48a07c",
+    "research/replay_donchian_v2.py": "20cb8c57cd6a5d718cb8f1e026de4876d597f3d95ff622964c1f864be893f623"
+  },
+  "definition": {
+    "key": "donchian_breakout",
+    "family": "Breakout",
+    "name": "Donchian Breakout",
+    "mode": "donchian_retest_v2",
+    "hypothesis": "Confirmed H1 structure; directional prior-20-bar M15 breakout; first later retest holds; next-open research entry; additions require fresh pullback and favorable progress.",
+    "context": "H1",
+    "execution": "M15",
+    "lookback": 20,
+    "fast": 20,
+    "slow": 50,
+    "atr_period": 14,
+    "atr_multiple": 1.2,
+    "tolerance_atr": 0.15,
+    "buffer_atr": 0.1,
+    "min_r": 1.0,
+    "target_r": 2.0,
+    "setup_bars": 8,
+    "session_tz": "UTC",
+    "range_start": 0,
+    "range_end": 60,
+    "trade_start": 60,
+    "trade_end": 240,
+    "symbols": [],
+    "target_policy": "FIXED_R",
+    "entry_policy": "NEXT_OPEN_RECONSTRUCTED",
+    "max_entry_gap_atr": 0.25,
+    "lifecycle": "RESEARCH",
+    "execution_eligible": false,
+    "version": "V2",
+    "min_breakout_atr": 0.2,
+    "breakout_body_fraction": 0.6,
+    "breakout_close_location": 0.75,
+    "retest_body_fraction": 0.25,
+    "retest_close_location": 0.65,
+    "min_layer_progress_atr": 0.5
+  },
+  "definition_hash": "2a154d7dd7d0e86d1380bf2cbd3124d9c6023c5620abacd2bc048817d3812cf0",
+  "classification": "SYNTHETIC_NOT_PERFORMANCE_EVIDENCE",
+  "streams": {
+    "SYNTHETIC": {
+      "V1": {
+        "strategy_version": "V1",
+        "parameter_set_id": "BREAKOUT_DONCHIAN_BREAKOUT@V1:experimental:477eae93ee755f09",
+        "parameter_hash": "477eae93ee755f09dd974d7c52b95fcf9363d69aa7af508d3978199fd8c9ab0a",
+        "dependency_hash": "ffcc4aa8213c673a382ea1fc7d836f6312233e093c06a7205ab82b05b5787c5e",
+        "reason_counts": {
+          "INSUFFICIENT_WARMUP": 31,
+          "NO_SETUP": 12,
+          "PROPOSAL": 4,
+          "ENTRY_GAP_CANCELLED": 1,
+          "ENTRY_ACCEPTED": 2
+        },
+        "accepted_entries": 2,
+        "pending_entries": 1,
+        "outcome_counts": {
+          "OPEN_AT_DATASET_END": 2
+        },
+        "outcomes": [
+          {
+            "episode_id": "2c78a60ced44c0e81a2ca800b28b51f8",
+            "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V1",
+            "instrument": "SYNTHETIC",
+            "direction": "LONG",
+            "status": "OPEN_AT_DATASET_END",
+            "entry_timestamp": 1800002700,
+            "entry_price": 105.8,
+            "stop_price": 98.77714285714286,
+            "target_price": 119.84571428571427,
+            "exit_timestamp": null,
+            "exit_price": null,
+            "realized_r": null,
+            "holding_seconds": null,
+            "valuation_status": "NOT_VALUED",
+            "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+            "gap_classification": null,
+            "resolver_version": "shared-research-outcome-resolver-v1",
+            "policy_version": "price-action-research-outcome-policy-v1",
+            "adapter_version": "price-action-research-entry-adapter-v1",
+            "provenance": {
+              "parameter_hash": "477eae93ee755f09dd974d7c52b95fcf9363d69aa7af508d3978199fd8c9ab0a",
+              "dependency_manifest_hash": "ffcc4aa8213c673a382ea1fc7d836f6312233e093c06a7205ab82b05b5787c5e",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "episode_id": "2c78a60ced44c0e81a2ca800b28b51f8",
+              "entry_cancelled": false,
+              "intended_entry_time": 1800002700,
+              "reference_open_time": 1800002700,
+              "observed_at": null,
+              "data_available_at": null,
+              "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+              "entry_price": 105.8,
+              "stop": 98.77714285714286,
+              "target": 119.84571428571427
+            }
+          },
+          {
+            "episode_id": "efd8191caa1c870cd28f234a1e5c02ea",
+            "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V1",
+            "instrument": "SYNTHETIC",
+            "direction": "LONG",
+            "status": "OPEN_AT_DATASET_END",
+            "entry_timestamp": 1800004500,
+            "entry_price": 106.8,
+            "stop_price": 100.685,
+            "target_price": 119.02999999999999,
+            "exit_timestamp": null,
+            "exit_price": null,
+            "realized_r": null,
+            "holding_seconds": null,
+            "valuation_status": "NOT_VALUED",
+            "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+            "gap_classification": null,
+            "resolver_version": "shared-research-outcome-resolver-v1",
+            "policy_version": "price-action-research-outcome-policy-v1",
+            "adapter_version": "price-action-research-entry-adapter-v1",
+            "provenance": {
+              "parameter_hash": "477eae93ee755f09dd974d7c52b95fcf9363d69aa7af508d3978199fd8c9ab0a",
+              "dependency_manifest_hash": "ffcc4aa8213c673a382ea1fc7d836f6312233e093c06a7205ab82b05b5787c5e",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "episode_id": "efd8191caa1c870cd28f234a1e5c02ea",
+              "entry_cancelled": false,
+              "intended_entry_time": 1800004500,
+              "reference_open_time": 1800004500,
+              "observed_at": null,
+              "data_available_at": null,
+              "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+              "entry_price": 106.8,
+              "stop": 100.685,
+              "target": 119.02999999999999
+            }
+          }
+        ],
+        "evaluations": [
+          {
+            "evaluation_hash": "1eb38ffcf9a8bd452d580328e31558f6507650b7b6bd29ab0ece4065f3a505e0",
+            "decision_time": "2027-01-15T08:00:00+00:00",
+            "candidate_id": "31b5b6749b381ae760c83803966df393",
+            "reason": "PROPOSAL",
+            "proposal": {
+              "episode_id": "31b5b6749b381ae760c83803966df393",
+              "direction": "LONG",
+              "anchor": "1800000000",
+              "confirmation_time": 1800000000,
+              "intended_entry_time": 1800000000,
+              "entry_reference": 104,
+              "stop": 98.8,
+              "target": 114.4,
+              "evidence": {
+                "prior_atr": 2.0,
+                "tick_size": 0.01,
+                "channel": [
+                  99,
+                  101
+                ],
+                "cutoff": 1800000000,
+                "context_bias": 1,
+                "primitive_version": "library-primitives.v1",
+                "planned_r": 2.0
+              }
+            },
+            "research_entry": null
+          },
+          {
+            "evaluation_hash": "1fdfe429d0f37d6ece307db4805880853a50440a177319a3e4610fc228d5afb1",
+            "decision_time": "2027-01-15T08:45:00+00:00",
+            "candidate_id": "2c78a60ced44c0e81a2ca800b28b51f8",
+            "reason": "PROPOSAL",
+            "proposal": {
+              "episode_id": "2c78a60ced44c0e81a2ca800b28b51f8",
+              "direction": "LONG",
+              "anchor": "1800002700",
+              "confirmation_time": 1800002700,
+              "intended_entry_time": 1800002700,
+              "entry_reference": 105.8,
+              "stop": 98.77714285714286,
+              "target": 119.84571428571427,
+              "evidence": {
+                "prior_atr": 2.2285714285714278,
+                "tick_size": 0.01,
+                "channel": [
+                  99,
+                  105
+                ],
+                "cutoff": 1800002700,
+                "context_bias": 1,
+                "primitive_version": "library-primitives.v1",
+                "planned_r": 2.0
+              }
+            },
+            "research_entry": null
+          },
+          {
+            "evaluation_hash": "e9326a50284c8f46ec1ab7e4664ae943de9421f46155d23152aa7cf4f5ddb3d2",
+            "decision_time": "2027-01-15T09:00:00+00:00",
+            "candidate_id": "2c78a60ced44c0e81a2ca800b28b51f8",
+            "reason": "ENTRY_ACCEPTED",
+            "proposal": null,
+            "research_entry": {
+              "episode_id": "2c78a60ced44c0e81a2ca800b28b51f8",
+              "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V1",
+              "instrument": "SYNTHETIC",
+              "direction": "LONG",
+              "entry_timestamp": 1800002700,
+              "entry_price": 105.8,
+              "stop_price": 98.77714285714286,
+              "target_price": 119.84571428571427,
+              "parameter_hash": "477eae93ee755f09dd974d7c52b95fcf9363d69aa7af508d3978199fd8c9ab0a",
+              "dependency_manifest_hash": "ffcc4aa8213c673a382ea1fc7d836f6312233e093c06a7205ab82b05b5787c5e",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "provenance": {
+                "episode_id": "2c78a60ced44c0e81a2ca800b28b51f8",
+                "entry_cancelled": false,
+                "intended_entry_time": 1800002700,
+                "reference_open_time": 1800002700,
+                "observed_at": null,
+                "data_available_at": null,
+                "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+                "entry_price": 105.8,
+                "stop": 98.77714285714286,
+                "target": 119.84571428571427
+              }
+            }
+          },
+          {
+            "evaluation_hash": "a929eb522fa63256cc0c22337b53c5b825c145153ec8e130bb870836ba4e7100",
+            "decision_time": "2027-01-15T09:15:00+00:00",
+            "candidate_id": "efd8191caa1c870cd28f234a1e5c02ea",
+            "reason": "PROPOSAL",
+            "proposal": {
+              "episode_id": "efd8191caa1c870cd28f234a1e5c02ea",
+              "direction": "LONG",
+              "anchor": "1800004500",
+              "confirmation_time": 1800004500,
+              "intended_entry_time": 1800004500,
+              "entry_reference": 106.8,
+              "stop": 100.685,
+              "target": 119.02999999999999,
+              "evidence": {
+                "prior_atr": 2.1499999999999995,
+                "tick_size": 0.01,
+                "channel": [
+                  99,
+                  106
+                ],
+                "cutoff": 1800004500,
+                "context_bias": 1,
+                "primitive_version": "library-primitives.v1",
+                "planned_r": 2.0
+              }
+            },
+            "research_entry": null
+          },
+          {
+            "evaluation_hash": "cd4f1d61256a45751dfc281c8b3c554a5198a718fd00ab64873a37b6692d52e0",
+            "decision_time": "2027-01-15T09:30:00+00:00",
+            "candidate_id": "efd8191caa1c870cd28f234a1e5c02ea",
+            "reason": "ENTRY_ACCEPTED",
+            "proposal": null,
+            "research_entry": {
+              "episode_id": "efd8191caa1c870cd28f234a1e5c02ea",
+              "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V1",
+              "instrument": "SYNTHETIC",
+              "direction": "LONG",
+              "entry_timestamp": 1800004500,
+              "entry_price": 106.8,
+              "stop_price": 100.685,
+              "target_price": 119.02999999999999,
+              "parameter_hash": "477eae93ee755f09dd974d7c52b95fcf9363d69aa7af508d3978199fd8c9ab0a",
+              "dependency_manifest_hash": "ffcc4aa8213c673a382ea1fc7d836f6312233e093c06a7205ab82b05b5787c5e",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "provenance": {
+                "episode_id": "efd8191caa1c870cd28f234a1e5c02ea",
+                "entry_cancelled": false,
+                "intended_entry_time": 1800004500,
+                "reference_open_time": 1800004500,
+                "observed_at": null,
+                "data_available_at": null,
+                "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+                "entry_price": 106.8,
+                "stop": 100.685,
+                "target": 119.02999999999999
+              }
+            }
+          },
+          {
+            "evaluation_hash": "2ba4cdad9531508a3fab6bfee36f691974ebeb50f3e0d2478b57b5bed180126f",
+            "decision_time": "2027-01-15T09:30:00+00:00",
+            "candidate_id": "a7fb379cd595eb4f1ac846dd0b165f1c",
+            "reason": "PROPOSAL",
+            "proposal": {
+              "episode_id": "a7fb379cd595eb4f1ac846dd0b165f1c",
+              "direction": "LONG",
+              "anchor": "1800005400",
+              "confirmation_time": 1800005400,
+              "intended_entry_time": 1800005400,
+              "entry_reference": 107.2,
+              "stop": 103.18428571428572,
+              "target": 115.23142857142857,
+              "evidence": {
+                "prior_atr": 2.157142857142856,
+                "tick_size": 0.01,
+                "channel": [
+                  99,
+                  107
+                ],
+                "cutoff": 1800005400,
+                "context_bias": 1,
+                "primitive_version": "library-primitives.v1",
+                "planned_r": 2.0
+              }
+            },
+            "research_entry": null
+          }
+        ]
+      },
+      "V2": {
+        "strategy_version": "V2",
+        "parameter_set_id": "BREAKOUT_DONCHIAN_BREAKOUT@V2:experimental:2a154d7dd7d0e86d",
+        "parameter_hash": "2a154d7dd7d0e86d1380bf2cbd3124d9c6023c5620abacd2bc048817d3812cf0",
+        "dependency_hash": "26ceadac4a825709bee86099929b595bb7bb8ced1ffa92849cc2297dec2616a6",
+        "reason_counts": {
+          "INSUFFICIENT_WARMUP": 39,
+          "NO_SETUP": 1,
+          "AWAITING_SEQUENCE_CONFIRMATION": 5,
+          "PROPOSAL": 2,
+          "ENTRY_ACCEPTED": 2
+        },
+        "accepted_entries": 2,
+        "pending_entries": 0,
+        "outcome_counts": {
+          "OPEN_AT_DATASET_END": 2
+        },
+        "outcomes": [
+          {
+            "episode_id": "1780241ebcff3201aa5f1bce80ff3f1e",
+            "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V2",
+            "instrument": "SYNTHETIC",
+            "direction": "LONG",
+            "status": "OPEN_AT_DATASET_END",
+            "entry_timestamp": 1800000900,
+            "entry_price": 103.8,
+            "stop_price": 100.28214285714286,
+            "target_price": 110.83571428571427,
+            "exit_timestamp": null,
+            "exit_price": null,
+            "realized_r": null,
+            "holding_seconds": null,
+            "valuation_status": "NOT_VALUED",
+            "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+            "gap_classification": null,
+            "resolver_version": "shared-research-outcome-resolver-v1",
+            "policy_version": "price-action-research-outcome-policy-v1",
+            "adapter_version": "price-action-research-entry-adapter-v1",
+            "provenance": {
+              "parameter_hash": "2a154d7dd7d0e86d1380bf2cbd3124d9c6023c5620abacd2bc048817d3812cf0",
+              "dependency_manifest_hash": "26ceadac4a825709bee86099929b595bb7bb8ced1ffa92849cc2297dec2616a6",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "episode_id": "1780241ebcff3201aa5f1bce80ff3f1e",
+              "entry_cancelled": false,
+              "intended_entry_time": 1800000900,
+              "reference_open_time": 1800000900,
+              "observed_at": null,
+              "data_available_at": null,
+              "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+              "entry_price": 103.8,
+              "stop": 100.28214285714286,
+              "target": 110.83571428571427
+            }
+          },
+          {
+            "episode_id": "5f1a0dd23cbd83f9d25b03c8baaa1a97",
+            "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V2",
+            "instrument": "SYNTHETIC",
+            "direction": "LONG",
+            "status": "OPEN_AT_DATASET_END",
+            "entry_timestamp": 1800004500,
+            "entry_price": 106.8,
+            "stop_price": 104.585,
+            "target_price": 111.23,
+            "exit_timestamp": null,
+            "exit_price": null,
+            "realized_r": null,
+            "holding_seconds": null,
+            "valuation_status": "NOT_VALUED",
+            "resolution_reason": "NO_MAXIMUM_HOLD_AND_DATASET_ENDED",
+            "gap_classification": null,
+            "resolver_version": "shared-research-outcome-resolver-v1",
+            "policy_version": "price-action-research-outcome-policy-v1",
+            "adapter_version": "price-action-research-entry-adapter-v1",
+            "provenance": {
+              "parameter_hash": "2a154d7dd7d0e86d1380bf2cbd3124d9c6023c5620abacd2bc048817d3812cf0",
+              "dependency_manifest_hash": "26ceadac4a825709bee86099929b595bb7bb8ced1ffa92849cc2297dec2616a6",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "episode_id": "5f1a0dd23cbd83f9d25b03c8baaa1a97",
+              "entry_cancelled": false,
+              "intended_entry_time": 1800004500,
+              "reference_open_time": 1800004500,
+              "observed_at": null,
+              "data_available_at": null,
+              "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+              "entry_price": 106.8,
+              "stop": 104.585,
+              "target": 111.23
+            }
+          }
+        ],
+        "evaluations": [
+          {
+            "evaluation_hash": "2e3ad6d69434a1ba6d98fdf779eb00f3bf49f9b17c4b02ca0917032d840139ce",
+            "decision_time": "2027-01-15T08:15:00+00:00",
+            "candidate_id": "1780241ebcff3201aa5f1bce80ff3f1e",
+            "reason": "PROPOSAL",
+            "proposal": {
+              "episode_id": "1780241ebcff3201aa5f1bce80ff3f1e",
+              "direction": "LONG",
+              "anchor": "1800000000:INITIAL:1800000900",
+              "confirmation_time": 1800000900,
+              "intended_entry_time": 1800000900,
+              "entry_reference": 103.8,
+              "stop": 100.28214285714286,
+              "target": 110.83571428571427,
+              "evidence": {
+                "prior_atr": 2.1785714285714284,
+                "tick_size": 0.01,
+                "context_bias": 1,
+                "episode_primitive_version": "breakout-retest-episode.v1",
+                "phase": "ENTRY_PENDING",
+                "setup": {
+                  "kind": "INITIAL",
+                  "stop_extreme": 100.5,
+                  "break_at": 1800000000,
+                  "boundary": 101,
+                  "confirmation_at": 1800000900,
+                  "episode_atr": 2.0
+                },
+                "episode_break_at": 1800000000,
+                "kind": "INITIAL",
+                "stop_extreme": 100.5,
+                "break_at": 1800000000,
+                "boundary": 101,
+                "confirmation_at": 1800000900,
+                "episode_atr": 2.0,
+                "planned_r": 2.0
+              }
+            },
+            "research_entry": null
+          },
+          {
+            "evaluation_hash": "ad3d69007b4dd891b5eaf7eb2f7c233bbbd18270524a676738c9514baee0db68",
+            "decision_time": "2027-01-15T08:30:00+00:00",
+            "candidate_id": "1780241ebcff3201aa5f1bce80ff3f1e",
+            "reason": "ENTRY_ACCEPTED",
+            "proposal": null,
+            "research_entry": {
+              "episode_id": "1780241ebcff3201aa5f1bce80ff3f1e",
+              "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V2",
+              "instrument": "SYNTHETIC",
+              "direction": "LONG",
+              "entry_timestamp": 1800000900,
+              "entry_price": 103.8,
+              "stop_price": 100.28214285714286,
+              "target_price": 110.83571428571427,
+              "parameter_hash": "2a154d7dd7d0e86d1380bf2cbd3124d9c6023c5620abacd2bc048817d3812cf0",
+              "dependency_manifest_hash": "26ceadac4a825709bee86099929b595bb7bb8ced1ffa92849cc2297dec2616a6",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "provenance": {
+                "episode_id": "1780241ebcff3201aa5f1bce80ff3f1e",
+                "entry_cancelled": false,
+                "intended_entry_time": 1800000900,
+                "reference_open_time": 1800000900,
+                "observed_at": null,
+                "data_available_at": null,
+                "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+                "entry_price": 103.8,
+                "stop": 100.28214285714286,
+                "target": 110.83571428571427
+              }
+            }
+          },
+          {
+            "evaluation_hash": "68c369b3016c42e0c3a2d23e5c12b60792a20d11814de8f06111de34b6752098",
+            "decision_time": "2027-01-15T09:15:00+00:00",
+            "candidate_id": "5f1a0dd23cbd83f9d25b03c8baaa1a97",
+            "reason": "PROPOSAL",
+            "proposal": {
+              "episode_id": "5f1a0dd23cbd83f9d25b03c8baaa1a97",
+              "direction": "LONG",
+              "anchor": "1800000000:LAYER:1800004500",
+              "confirmation_time": 1800004500,
+              "intended_entry_time": 1800004500,
+              "entry_reference": 106.8,
+              "stop": 104.585,
+              "target": 111.23,
+              "evidence": {
+                "prior_atr": 2.1499999999999995,
+                "tick_size": 0.01,
+                "context_bias": 1,
+                "episode_primitive_version": "breakout-retest-episode.v1",
+                "phase": "ENTRY_PENDING",
+                "setup": {
+                  "kind": "LAYER",
+                  "stop_extreme": 104.8,
+                  "break_at": 1800000000,
+                  "boundary": 101,
+                  "confirmation_at": 1800004500,
+                  "episode_atr": 2.0,
+                  "previous_entry_price": 103.8,
+                  "pullback_at": 1800003600,
+                  "resume_level": 106
+                },
+                "episode_break_at": 1800000000,
+                "kind": "LAYER",
+                "stop_extreme": 104.8,
+                "break_at": 1800000000,
+                "boundary": 101,
+                "confirmation_at": 1800004500,
+                "episode_atr": 2.0,
+                "previous_entry_price": 103.8,
+                "pullback_at": 1800003600,
+                "resume_level": 106,
+                "planned_r": 2.0
+              }
+            },
+            "research_entry": null
+          },
+          {
+            "evaluation_hash": "da31a5a57f2793c06a07efd463ca36a4eb60b5caf33fc0a374e49d501ff46b81",
+            "decision_time": "2027-01-15T09:30:00+00:00",
+            "candidate_id": "5f1a0dd23cbd83f9d25b03c8baaa1a97",
+            "reason": "ENTRY_ACCEPTED",
+            "proposal": null,
+            "research_entry": {
+              "episode_id": "5f1a0dd23cbd83f9d25b03c8baaa1a97",
+              "strategy_version": "BREAKOUT_DONCHIAN_BREAKOUT@V2",
+              "instrument": "SYNTHETIC",
+              "direction": "LONG",
+              "entry_timestamp": 1800004500,
+              "entry_price": 106.8,
+              "stop_price": 104.585,
+              "target_price": 111.23,
+              "parameter_hash": "2a154d7dd7d0e86d1380bf2cbd3124d9c6023c5620abacd2bc048817d3812cf0",
+              "dependency_manifest_hash": "26ceadac4a825709bee86099929b595bb7bb8ced1ffa92849cc2297dec2616a6",
+              "dataset_manifest_hash": "synthetic-donchian-v2-v1",
+              "provenance": {
+                "episode_id": "5f1a0dd23cbd83f9d25b03c8baaa1a97",
+                "entry_cancelled": false,
+                "intended_entry_time": 1800004500,
+                "reference_open_time": 1800004500,
+                "observed_at": null,
+                "data_available_at": null,
+                "entry_classification": "COMPLETED_CANDLE_RECONSTRUCTION",
+                "entry_price": 106.8,
+                "stop": 104.585,
+                "target": 111.23
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

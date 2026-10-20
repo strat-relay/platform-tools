@@ -125,6 +125,7 @@ SELECT coalesce(v.attributes->>'instance_id', v.id::text) AS instance_id,
          WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
          WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
          WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -151,6 +152,7 @@ LEFT JOIN platform.strategy_definition pd ON pd.strategy_id = CASE sv.evaluator_
   WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
   WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
   WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -167,6 +169,7 @@ LEFT JOIN LATERAL (
       WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
       WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
       WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -186,6 +189,7 @@ LEFT JOIN LATERAL (
       WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
       WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
       WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -210,6 +214,7 @@ LEFT JOIN LATERAL (
           WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
           WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
           WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -226,6 +231,7 @@ LEFT JOIN LATERAL (
           WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
           WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
           WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -245,6 +251,7 @@ LEFT JOIN LATERAL (
           WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
           WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
           WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -261,6 +268,7 @@ WHERE NOT EXISTS (
       WHEN 'price_action_sr_retest_v1' THEN 'PRICE_ACTION_SUPPORT_RESISTANCE_RETEST'
       WHEN 'price_action_engulfing_continuation_v1' THEN 'PRICE_ACTION_ENGULFING_CONTINUATION'
       WHEN 'library.donchian_breakout@V1' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
+         WHEN 'library.donchian_breakout@V2' THEN 'BREAKOUT_DONCHIAN_BREAKOUT'
          WHEN 'library.ema_pullback@V1' THEN 'TREND_FOLLOWING_EMA_PULLBACK'
          WHEN 'library.fvg_retracement@V1' THEN 'SMC_FVG_RETRACEMENT'
          WHEN 'library.judas_swing@V2' THEN 'ICT_JUDAS_SWING'
@@ -683,7 +691,8 @@ class StrategyCatalogRepository:
                       AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
                 ORDER BY timestamp DESC NULLS LAST LIMIT %s""", (*scope, *scope, RECENT_LIMIT))
             page.update({
-                "strategy_display_name": parent["display_name"], "strategy_version": parent["strategy_version"],
+                "strategy_display_name": parent["display_name"],
+                "strategy_version": page.get("strategy_version") or parent["strategy_version"],
                 "instrument_membership": membership,
                 "observations": [{**o, "simulated_entry": _num(o["simulated_entry"]),
                                   "simulated_stop": _num(o["simulated_stop"]),
