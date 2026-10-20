@@ -3,7 +3,8 @@
 Environment:
     MARKET_DATA_BRIDGE_URL     read-only bridge /mcp endpoint (22347; 22348 is refused)
     MARKET_DATA_REDIS_URL      Redis for the cache
-    TRADING_POSTGRES_DSN / PG*  read-only: instrument memberships, provider mappings, open trades
+    TRADING_POSTGRES_DSN / PG*  catalog reads; archive INSERT/SELECT when explicitly enabled
+    MARKET_DATA_ARCHIVE_ENABLED=false  persist completed candles before advancing Redis
     MARKET_QUOTE_SYMBOLS       extra comma-separated provider symbols to keep quotes hot
     MARKET_DATA_FULL_LIMIT=321  MARKET_DATA_INCREMENTAL_LIMIT=8  MARKET_QUOTE_REFRESH_SECONDS=2
     MARKET_QUOTES_PER_PASS=10   MARKET_METADATA_REFRESH_SECONDS=300
@@ -15,7 +16,7 @@ Environment:
 
 Bar symbols: every ACTIVE strategy instrument membership with an ACTIVE MT5 mapping. Quote
 symbols: active strategy instruments, instruments of OPEN managed trades, plus MARKET_QUOTE_SYMBOLS. Metadata symbols: the V2
-risk policy's allowed symbols. It only reads the bridge and PostgreSQL.
+risk policy's allowed symbols. Broker access remains read-only.
 """
 from __future__ import annotations
 
@@ -44,6 +45,17 @@ def main() -> None:
     client = Mt5ReadClient(BridgeEndpoint(url, profile="research"))
     store = MarketDataStore(redis.Redis.from_url(os.environ["MARKET_DATA_REDIS_URL"], socket_timeout=5.0))
     pg = PostgresConfig.from_env()
+    archive_sink = None
+    archive_flag = os.getenv('MARKET_DATA_ARCHIVE_ENABLED','false').strip().lower()
+    if archive_flag not in ('false','true','0','1'):
+        raise ValueError('invalid MARKET_DATA_ARCHIVE_ENABLED')
+    if archive_flag in ('true','1'):
+        import socket
+        import uuid
+        from .archive import PostgresCandleArchive
+        pg.require_explicit_target()
+        archive_sink = PostgresCandleArchive(lambda:connect(pg),
+            source_run_id=f'collector-v1:{socket.gethostname()}:{uuid.uuid4().hex}')
 
     def rows(sql: str, params: tuple[Any, ...] = ()) -> list[str]:
         with connect(pg, readonly=True) as conn, conn.cursor() as cur:
@@ -94,7 +106,8 @@ def main() -> None:
         incremental_limit=int(os.getenv("MARKET_DATA_INCREMENTAL_LIMIT", "8")),
         quote_interval=float(os.getenv("MARKET_QUOTE_REFRESH_SECONDS", "2")),
         max_quotes_per_pass=int(os.getenv("MARKET_QUOTES_PER_PASS", "10")),
-        metadata_interval=float(os.getenv("MARKET_METADATA_REFRESH_SECONDS", "300")))
+        metadata_interval=float(os.getenv("MARKET_METADATA_REFRESH_SECONDS", "300")),
+        archive_sink=archive_sink)
     stop = {"now": False}
     signal.signal(signal.SIGTERM, lambda *_: stop.update(now=True))
     signal.signal(signal.SIGINT, lambda *_: stop.update(now=True))

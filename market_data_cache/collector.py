@@ -24,11 +24,12 @@ from typing import Any, Callable
 
 from .store import TIMEFRAMES, TIMEFRAME_SECONDS, BarGap, MarketDataStore, merge_by_time, merge_completed, unexpected_missing_times
 from .session_calendar import classify_missing, gap_payload
+from .archive import ArchiveUnavailable, ArchiveConflict
 from .bridge_guard import (BridgeCircuitBreaker, BridgeCircuitOpen, BridgeRequestGate,
                            classify_bridge_failure)
 
 M5_SECONDS = 300
-RECOVERY_STATES = frozenset({"HEALTHY", "STALE", "GAP_DETECTED", "BACKFILL_REQUIRED", "BACKFILLING", "REPLAYING", "BACKFILL_FAILED"})
+RECOVERY_STATES = frozenset({"HEALTHY", "STALE", "GAP_DETECTED", "BACKFILL_REQUIRED", "BACKFILLING", "REPLAYING", "BACKFILL_FAILED", "ARCHIVE_UNAVAILABLE", "ARCHIVE_CONFLICT"})
 log = logging.getLogger("market_data_cache")
 
 
@@ -60,8 +61,10 @@ class MarketDataCollector:
                  quote_max_age: float | None = None,
                  clock: Callable[[], float] = time.time,
                  bridge_breaker: BridgeCircuitBreaker | None = None,
-                 bridge_max_inflight: int | None = None):
+                 bridge_max_inflight: int | None = None,
+                 archive_sink: Callable[..., dict[str, Any]] | None = None):
         self.store, self.read_tool = store, read_tool
+        self.archive_sink = archive_sink
         self.bar_symbols, self.metadata_symbols, self.quote_symbols = bar_symbols, metadata_symbols, quote_symbols
         self.full_limit, self.incremental_limit = full_limit, incremental_limit
         self.boundary_grace, self.retry_seconds, self.max_retries = boundary_grace, retry_seconds, max_retries
@@ -86,6 +89,8 @@ class MarketDataCollector:
                                         "last_completed_pass_at": None, "in_pass": False, "current_symbol": None,
                                         "symbols_completed_in_pass": 0, "symbols_total_in_pass": 0,
                                         "status": "starting", "unhealthy_symbols": [], "bridge_commands_total": 0}
+        if archive_sink is not None:
+            self._health['archive_enabled'] = True
 
     def _publish(self, **changes: Any) -> None:
         """Write md:health. Every write is a heartbeat: it is issued between bridge calls, so its age
@@ -206,11 +211,18 @@ class MarketDataCollector:
                 state.update(recovery_retry_count=retry_count,
                              recovery_next_attempt_at=now + backoff,
                              recovery_last_error=str(exc)[:300])
+            if isinstance(exc, ArchiveUnavailable):
+                count = int(current.get('archive_retry_count',0))+1
+                state.update(archive_retry_count=count,
+                             recovery_next_attempt_at=now+min(60,5*2**min(count-1,4)))
             state.update(last_attempt_at=now, consecutive_failures=failures, healthy=False,
                          last_error=f"{type(exc).__name__}: {exc}"[:300],
                          needs_full=bool(state.get("needs_full")) or isinstance(exc, BarGap))
             self.store.set_state(symbol, state)
             state["health_state"] = "BACKFILL_FAILED" if state.get("backfill_required") else "STALE"
+            if isinstance(exc, ArchiveUnavailable):
+                state['health_state'] = 'ARCHIVE_CONFLICT' if isinstance(exc,ArchiveConflict) else 'ARCHIVE_UNAVAILABLE'
+                state['archive_status'] = state['health_state']
             self.store.set_state(symbol, state)
             self._failure_telemetry(symbol, state, exc)
             return {"symbol": symbol, "ok": False, "full": full, "reason": state["last_error"], "error": state["last_error"]}
@@ -225,32 +237,42 @@ class MarketDataCollector:
             raise SnapshotUnhealthy("symbol snapshot missing required component", snapshot)
         merged, added = {}, {}
         recovery = {}
+        archive_batches = {}
         for tf in TIMEFRAMES:
             fresh = _completed(rates[tf])
+            cached = self.store.bars(symbol, tf)
+            archive_batches[tf] = list(cached)+list(fresh)
             if full:
-                cached = self.store.bars(symbol, tf)
                 if cached and fresh and int(fresh[-1]["time"]) > int(cached[-1]["time"]) + TIMEFRAME_SECONDS[tf]:
-                    merged[tf], recovery[tf] = self._recover_range(symbol, tf, cached, fresh, previous)
+                    merged[tf], recovery[tf] = self._recover_range(symbol, tf, cached, fresh, previous,
+                                                                 archive_rows=archive_batches[tf])
                     added[tf] = max(0, len(merged[tf]) - len(cached))
                 else:
                     merged[tf], added[tf] = fresh, len(fresh)
             else:
                 try:
-                    merged[tf], added[tf] = merge_completed(self.store.bars(symbol, tf), fresh)
+                    merged[tf], added[tf] = merge_completed(cached, fresh)
                 except BarGap as gap:
                     if "differs" in str(gap):
                         # A revision is not a range gap: force a full snapshot so the broker's
                         # corrected overlap replaces the cached candle safely.
                         raise
-                    cached = self.store.bars(symbol, tf)
-                    merged[tf], recovery[tf] = self._recover_range(symbol, tf, cached, fresh, previous)
+                    merged[tf], recovery[tf] = self._recover_range(symbol, tf, cached, fresh, previous,
+                                                                 archive_rows=archive_batches[tf])
                     added[tf] = max(0, len(merged[tf]) - len(cached))
             holes = unexpected_missing_times(merged[tf], tf)
             if holes:
                 anchor = [row for row in self.store.bars(symbol, tf) if int(row["time"]) < holes[0]]
                 if anchor and fresh:
                     merged[tf], recovery[tf] = self._recover_range(symbol, tf, [anchor[-1]], fresh, previous,
-                                                                    start_override=holes[0])
+                                                                    start_override=holes[0],archive_rows=archive_batches[tf])
+        archive_result = None
+        if self.archive_sink is not None:
+            # Include outgoing cached bars and untrimmed range responses. A
+            # durable commit must finish before any bounded Redis series moves.
+            archive_result = self.archive_sink(symbol,archive_batches,observed_at=self.clock())
+            log.info('%s',json.dumps(dict(event='candle_archive_committed',provider_symbol=symbol,
+                                         **archive_result),sort_keys=True))
         for tf in TIMEFRAMES:        # write only after every timeframe validated
             self.store.set_bars(symbol, tf, merged[tf])
         from .opening import opening_evidence
@@ -270,6 +292,8 @@ class MarketDataCollector:
                  "backfill_required": False, "recovery_retry_count": 0,
                  "recovery_next_attempt_at": None, "recovery_last_error": None,
                  "recovery_fingerprint": None}
+        if archive_result is not None:
+            state.update(archive_status='VERIFIED',archive=archive_result,archive_retry_count=0)
         self.store.set_state(symbol, state)
         previous_failures = int(previous.get("consecutive_failures", 0))
         if previous_failures:
@@ -289,7 +313,8 @@ class MarketDataCollector:
 
     def _recover_range(self, symbol: str, timeframe: str, cached: list[dict[str, Any]],
                        fresh: list[dict[str, Any]], previous: dict[str, Any],
-                       *, start_override: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                       *, start_override: int | None = None,
+                       archive_rows: list[dict[str,Any]] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Recover the exact missing interval, in <=500-bar pages, before committing it."""
         if not cached or not fresh:
             raise BarGap(f"{timeframe} range recovery has no bounded cache/source")
@@ -367,6 +392,8 @@ class MarketDataCollector:
         bounded_holes = [t for t in holes if start <= t < int(fresh[-1]["time"])]
         if int(combined[-1]["time"]) < int(fresh[-1]["time"]) or bounded_holes:
             raise BarGap(f"{timeframe} range recovery left {len(bounded_holes)} internal holes")
+        if archive_rows is not None:
+            archive_rows.extend(recovered)
         return combined, {"status": "RECOVERED", "start": start, "end": end,
                           "requested": expected, "received": len(recovered), "holes": bounded_holes,
                           "continuity_status": "HEALTHY", "expected_session_closures":
