@@ -3,8 +3,8 @@ import json
 from .ict_smc_forward_plan import WORKLOAD
 
 
-def documents(manifest,image):
-    labels={'app.kubernetes.io/name':WORKLOAD,'app.kubernetes.io/component':'research-observer','stratrelay.app/status':'research'}
+def documents(manifest,image, *, workload=WORKLOAD):
+    labels={'app.kubernetes.io/name':workload,'app.kubernetes.io/component':'research-observer','stratrelay.app/status':'research'}
     config_name=manifest['run_id']+'-manifest'
     probe=['python','-m','research.strategy_library_forward','health','--manifest','/config/run.json']
     cycle_check=['python','-c',"import time; from postgres.db import connect; from research.strategy_library_forward import RunConfig; c=RunConfig.load('/config/run.json'); conn=connect(); cur=conn.cursor(); cur.execute(\"SELECT (state->'health'->>'observed_at')::double precision FROM research.strategy_library_forward_state WHERE run_id=%s\",(c.run_id,)); r=cur.fetchone(); conn.rollback(); conn.close(); raise SystemExit(0 if r and 0<=time.time()-r[0]<=900 else 1)"]
@@ -19,8 +19,8 @@ def documents(manifest,image):
       'readinessProbe':{'exec':{'command':probe},'periodSeconds':30,'timeoutSeconds':15,'failureThreshold':3},
       'startupProbe':{'exec':{'command':cycle_check},'periodSeconds':30,'timeoutSeconds':15,'failureThreshold':40},
       'livenessProbe':{'exec':{'command':cycle_check},'periodSeconds':60,'timeoutSeconds':15,'failureThreshold':3}}
-    deployment={'apiVersion':'apps/v1','kind':'Deployment','metadata':{'name':WORKLOAD,'namespace':'trading','labels':labels},
-      'spec':{'replicas':1,'strategy':{'type':'Recreate'},'selector':{'matchLabels':{'app.kubernetes.io/name':WORKLOAD}},
+    deployment={'apiVersion':'apps/v1','kind':'Deployment','metadata':{'name':workload,'namespace':'trading','labels':labels},
+      'spec':{'replicas':1,'strategy':{'type':'Recreate'},'selector':{'matchLabels':{'app.kubernetes.io/name':workload}},
         'template':{'metadata':{'labels':labels},'spec':{'automountServiceAccountToken':False,'imagePullSecrets':[{'name':'ghcr-pull'}],
           'securityContext':{'runAsNonRoot':True,'runAsUser':65532,'runAsGroup':65532,'seccompProfile':{'type':'RuntimeDefault'}},
           'containers':[container],'volumes':[{'name':'manifest','configMap':{'name':config_name}},{'name':'tmp','emptyDir':{}}]}}}}
@@ -30,5 +30,5 @@ def documents(manifest,image):
                    'ports':[{'port':53,'protocol':'UDP'},{'port':53,'protocol':'TCP'}]})
     return {'apiVersion':'v1','kind':'List','items':[
       {'apiVersion':'v1','kind':'ConfigMap','immutable':True,'metadata':{'name':config_name,'namespace':'trading'},'data':{'run.json':json.dumps(manifest,indent=2)}},
-      deployment,{'apiVersion':'networking.k8s.io/v1','kind':'NetworkPolicy','metadata':{'name':WORKLOAD+'-egress','namespace':'trading'},
-        'spec':{'podSelector':{'matchLabels':{'app.kubernetes.io/name':WORKLOAD}},'policyTypes':['Ingress','Egress'],'ingress':[],'egress':egress}}]}
+      deployment,{'apiVersion':'networking.k8s.io/v1','kind':'NetworkPolicy','metadata':{'name':workload+'-egress','namespace':'trading'},
+        'spec':{'podSelector':{'matchLabels':{'app.kubernetes.io/name':workload}},'policyTypes':['Ingress','Egress'],'ingress':[],'egress':egress}}]}

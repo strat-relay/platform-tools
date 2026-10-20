@@ -24,7 +24,7 @@ from postgres.config import PostgresConfig
 from postgres.db import connect
 from research.strategy_library import artifact_identity
 from strategy_backtest.library import ComposedResearchRuntime
-from strategy_backtest.library.selection import DEFINITIONS_BY_SELECTOR as BY_KEY
+from strategy_backtest.library.forward_selection import DEFINITIONS_BY_FORWARD_SELECTOR as BY_KEY, forward_runtime
 from strategy_backtest.library.runtime import STEPS, validate_series
 from strategy_backtest.models import MarketEvent
 from strategy_backtest.research_outcomes import resolve_research_entry
@@ -171,7 +171,7 @@ class ForwardObserver:
             series[tf] = _merge(old, fresh)
             if len(series[tf]) > self.config.max_retained_bars:
                 raise ValueError('retained history limit reached; archive and review continuation')
-        runtime = ComposedResearchRuntime(d, dataset_id=self.binding, artifact_digest=self.artifact)
+        runtime = forward_runtime(key, dataset_id=self.binding, artifact_digest=self.artifact)
         if stored:
             runtime.restore_state(stored['runtime'])
         execution = series[d.execution]
@@ -198,6 +198,7 @@ class ForwardObserver:
                 checkpoint = runtime.snapshot_state()
                 checkpoint['state']['pending'].clear()
                 checkpoint['state']['entries'].clear()
+                checkpoint['state'].get('breakout_episodes', {}).clear()
                 runtime.restore_state(checkpoint)
                 continue
             for evaluation in outputs:

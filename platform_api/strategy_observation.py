@@ -81,9 +81,8 @@ class ObservationRepository:
         keys={**PA_KEYS,'kojo_structure_reclaim_v3':'KOJO_STRUCTURE_RECLAIM_V3',
               'kojo_structure_reclaim':'KOJO_STRUCTURE_RECLAIM_V1'}
         for key,definition in BY_KEY.items():keys['library.'+key+'@V1']=definition.strategy_id
-        from strategy_backtest.library.selection import EXPANSION_KEYS,resolve_definition
-        for selector in EXPANSION_KEYS:
-            definition=resolve_definition(selector)
+        from strategy_backtest.library.forward_selection import DEFINITIONS_BY_FORWARD_SELECTOR
+        for definition in DEFINITIONS_BY_FORWARD_SELECTOR.values():
             keys['library.'+definition.key+'@'+definition.version]=definition.strategy_id
         for iid,key,attrs,instruments,parameter,family in rows:
             attrs=attrs or {};sid=keys.get(key) or attrs.get('strategy_id') or family

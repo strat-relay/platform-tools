@@ -2,8 +2,10 @@
 
 Status: RESEARCH. Strategy ID BREAKOUT_DONCHIAN_BREAKOUT, version V2.
 Separate parameter/dependency/artifact/dataset identity; V1 is unchanged.
-The recipe is opt-in through DonchianV2Runtime. It is intentionally absent from
-production selectors, managed registration and forward publication allowlists.
+The recipe is opt-in through DonchianV2Runtime and the explicit forward selector
+`donchian_breakout@V2`. Its dedicated registration and activation are generated
+separately; importing code does not register, deploy or activate it. The unqualified
+`donchian_breakout` selector retains V1 semantics.
 
 ## Hypothesis and scope
 

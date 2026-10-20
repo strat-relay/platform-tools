@@ -6,10 +6,12 @@ from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from core.strategies.evaluation import canonical_hash
-from strategy_backtest.library.selection import resolve_definition, EXPANSION_KEYS
+from strategy_backtest.library.selection import EXPANSION_KEYS
+from strategy_backtest.library.forward_selection import resolve_forward_definition as resolve_definition, DONCHIAN_V2_KEY
 
 CANARY = ('donchian_breakout', 'ema_pullback', 'fvg_retracement')
-PUBLICATION_KEYS = CANARY + EXPANSION_KEYS
+VERSIONED_RESEARCH_KEYS = EXPANSION_KEYS + (DONCHIAN_V2_KEY,)
+PUBLICATION_KEYS = CANARY + VERSIONED_RESEARCH_KEYS
 SCHEMA_ID = 'STRATEGY_LIBRARY_COMPOSITION_V1'
 CREATOR = 'strategy-library-forward-candidate-v1'
 
@@ -48,6 +50,7 @@ def candidate_sql(keys=CANARY):
                   quote(CREATOR)+') ON CONFLICT (schema_id) DO NOTHING;']
     for key in keys:
         r = registration(key)
+        d = resolve_definition(key)
         metadata = {'status':'RESEARCH','execution_eligible':False,'family':r['family'],
                     'strategy_id':r['strategy_id'],'library_key':key,
                     'mode':'OBSERVER_ONLY','broker_writes':False,'signal_publication':False}
@@ -58,7 +61,7 @@ def candidate_sql(keys=CANARY):
                       quote(json.dumps(metadata,sort_keys=True)),quote(CREATOR)])+
             ') ON CONFLICT DO NOTHING;',
             'INSERT INTO strategy_mgmt.strategy_version(id,definition_id,version_label,evaluator_key,lifecycle,schema_id,release_notes,frozen_at,frozen_by,created_by) VALUES ('+
-            ','.join([quote(r['version_id']),quote(r['definition_id']),"'V1'",quote(r['evaluator_key']),
+            ','.join([quote(r['version_id']),quote(r['definition_id']),quote(d.version),quote(r['evaluator_key']),
                       "'FROZEN'",quote(SCHEMA_ID),quote('Frozen implementation only. Research lifecycle; not execution-qualified.'),
                       'now()',quote(CREATOR),quote(CREATOR)])+') ON CONFLICT DO NOTHING;',
             'INSERT INTO strategy_mgmt.parameter_set(id,parameter_set_id,strategy_version_id,schema_id,values,fingerprint,frozen,frozen_at,frozen_by,provenance,created_by) VALUES ('+
@@ -67,7 +70,7 @@ def candidate_sql(keys=CANARY):
             ') ON CONFLICT DO NOTHING;',
             'INSERT INTO strategy_mgmt.strategy_instance_v2(id,strategy_version_id,parameter_set_id,display_name,online,execution_eligible,execution_mode,instruments,attributes,created_by) VALUES ('+
             ','.join([quote(r['instance_id']),quote(r['version_id']),quote(r['parameter_uuid']),
-                      quote(r['name']+' V1 forward observer'),'false','false',"'OFF'",
+                      quote(r['name']+' '+d.version+' forward observer'),'false','false',"'OFF'",
                       js(['XAUUSD','BTCUSD','USDJPY']),js(metadata),quote(CREATOR)])+') ON CONFLICT DO NOTHING;',
             # A conflicting deterministic identity must abort, never silently bind
             # a different frozen parameter set or overwrite an existing strategy.
@@ -77,7 +80,7 @@ def candidate_sql(keys=CANARY):
             "JOIN strategy_mgmt.strategy_instance_v2 i ON i.strategy_version_id=v.id AND i.parameter_set_id=p.id "
             "WHERE d.id="+quote(r['definition_id'])+"::uuid AND d.family_key="+quote(r['catalog_key'])+
             " AND v.id="+quote(r['version_id'])+"::uuid AND v.evaluator_key="+quote(r['evaluator_key'])+
-            " AND v.version_label='V1' AND v.lifecycle='FROZEN' AND p.id="+quote(r['parameter_uuid'])+
+            " AND v.version_label="+quote(d.version)+" AND v.lifecycle='FROZEN' AND p.id="+quote(r['parameter_uuid'])+
             "::uuid AND p.parameter_set_id="+quote(r['parameter_set_id'])+" AND p.fingerprint="+quote(r['parameter_hash'])+
             " AND p.values="+js(r['parameters'])+" AND p.frozen AND i.id="+quote(r['instance_id'])+
             "::uuid AND NOT i.online AND NOT i.execution_eligible AND i.execution_mode='OFF' "
