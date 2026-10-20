@@ -1,0 +1,145 @@
+{
+  "version": "bounded-outcome-backfill.v1",
+  "provider": "MT5",
+  "evidence_sha256": "ba22932487c10cb053974413b20c92593fcae467fa5be52775f32d9df26c600d",
+  "observed_at": "2026-10-20T03:55:40.785867+00:00",
+  "signal_ids": [
+    "KSRV3_SIG_45d5bde2795f5794106029b9",
+    "KSRV3_SIG_5b1a402851a10e1e37e6c1be",
+    "SIG_0311ef40251b929441a25c16",
+    "SIG_055a4bd285e7b9c0f8dc578b",
+    "SIG_0e96b1b8e5d90ff26a570207",
+    "SIG_3208b7e0b194e1f3ba5e3a92",
+    "SIG_363ccc50afe57b1970c23cc1",
+    "SIG_5134b6e117604b384940f1d9",
+    "SIG_545535ebafce41ab41bd2e63",
+    "SIG_5c0f66376b3f2df2a2fff763",
+    "SIG_68b552442a2668d86a774fa2",
+    "SIG_6e6303665a45db14b5dde89c",
+    "SIG_75162f89bcec915c6b4216e3",
+    "SIG_82bb52b3ee6c979c34bf4d65",
+    "SIG_87a185777c1eea608f37755c",
+    "SIG_92423e3379f18d2f943586ff",
+    "SIG_a6d58f688c50952edc3c8653",
+    "SIG_b071d39a830244556a6d87d1",
+    "SIG_b382de3d66ccbcda655c2349",
+    "SIG_b66d965e3f4d7c2e19741c4f",
+    "SIG_cf1e2ffa99b388968de13feb",
+    "SIG_db87812c5d9bd996bc1367bd",
+    "SIG_e459af2cccc96f49992721b5",
+    "SIG_eb7f76f6f097560e10be7ef0",
+    "SIG_f109e947e6a2a9427581b56f",
+    "SIG_f6ad2be6606bd9841f8bdf48"
+  ],
+  "intervals": [
+    {
+      "symbol": "BTCUSDm",
+      "timeframe": "M15",
+      "start": 1791778500,
+      "end": 1792107900
+    },
+    {
+      "symbol": "ETHBTCm",
+      "timeframe": "M15",
+      "start": 1791807300,
+      "end": 1792174500
+    },
+    {
+      "symbol": "USDJPYm",
+      "timeframe": "M5",
+      "start": 1791862200,
+      "end": 1792175100
+    },
+    {
+      "symbol": "USDJPYm",
+      "timeframe": "M5",
+      "start": 1792184400,
+      "end": 1792357500
+    },
+    {
+      "symbol": "USDJPYm",
+      "timeframe": "M5",
+      "start": 1792443600,
+      "end": 1792443900
+    },
+    {
+      "symbol": "USDJPYm",
+      "timeframe": "M15",
+      "start": 1791786600,
+      "end": 1791935100
+    },
+    {
+      "symbol": "USDJPYm",
+      "timeframe": "M15",
+      "start": 1792184400,
+      "end": 1792357200
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M5",
+      "start": 1791826500,
+      "end": 1792168500
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M5",
+      "start": 1792184400,
+      "end": 1792360800
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M5",
+      "start": 1792443600,
+      "end": 1792447200
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1791579600,
+      "end": 1791756000
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1791838800,
+      "end": 1791842400
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1791849600,
+      "end": 1791917100
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1791925200,
+      "end": 1791928800
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1792011600,
+      "end": 1792015200
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1792098000,
+      "end": 1792101600
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1792184400,
+      "end": 1792360800
+    },
+    {
+      "symbol": "XAUUSDm",
+      "timeframe": "M15",
+      "start": 1792443600,
+      "end": 1792447200
+    }
+  ],
+  "plan_sha256": "2b179f39f5721d4f2835cb6587d5f5bf80f5af8c2d2e9aaf43db894dfab7301f"
+}
