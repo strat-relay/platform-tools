@@ -45,6 +45,30 @@ def _runtime(holder: str) -> OutcomeResolverRuntime:
 # its isolated database was not provisioned.
 @unittest.skipUnless(DSN, "OUTCOME_RESOLVER_TEST_DSN is not set")
 class AuthorityRegressionTests(unittest.TestCase):
+    def test_library_gap_state_satisfies_both_live_schema_constraints(self):
+        from datetime import datetime, timezone
+        from orchestration.library_outcomes import resolve_library_signal
+        from outcome_resolver_runtime import ResolverSignal
+        signal = ResolverSignal('gap', 'TREND_FOLLOWING_EMA_PULLBACK', 'BTCUSD',
+                                'SHORT', 100, 101, 98, datetime.now(timezone.utc),
+                                'MARKET_PAPER_OBSERVATION', {}, {})
+        result = resolve_library_signal(signal, [], 15)
+        with _conn() as conn, conn.cursor() as cur:
+            # Use the migrated database's actual CHECK expressions, rather
+            # than duplicating an allowed-state list in the regression test.
+            for index, table in enumerate(('strategy.entry_signal_outcomes',
+                                          'platform.outcome_resolver_signal_state')):
+                cur.execute("""SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                               WHERE conrelid = %s::regclass AND contype = 'c'
+                                 AND pg_get_constraintdef(oid) LIKE '%%resolution_state%%'""",
+                            (table,))
+                constraints = cur.fetchall()
+                self.assertTrue(constraints, table)
+                for check in constraints:
+                    cur.execute(f'CREATE TEMP TABLE gap_state_{index} (resolution_state text {check[0]})')
+                    cur.execute(f'INSERT INTO gap_state_{index} VALUES (%s)', (result.resolution_state,))
+            conn.rollback()
+
     def setUp(self):
         with _conn() as conn, conn.cursor() as cur:
             cur.execute("""DELETE FROM platform.outcome_resolver_lease

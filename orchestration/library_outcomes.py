@@ -21,10 +21,12 @@ def resolve_library_signal(signal, candles, timeframe_minutes):
     outcome = resolve_research_entry(entry, bars, timeframe_seconds=timeframe_minutes*60)
     status = {'TP': 'TARGET_HIT', 'SL': 'STOPPED'}.get(outcome.status, 'OPEN')
     state = ('RESOLVED' if status != 'OPEN' else
-             'AMBIGUOUS_INTRABAR' if outcome.status == 'AMBIGUOUS_INTRABAR' else
-             'CANDLE_GAP' if outcome.status == 'DATA_GAP_UNRESOLVED' else 'INSUFFICIENT_DATA')
+             'AMBIGUOUS_INTRABAR' if outcome.status == 'AMBIGUOUS_INTRABAR' else 'INSUFFICIENT_DATA')
     evidence = asdict(outcome)
-    if state == 'CANDLE_GAP':
+    if outcome.status == 'DATA_GAP_UNRESOLVED':
+        # Gap is an evidence reason, not a canonical database state. Preserve
+        # the frozen research result and prevent advancing past an unseen path.
+        evidence['reason'] = 'CANDLE_GAP'
         evidence['unprocessed_path'] = True
     return OutcomeResolution(
         status, outcome.realized_r,

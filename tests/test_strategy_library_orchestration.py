@@ -152,11 +152,39 @@ class LibraryOutcomeTests(unittest.TestCase):
         self.assertEqual((result.status,result.realized_r),('TARGET_HIT',3))
         self.assertEqual(result.evidence['valuation_status'],'UNCERTAIN_GAP_OPEN_REFERENCE')
         gap=resolve_library_signal(self.signal(),[bars[0],replace(bars[1],open=100)],15)
-        self.assertEqual(gap.resolution_state,'CANDLE_GAP')
+        self.assertEqual(gap.resolution_state,'INSUFFICIENT_DATA')
+        self.assertEqual(gap.status,'OPEN')
+        self.assertIsNone(gap.realized_r)
+        self.assertEqual(gap.evidence['status'],'DATA_GAP_UNRESOLVED')
+        self.assertEqual(gap.evidence['reason'],'CANDLE_GAP')
+        self.assertTrue(gap.evidence['unprocessed_path'])
 
     def test_missing_open_does_not_invent_a_price(self):
         result=resolve_library_signal(self.signal(),[replace(self.candle(),open=None)],15)
         self.assertEqual(result.resolution_state,'INSUFFICIENT_DATA')
+
+    def test_missing_entry_candle_keeps_research_gap_evidence(self):
+        for bars in ([], [self.candle(1)]):
+            with self.subTest(bars=bars):
+                result=resolve_library_signal(self.signal(),bars,15)
+                self.assertEqual((result.status,result.resolution_state),('OPEN','INSUFFICIENT_DATA'))
+                self.assertEqual(result.evidence['resolution_reason'],'ENTRY_CANDLE_UNAVAILABLE')
+                self.assertTrue(result.evidence['unprocessed_path'])
+                self.assertIsNone(result.exit_timestamp)
+
+    def test_runtime_gap_writes_valid_state_without_advancing_cursor(self):
+        runtime=OutcomeResolverRuntime(conn=MagicMock(),candle_store=MagicMock())
+        runtime.candle_store.candles.return_value=[self.candle(high=101),self.candle(2,high=101)]
+        runtime._cursor=lambda _:self.candle(2).close_timestamp
+        runtime._prior_resolution=lambda _:('INSUFFICIENT_DATA',{})
+        runtime._authority_lock=lambda _:None
+        runtime._assert_lease=lambda _:None
+        runtime._persist_state=MagicMock()
+        with patch('outcome_resolver_runtime.persist_outcome_row') as persist:
+            runtime.resolve_one(self.signal())
+        self.assertEqual(persist.call_args.kwargs['resolution_state'],'INSUFFICIENT_DATA')
+        self.assertEqual(runtime._persist_state.call_args.args[3],[])
+        self.assertIsNone(runtime._persist_state.call_args.kwargs['prior_cursor'])
 
     def test_unified_runtime_dispatches_the_frozen_policy(self):
         runtime=OutcomeResolverRuntime(conn=MagicMock(),candle_store=MagicMock())
