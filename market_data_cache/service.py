@@ -52,9 +52,10 @@ def main() -> None:
     if archive_flag in ('true','1'):
         import socket
         import uuid
+        import psycopg
         from .archive import PostgresCandleArchive
         pg.require_explicit_target()
-        archive_sink = PostgresCandleArchive(lambda:connect(pg),
+        archive_sink = PostgresCandleArchive(lambda:psycopg.connect(**pg.connect_kwargs(),connect_timeout=3),
             source_run_id=f'collector-v1:{socket.gethostname()}:{uuid.uuid4().hex}')
 
     def rows(sql: str, params: tuple[Any, ...] = ()) -> list[str]:

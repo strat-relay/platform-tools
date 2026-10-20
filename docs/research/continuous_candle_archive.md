@@ -36,7 +36,8 @@ One bounded transaction per symbol inserts missing rows, then checks existing
 OHLC exactly before committing. No existing candle or original source_run_id
 is overwritten. Concurrent inserts are checked too. Driver failures/conflicts
 roll back all new rows from that symbol's transaction. Database statement and
-lock timeouts are 10 and 2 seconds. Batches over 50,000 observations fail
+lock timeouts are 10 and 2 seconds; the service sets a three-second connection
+timeout per database host. Batches over 50,000 observations fail
 explicitly rather than being truncated.
 
 If persistence fails, retain the previous Redis candle windows and snapshot.
