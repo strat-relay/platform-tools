@@ -80,3 +80,23 @@ reference open, gap/ambiguity state, replay/stored terminal status and exact exi
 valuation/time before proposing changes. A matching terminal label alone is not
 full outcome equivalence. Any changed hypothesis belongs in a separately identified
 research version/run. Do not rewrite V1's evidence or merge broker P/L into it.
+
+## First deep-audit transfer (2026-10-20 ~14:47 UTC)
+
+The supplied Kubernetes stderr reports WebSocket close 1006/unexpected EOF while
+copying stdout. The 831,885-byte report ends inside a candle object, so the full
+audit did not transfer successfully. Only 11 complete leading signal objects
+could be recovered; they are an entry-ordered subset, not a representative sample.
+
+For these 11 BTC records, source-to-canonical entry time/direction/prices match,
+causal channel direction/stop/target and next-open prices match, and the shared
+resolver reproduces all 11 stop losses, including stored exit timestamps and R.
+Each source event is completed-candle reconstruction. Metadata already says
+retrospective, while canonical source provenance says prospective. This proves
+inconsistent stored classifications in this subset, not the responsible historical
+binary, an independent price-feed verification, or a universal failure cause.
+
+The updated launcher transports compressed JSON, retains candles once per stream,
+checks gzip integrity and parses the full JSON locally before finalizing report.json.
+Failed transfers retain .part output and diagnostics rather than a valid-looking
+report filename. No workload or network configuration is changed.

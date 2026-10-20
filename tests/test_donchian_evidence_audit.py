@@ -1,9 +1,11 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import unittest
+import gzip
+import json
 
 from core.strategies.evaluation import canonical_hash
-from scripts.audit_donchian_replay import audit, combine, normalise, replay, timing_audit
+from scripts.audit_donchian_replay import audit, combine, normalise, replay, timing_audit, report_bytes
 from strategy_backtest.library.catalog import BY_KEY
 
 
@@ -22,6 +24,14 @@ def fixture():
 
 
 class AuditTests(unittest.TestCase):
+    def test_compressed_report_roundtrip_and_truncation_rejection(self):
+        report = {'signals': [{'test': 'value'}]*100, 'summary': {'signals': 100}}
+        data = report_bytes(report, compressed=True)
+        self.assertEqual(json.loads(gzip.decompress(data)), report)
+        self.assertLess(len(data),len(report_bytes(report)))
+        with self.assertRaises((EOFError, OSError)):
+            gzip.decompress(data[:-8])
+
     def test_valid_frozen_geometry(self):
         signal,bars=fixture()
         result=replay(signal,bars,tick=.01,parameter_hash=canonical_hash(BY_KEY['donchian_breakout'].manifest()))

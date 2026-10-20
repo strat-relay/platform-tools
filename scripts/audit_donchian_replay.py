@@ -9,9 +9,11 @@ from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
+import gzip
 import json
 import math
 import os
+import sys
 from pathlib import Path
 
 STRATEGY = 'BREAKOUT_DONCHIAN_BREAKOUT'
@@ -256,6 +258,8 @@ def audit(conn, cache, *, now):
         if detail.get('status') == 'AVAILABLE':
             try:
                 item['replay'] = replay(signal, detail['_bars'], tick=tick, parameter_hash=m.get('parameter_hash'))
+                item['replay'].pop('candles')
+                item['replay']['reference_stream'] = p['provider_symbol']
                 stored = outcome or {}
                 computed = item['replay']['shared_resolver_replay']
                 replay_status = {'SL':'STOPPED','TP':'TARGET_HIT'}.get(computed['status'])
@@ -272,7 +276,9 @@ def audit(conn, cache, *, now):
             item['replay_status'] = 'BLOCKED_REFERENCE_STREAM_UNAVAILABLE_OR_CONFLICTED'
         report['signals'].append(item)
     for detail in report['streams'].values():
-        detail.pop('_bars', None)
+        bars = detail.pop('_bars', None)
+        if bars is not None:
+            detail['reference_candles'] = [bars[t] for t in sorted(bars)]
     report['summary'] = {'signals':len(rows),
         'prospective_label_conflicts':sum(x['timing']['prospective_label_conflict'] for x in report['signals']),
         'source_events_available':sum(x['timing']['source_event_available'] for x in report['signals']),
@@ -280,6 +286,16 @@ def audit(conn, cache, *, now):
                                            x.get('replay_status', x.get('replay_error_class', 'UNKNOWN')))
                                      for x in report['signals']))}
     return report
+
+
+def report_bytes(report, *, compressed=False):
+    raw = json.dumps(report, default=str, separators=(',', ':'), allow_nan=False).encode()
+    return gzip.compress(raw, mtime=0) if compressed else raw+b'\n'
+
+
+def emit_report(report):
+    sys.stdout.buffer.write(report_bytes(report, compressed=os.environ.get('DONCHIAN_AUDIT_GZIP') == '1'))
+    sys.stdout.buffer.flush()
 
 
 def main():
@@ -304,7 +320,7 @@ def main():
                              'strategy_backtest/research_outcomes.py')
             }
             conn.rollback()
-            print(json.dumps(report, default=str, indent=2, allow_nan=False))
+            emit_report(report)
     finally:
         cache.close()
 
@@ -313,6 +329,6 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as exc:
-        print(json.dumps({'status':'BLOCKED','error_class':type(exc).__name__,
-                          'read_only':True,'broker_calls':0}))
+        emit_report({'status':'BLOCKED','error_class':type(exc).__name__,
+                     'read_only':True,'broker_calls':0})
         raise SystemExit(1)
