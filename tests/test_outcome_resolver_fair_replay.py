@@ -4,8 +4,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-from outcome_resolver import Candle
-from outcome_resolver_runtime import OutcomeResolverRuntime, ResolverSignal
+from outcome_resolver import Candle, OutcomeResolution
+from outcome_resolver_runtime import OutcomeResolverRuntime, ResolverSignal, ResolverLeaseLost
 
 UTC = timezone.utc
 T0 = datetime(2026, 10, 12, tzinfo=UTC)
@@ -39,6 +39,58 @@ class SQLiteConnection:
 
 
 class FairReplayTests(unittest.TestCase):
+    def test_failed_signal_does_not_abort_later_work(self):
+        from dataclasses import replace
+        runtime = OutcomeResolverRuntime(conn=MagicMock(), candle_store=None)
+        runtime.acquire_lease = lambda: True
+        signals = [replace(self.signal(), signal_id=str(i)) for i in range(3)]
+        runtime._signals = lambda _: signals
+        resolved = OutcomeResolution('TARGET_HIT', 2, T0, 'RESOLVED', 'TEST', {})
+        runtime.resolve_one = MagicMock(side_effect=[ValueError('private row data'), resolved, resolved])
+        with patch.object(runtime, '_record_failure', return_value='ValueError') as record:
+            report = runtime.tick()
+        self.assertEqual(report['status'], 'DEGRADED')
+        self.assertEqual((report['errors'], report['resolved']), (1, 2))
+        self.assertEqual(report['failures'], [{'signal_id': '0', 'error': 'ValueError'}])
+        runtime.conn.rollback.assert_called_once()
+        self.assertEqual(record.call_args.args[0], signals[0])
+        self.assertEqual(runtime.resolve_one.call_count, 3)
+
+    def test_lease_loss_aborts_batch_without_recording_or_continuing(self):
+        runtime = OutcomeResolverRuntime(conn=MagicMock(), candle_store=None)
+        runtime.acquire_lease = lambda: True
+        runtime._signals = lambda _: [self.signal(), self.signal()]
+        runtime.resolve_one = MagicMock(side_effect=ResolverLeaseLost('fenced'))
+        with patch.object(runtime, '_record_failure') as record:
+            with self.assertRaises(ResolverLeaseLost):
+                runtime.tick()
+        record.assert_not_called()
+        self.assertEqual(runtime.resolve_one.call_count, 1)
+
+    def test_failure_record_is_fenced_and_does_not_replace_path_evidence(self):
+        runtime = OutcomeResolverRuntime(conn=MagicMock(), candle_store=None)
+        runtime._authority_lock = MagicMock()
+        runtime._assert_lease = MagicMock()
+        error = runtime._record_failure(self.signal(), ValueError('private row data'))
+        self.assertEqual(error, 'ValueError')
+        cur = runtime.conn.cursor.return_value.__enter__.return_value
+        sql, params = cur.execute.call_args.args
+        update = sql.split('DO UPDATE SET')[1]
+        for protected in ('evidence', 'coverage_end', 'last_candle_close', 'resolution_state'):
+            self.assertNotIn(protected, update)
+        self.assertNotIn('private row data', str(params))
+        self.assertEqual(runtime._assert_lease.call_count, 2)
+        runtime.conn.commit.assert_called_once()
+
+    def test_failure_record_lease_loss_fails_closed(self):
+        runtime = OutcomeResolverRuntime(conn=MagicMock(), candle_store=None)
+        runtime._authority_lock = lambda _: None
+        runtime._assert_lease = MagicMock(side_effect=ResolverLeaseLost('fenced'))
+        with self.assertRaises(ResolverLeaseLost):
+            runtime._record_failure(self.signal(), ValueError())
+        runtime.conn.commit.assert_not_called()
+        runtime.conn.rollback.assert_called_once()
+
     def signal(self):
         return ResolverSignal('S', 'TEST', 'EURUSD', 'LONG', 100, 99, 102,
                               T0, 'MARKET', {}, {})

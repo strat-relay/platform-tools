@@ -418,6 +418,35 @@ class OutcomeResolverRuntime:
             raise
         return result
 
+    def _record_failure(self, signal: ResolverSignal, error: Exception) -> str:
+        """Rotate failed work without changing its outcome, evidence or cursor.
+
+        Called after rollback, under the same writer fence as normal results.
+        Record only the exception class: database messages may contain row data.
+        Failure to record (including loss of authority) still aborts the tick.
+        """
+        error_name = type(error).__name__
+        metadata = signal.strategy_metadata.get("outcome_contract") or {}
+        version = str(metadata.get("version", "UNKNOWN")) if isinstance(metadata, dict) else "UNKNOWN"
+        try:
+            with self.conn.cursor() as cur:
+                self._authority_lock(cur)
+                self._assert_lease(cur)
+                cur.execute("""INSERT INTO platform.outcome_resolver_signal_state
+                    (signal_id, contract_version, activation_state, resolution_state,
+                     attempt_count, last_error)
+                    VALUES (%s, %s, 'PENDING', 'PENDING', 1, %s)
+                    ON CONFLICT (signal_id) DO UPDATE SET
+                        attempt_count = platform.outcome_resolver_signal_state.attempt_count + 1,
+                        last_error = EXCLUDED.last_error,
+                        updated_at = now()""", (signal.signal_id, version, error_name))
+                self._assert_lease(cur)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return error_name
+
     def tick(self, *, limit: int = 100) -> dict[str, Any]:
         if not self.acquire_lease():
             with self.conn.cursor() as cur:
@@ -429,9 +458,22 @@ class OutcomeResolverRuntime:
             return {"status": status, "holder_id": self.holder_id,
                     "mode": control[0] if control else None, "resolved": 0}
         counts = {"resolved": 0, "insufficient": 0, "ambiguous": 0, "rejected": 0}
+        failures = []
         for signal in self._signals(limit):
-            result = self.resolve_one(signal)
+            try:
+                result = self.resolve_one(signal)
+            except ResolverLeaseLost:
+                self.conn.rollback()
+                raise
+            except Exception as exc:
+                # Reads/contract parsing can also fail before resolve_one's
+                # persistence transaction. Always rollback before recording.
+                self.conn.rollback()
+                error_name = self._record_failure(signal, exc)
+                failures.append({"signal_id": signal.signal_id, "error": error_name})
+                continue
             key = {"RESOLVED": "resolved", "INSUFFICIENT_DATA": "insufficient",
                    "AMBIGUOUS_INTRABAR": "ambiguous", "REJECTED": "rejected"}.get(result.resolution_state, "insufficient")
             counts[key] += 1
-        return {"status": "OK", "holder_id": self.holder_id, **counts}
+        return {"status": "DEGRADED" if failures else "OK", "holder_id": self.holder_id,
+                **counts, "errors": len(failures), "failures": failures}
