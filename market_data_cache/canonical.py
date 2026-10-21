@@ -42,6 +42,8 @@ class CanonicalSnapshot:
     recovery_status: str
 
     opening_observations: dict[str, Any] = field(default_factory=dict)
+    entry_quote: dict[str, Any] | None = None
+    source_timing: dict[str, Any] = field(default_factory=dict)
 
 
 def candle_identity(provider_symbol: str, timeframe: str, timestamp: int) -> str:
@@ -101,7 +103,7 @@ class CanonicalMarketDataReader:
         )
 
     def get_snapshot(self, canonical_instrument: str, provider_symbol: str,
-                     required_history: dict[str, int]) -> CanonicalSnapshot:
+                     required_history: dict[str, int], *, include_entry_quote: bool = False) -> CanonicalSnapshot:
         raw = self.store.snapshot(provider_symbol)
         if raw is None:
             raise MarketDataUnavailable(f"canonical market data missing for {provider_symbol}")
@@ -113,7 +115,9 @@ class CanonicalMarketDataReader:
             fetched_at=float(raw["fetched_at"]), source=self.SOURCE,
             cache_age_seconds=max(ages, default=0.0),
             continuity_status="CONTINUOUS", gap_status="NONE", recovery_status="NONE",
-            opening_observations=raw.get("opening_observations", {}))
+            opening_observations=raw.get("opening_observations", {}),
+            entry_quote=self.store.quote(provider_symbol) if include_entry_quote else None,
+            source_timing=raw.get('source_timing', {}))
 
 
 def canonical_health(store: MarketDataStore, provider_symbol: str, *, now: float | None = None,

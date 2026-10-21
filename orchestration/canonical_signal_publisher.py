@@ -81,7 +81,8 @@ class CanonicalSignalPublisher:
         trace_emit("SIGNAL_DB_PERSIST_STARTED", signal_id=signal.signal_id,
                    decision_time=signal.decision_time or signal.signal_timestamp,
                    signal_emitted_at=emitted_at, created_at=signal.created_at,
-                   strategy_id=signal.strategy_id, transport="DB_PRIMARY")
+                   strategy_id=signal.strategy_id, transport="DB_PRIMARY",
+                   source_stage_timing=signal.strategy_metadata.get('publication_timing'))
         canonical = canonical_signal(raw, source_reference={
             "source_id": self.source_id,
             "source_offset": None,

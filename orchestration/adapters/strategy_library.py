@@ -6,6 +6,8 @@ of discovery latency. The orchestrator remains the sole canonical publisher.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import logging
 import math
 from typing import Any
 
@@ -41,6 +43,7 @@ class StrategyLibraryAdapter:
             raise ValueError('explicit publication activation boundary required')
 
     def discover_new_signals(self, seen_signal_ids):
+        read_started_at = datetime.now(timezone.utc).timestamp()
         with self.conn.cursor() as cur:
             cur.execute('''SELECT event_id, instrument, payload FROM
                 research.strategy_library_forward_event
@@ -49,10 +52,18 @@ class StrategyLibraryAdapter:
                 ORDER BY observed_at,event_id''',
                 (self.instance['orchestrator_run_id'], self.key))
             rows = cur.fetchall()
+        read_completed_at = datetime.now(timezone.utc).timestamp()
         result = []
         for event_id, instrument, record in rows:
             signal = self.convert(event_id, instrument, record)
             if signal.signal_id not in seen_signal_ids:
+                # Discovery varies on retry: log it instead of changing immutable signal hashes.
+                logging.getLogger(__name__).info('%s', json.dumps({
+                    'event': 'library_signal_discovered', 'signal_id': signal.signal_id,
+                    'event_id': event_id, 'run_id': self.instance['orchestrator_run_id'],
+                    'observer_observed_at': record['observed_at'],
+                    'orchestrator_read_started_at': read_started_at,
+                    'orchestrator_read_completed_at': read_completed_at}, sort_keys=True))
                 result.append(signal)
         return result
 
@@ -129,6 +140,10 @@ class StrategyLibraryAdapter:
                             sequence_primitive_version=provenance.get('sequence_primitive_version'))
         if live_open:
             metadata['entry_timing'] = provenance['entry_timing']
+            if provenance.get('entry_quote') is not None:
+                metadata['entry_quote'] = provenance['entry_quote']
+        metadata['publication_timing'] = {**record.get('stage_timing', {}),
+            'observer_observed_at': observed}
         return StrategySignal(
             signal_id=stable_id('SIG', {'instance': self.instance['instance_id'],
                                       'run': self.instance['orchestrator_run_id'], 'episode': episode}),

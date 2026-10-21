@@ -47,10 +47,16 @@ class RunConfig:
     prospective_max_delay: float = 120
     max_retained_bars: int = 10000
     entry_mode: str = "COMPLETED_CANDLE_RECONSTRUCTION"
+    entry_quote_max_age_seconds: float | None = None
 
     def __post_init__(self):
         if self.entry_mode not in {"COMPLETED_CANDLE_RECONSTRUCTION", "CONTEMPORANEOUS_CANDLE_OPEN"}:
             raise ValueError("explicit supported entry mode required")
+        if self.entry_quote_max_age_seconds is not None:
+            age = self.entry_quote_max_age_seconds
+            if (self.entry_mode != 'CONTEMPORANEOUS_CANDLE_OPEN' or isinstance(age, bool)
+                    or not isinstance(age, (int, float)) or not math.isfinite(age) or not 0 < age <= 15):
+                raise ValueError('entry quote capture requires next-open mode and freshness in (0, 15] seconds')
         if not self.run_id or not self.keys or len(set(self.keys)) != len(self.keys):
             raise ValueError('run_id and unique strategy keys required')
         if any(key not in BY_KEY for key in self.keys):
@@ -223,8 +229,19 @@ class ForwardObserver:
             pending = runtime.snapshot_state()['state']['pending'].get(instrument)
             if opening is not None and pending is not None:
                 if opening.open_time == pending['intended_entry_time'] and 0 <= observed_at - opening.open_time <= MAX_ENTRY_DELAY_SECONDS:
+                    quote = None
+                    if self.config.entry_quote_max_age_seconds is not None:
+                        from core.strategies.entry_quote import capture_entry_quote
+                        quote = capture_entry_quote(getattr(snapshot, 'entry_quote', None),
+                            instrument=instrument, provider_symbol=self.config.symbols[instrument],
+                            direction=pending['direction'], entry_time=opening.open_time,
+                            observed_at=observed_at, max_age_seconds=self.config.entry_quote_max_age_seconds)
                     for evaluation in runtime.observe_open(opening, setup_available_at=observed_at, now=observed_at):
                         payload = evaluation.to_dict()
+                        if quote is not None:
+                            # Quote is an observed execution reference. The frozen theoretical
+                            # open-price geometry and resolver basis remain explicit and distinct.
+                            payload['provenance']['entry_quote'] = quote
                         identity = canonical_hash({'binding': self.binding, 'stream': stream_id, 'evaluation': payload})
                         records.append({'event_id': identity, 'kind': 'EVALUATION', 'strategy_key': key,
                                         'instrument': instrument, 'observed_at': observed_at,
@@ -282,6 +299,8 @@ class PostgresResearchLedger:
 
 
 def run_once(config):
+    cycle_started_at = time.time()
+    stages = {'cycle_started_at': cycle_started_at}
     observer = ForwardObserver(config)
     reader = CanonicalMarketDataReader(default_store(), max_age=config.max_age_seconds)
     pg = PostgresConfig.from_env()
@@ -290,6 +309,7 @@ def run_once(config):
     with connect(pg) as conn:
         ledger = PostgresResearchLedger(conn, config.run_id)
         stored = ledger.lock_and_load()
+        stages['lock_acquired_at'] = time.time()
         if stored:
             observer.restore(stored)
         snapshots = {}
@@ -306,12 +326,22 @@ def run_once(config):
                 try:
                     cache_key = (instrument, tuple(ready['required_timeframes']))
                     if cache_key not in snapshots:
-                        snapshots[cache_key] = reader.get_snapshot(
-                            instrument, provider, {tf: config.history for tf in ready['required_timeframes']})
-                    emitted = observer.process(key, instrument, snapshots[cache_key], observed_at=time.time())
+                        read_started = time.time()
+                        kwargs = {'include_entry_quote': True} if config.entry_quote_max_age_seconds is not None else {}
+                        view = reader.get_snapshot(instrument, provider,
+                            {tf: config.history for tf in ready['required_timeframes']}, **kwargs)
+                        snapshots[cache_key] = (view, read_started, time.time())
+                    view, read_started, read_completed = snapshots[cache_key]
+                    evaluation_started = time.time()
+                    emitted = observer.process(key, instrument, view, observed_at=evaluation_started)
+                    evaluation_completed = time.time()
+                    for event in emitted:
+                        event['stage_timing'] = {**stages, **getattr(view, 'source_timing', {}),
+                            'snapshot_read_started_at': read_started, 'snapshot_read_completed_at': read_completed,
+                            'evaluation_started_at': evaluation_started, 'evaluation_completed_at': evaluation_completed}
                     records.extend(emitted)
                     latest_close = max(int(row['time']) + STEPS[d.execution]
-                                       for row in snapshots[cache_key].bars[d.execution].bars)
+                                       for row in view.bars[d.execution].bars)
                     last_close = observer.state['streams'][key + ':' + instrument]['last_close']
                     statuses.append({'key': key, 'instrument': instrument,
                                      'status': 'OK' if last_close == latest_close else 'WAITING_CONTEXT',
@@ -326,7 +356,12 @@ def run_once(config):
             'status': 'OK' if statuses and any(s['status']=='OK' for s in statuses)
                       and all(s['status'] in {'OK', 'OUTSIDE_STRATEGY_SCOPE'} for s in statuses)
                       else 'DEGRADED'}
+        stages['ledger_write_started_at'] = time.time()
         ledger.save(observer.state, records)
+        stages['ledger_write_completed_at'] = time.time()
+    stages['transaction_committed_at'] = time.time()
+    print(dumps({'event': 'library_observer_batch_committed', 'run_id': config.run_id,
+                 'stage_timing': stages, 'event_ids': [r['event_id'] for r in records]}), flush=True)
     return {'schema': VERSION, 'run_id': config.run_id, 'binding': observer.binding,
             'execution_eligible': False, 'bridge_requests': 0, 'records': len(records), 'streams': statuses}
 
@@ -354,13 +389,15 @@ def main():
                              and 0 <= time.time()-health.get('observed_at', 0) <= config.max_age_seconds)
                 print(dumps({'healthy': valid, 'run_id': config.run_id}))
                 raise SystemExit(0 if valid else 1)
-    if not math.isfinite(args.interval) or args.interval < 10:
-        raise ValueError('interval must be at least 10 seconds')
+    if not math.isfinite(args.interval) or args.interval < 1:
+        raise ValueError('interval must be at least one second')
     while True:
+        cycle_started = time.monotonic()
         print(dumps(run_once(config)), flush=True)
         if args.command == 'once':
             break
-        time.sleep(args.interval)
+        # Evaluation/persistence time counts toward the cadence; cycles never overlap.
+        time.sleep(max(0.0, args.interval-(time.monotonic()-cycle_started)))
 
 
 if __name__ == '__main__':

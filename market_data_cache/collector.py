@@ -229,7 +229,9 @@ class MarketDataCollector:
 
     def _fetch(self, symbol: str, now: float, *, full: bool, previous: dict[str, Any], reason: str = "") -> dict[str, Any]:
         limit = self.full_limit if full else self.incremental_limit
+        requested_at = self.clock()
         snapshot = self._read("mt5_symbol_snapshot", {"symbol": symbol, "timeframes": list(TIMEFRAMES), "limit": limit})
+        response_received_at = self.clock()
         if not isinstance(snapshot, dict) or not snapshot.get("healthy") or snapshot.get("source_read_health") is not True:
             raise SnapshotUnhealthy("symbol snapshot unhealthy", snapshot if isinstance(snapshot, dict) else None)
         rates, info, quote = snapshot.get("rates") or {}, snapshot.get("symbol_info"), snapshot.get("quote")
@@ -280,7 +282,13 @@ class MarketDataCollector:
         openings = opening_evidence(rates, prior_snapshot.get("opening_observations", {}), self.clock())
         forming = {tf: _forming_time(rates[tf]) for tf in TIMEFRAMES}
         self.store.set_snapshot(symbol, {"fetched_at": now, "symbol_info": info, "quote": quote, "forming": forming,
-                                         "source_read_health": True, "full": full, "opening_observations": openings})
+                                         "source_read_health": True, "full": full, "opening_observations": openings,
+                                         "source_timing": {'collector_request_started_at': requested_at,
+                                             'collector_response_received_at': response_received_at,
+                                             'collector_cache_write_started_at': self.clock()}})
+        log.info('%s', json.dumps({'event': 'market_snapshot_cached', 'provider_symbol': symbol,
+            'collector_request_started_at': requested_at, 'collector_response_received_at': response_received_at,
+            'collector_cache_write_completed_at': self.clock()}, sort_keys=True))
         self.store.set_metadata(symbol, info, now)
         advanced = previous.get("forming", {}).get("M5") != forming["M5"]
         retries = 0 if advanced or full else int(previous.get("awaiting_new_bar_retries", 0)) + 1
