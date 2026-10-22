@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from platform_api.control import PlatformControlApi
 from platform_api.strategy_catalog import StrategyCatalogRepository
+from platform_api.strategy_identity import declared_identity, signal_identity_links, IdentityConflict
 
 
 def registry_row(version):
@@ -12,12 +13,39 @@ def registry_row(version):
             "version_label": version, "instance_id": f"uuid-{version}",
             "evaluator_key": ("ContextStructureRetraceAdapter" if version == "V1"
                               else "context_structure_retrace_v2_research"),
-            "attributes": ({"legacy_instance_id": "phase6"} if version == "V1"
-                           else {"instance_id": "context-v2-research"}),
+            "attributes": ({"legacy_strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1", "legacy_instance_id": "phase6"} if version == "V1"
+                           else {"strategy_id": "CONTEXT_STRUCTURE_RETRACE_V2", "instance_id": "context-v2-research"}),
             "online": True, "execution_eligible": True}
 
 
 class ContextCatalogIdentityTests(unittest.TestCase):
+    def test_arbitrary_database_identifiers_not_evaluator_names_drive_mapping(self):
+        row = {**registry_row("V1"), "family_key": "renamed-family", "evaluator_key": "new.plugin",
+               "instance_id": "new-uuid", "attributes": {"legacy_strategy_id": "arbitrary-strategy",
+               "legacy_instance_id": "old-instance"}}
+        [summary] = PlatformControlApi._registry_summary([row])
+        self.assertEqual(summary['strategy_id'], 'arbitrary-strategy')
+        self.assertEqual(summary['instances'][0]['instance_id'], 'old-instance')
+        self.assertEqual(signal_identity_links([row]),
+                         {'arbitrary-strategy': {'old-instance': ['new-uuid', 'old-instance']}})
+
+    def test_conflicting_declarations_and_alias_owners_fail_closed(self):
+        with self.assertRaises(IdentityConflict):
+            declared_identity({'strategy_id': 'A', 'legacy_strategy_id': 'B'}, 'uuid')
+        rows = [{'instance_id': uuid, 'attributes': {'strategy_id': 'A', 'instance_id': 'shared'}}
+                for uuid in ['uuid-1', 'uuid-2']]
+        with self.assertRaises(IdentityConflict):
+            signal_identity_links(rows)
+        with self.assertRaises(IdentityConflict):
+            signal_identity_links([{**rows[0], 'conflicting_operational_identity': True}])
+
+    def test_aliases_are_strategy_scoped_and_missing_links_are_not_inferred(self):
+        rows = [{'instance_id': sid, 'attributes': {'strategy_id': sid, 'instance_id': 'same'}}
+                for sid in ['A', 'B']]
+        self.assertEqual(set(signal_identity_links(rows)), {'A', 'B'})
+        self.assertEqual(signal_identity_links([{'instance_id': 'uuid', 'attributes': {},
+                                               'evaluator_key': 'ContextStructureRetraceAdapter'}]), {})
+
     def test_registry_uses_versioned_strategy_and_publication_alias(self):
         summaries = PlatformControlApi._registry_summary([registry_row("V1"), registry_row("V2")])
         self.assertEqual([s["strategy_id"] for s in summaries],
@@ -57,7 +85,7 @@ class ContextCatalogIdentityTests(unittest.TestCase):
         original = {"strategy_id": "CONTEXT_STRUCTURE_RETRACE_V2", "instance_id": "context-v2-research",
                     "signals": 261}
         distinct = {"strategy_id": "CONTEXT_STRUCTURE_RETRACE_V1", "instance_id": "uuid-V1", "signals": 308}
-        repo._rows = Mock(side_effect=[[original], [dict(original, signals=0), distinct]])
+        repo._rows = Mock(side_effect=[[], [original], [dict(original, signals=0), distinct]])
         cur = Mock()
         cur.fetchone.return_value = (True,)
         with patch("platform_api.strategy_catalog._instance", side_effect=lambda row, *args: row), \

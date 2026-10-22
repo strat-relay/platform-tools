@@ -962,12 +962,9 @@ class PlatformControlApi:
         for row in rows:
             if not row.get("instance_id"):
                 continue  # A version/definition without an instance is not an operational card.
-            family = MANAGED_FAMILY_TO_CANONICAL.get(row["family_key"], row["family_key"])
-            if family == "CONTEXT_STRUCTURE_RETRACE":
-                family = {
-                    "ContextStructureRetraceAdapter": "CONTEXT_STRUCTURE_RETRACE_V1",
-                    "context_structure_retrace_v2_research": "CONTEXT_STRUCTURE_RETRACE_V2",
-                }.get(row.get("evaluator_key"), family)
+            from .strategy_identity import declared_identity
+            declared_strategy, instance_id, _ = declared_identity(row.get("attributes"), row["instance_id"])
+            family = declared_strategy or MANAGED_FAMILY_TO_CANONICAL.get(row["family_key"], row["family_key"])
             item = grouped.setdefault(family, {
                 "strategy_id": family,
                 "strategy_version": row.get("version_label"),
@@ -994,12 +991,10 @@ class PlatformControlApi:
                 "unattributed_signals": 0,
                 "manifest": {"status": "NOT_AVAILABLE"},
                 "registry_source": "strategy_mgmt",
+                "identity_resolution": "DECLARED" if declared_strategy else "UNDECLARED_COMPATIBILITY",
             })
             if row.get("online"):
                 item["enabled"] = True
-            attributes = row.get("attributes") or {}
-            instance_id = (attributes.get("instance_id") or attributes.get("legacy_instance_id")
-                           or str(row["instance_id"]))
             raw_instruments = row.get("instruments") or []
             instruments = [x.get("canonical_instrument") if isinstance(x, dict) else x
                            for x in raw_instruments]
@@ -1078,11 +1073,15 @@ class PlatformControlApi:
     def _unified_strategy_list(self, legacy: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Return the legacy-compatible list plus strategies only in strategy_mgmt,
         with STRATEGY_FAMILIES members collapsed into virtual family entries."""
+        from .strategy_identity import signal_identity_links, IdentityConflict
         try:
             rows = self.strategy_mgmt_api.registry_rows()
+            signal_identity_links(rows)  # Reject conflicting declarations before combining sources.
             known = {str(item.get("strategy_id")) for item in legacy}
             additions = [item for item in self._registry_summary(rows)
                          if item["strategy_id"] not in known]
+        except IdentityConflict:
+            raise
         except Exception:
             additions = []
         all_items = legacy + additions
