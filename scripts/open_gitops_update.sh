@@ -18,6 +18,7 @@ app_name=$3
 # an explicit directory, and every subsequent read must use the same file.
 manifest_path=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$manifest")
 test -f "$manifest_path"
+repin_script="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/repin_gitops_images.py"
 
 commit=$(python3 -c "import json,sys; print(json.load(open('$manifest_path'))['commit'])")
 short_sha=$(echo "$commit" | cut -c1-12)
@@ -44,42 +45,8 @@ cp "$manifest_path" "$target_path"
 # YAML workloads under the application instead of maintaining a hand-written
 # list: this keeps newly added runners, such as Liquidity, on the exact release
 # digest automatically.
-changed_paths=$(python3 - "$manifest_path" "$app_name" <<'PY'
-import json
-import pathlib
-import re
-import sys
-
-manifest_path = pathlib.Path(sys.argv[1])
-app_name = sys.argv[2]
-manifest = json.loads(manifest_path.read_text())
-references = {image["name"]: image["reference"] for image in manifest["images"]}
-
-image_pattern = re.compile(r"^(?P<indent>\s*)image:\s+ghcr\.io/strat-relay/(?P<name>[a-z0-9-]+)@sha256:[0-9a-f]+\s*$")
-changed = []
-app_root = pathlib.Path("apps") / app_name
-for path in sorted(app_root.rglob("*.yaml")):
-    original = path.read_text()
-    lines = original.splitlines(keepends=True)
-    updated = []
-    touched = False
-    for line in lines:
-        match = image_pattern.match(line.rstrip("\n"))
-        reference = references.get(match.group("name")) if match else None
-        if match and reference:
-            newline = "\n" if line.endswith("\n") else ""
-            line = f"{match.group('indent')}image: {reference}{newline}"
-            touched = True
-        updated.append(line)
-    result = "".join(updated)
-    if touched and result != original:
-        path.write_text(result)
-        changed.append(str(path))
-
-for path in changed:
-    print(path)
-PY
-)
+# Frozen observers and activation bundles are checkpoint-bound, not release-following.
+changed_paths=$(python3 "$repin_script" "$manifest_path" "$app_name")
 
 # `target_path` is absent in the bootstrap GitOps repository.  A copied new file is
 # untracked, and `git diff --quiet` intentionally ignores untracked files; checking
