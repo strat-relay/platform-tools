@@ -62,9 +62,11 @@ class MarketDataCollector:
                  clock: Callable[[], float] = time.time,
                  bridge_breaker: BridgeCircuitBreaker | None = None,
                  bridge_max_inflight: int | None = None,
-                 archive_sink: Callable[..., dict[str, Any]] | None = None):
+                 archive_sink: Callable[..., dict[str, Any]] | None = None,
+                 event_sink: Any = None):
         self.store, self.read_tool = store, read_tool
         self.archive_sink = archive_sink
+        self.event_sink = event_sink
         self.bar_symbols, self.metadata_symbols, self.quote_symbols = bar_symbols, metadata_symbols, quote_symbols
         self.full_limit, self.incremental_limit = full_limit, incremental_limit
         self.boundary_grace, self.retry_seconds, self.max_retries = boundary_grace, retry_seconds, max_retries
@@ -229,7 +231,9 @@ class MarketDataCollector:
 
     def _fetch(self, symbol: str, now: float, *, full: bool, previous: dict[str, Any], reason: str = "") -> dict[str, Any]:
         limit = self.full_limit if full else self.incremental_limit
+        requested_at = self.clock()
         snapshot = self._read("mt5_symbol_snapshot", {"symbol": symbol, "timeframes": list(TIMEFRAMES), "limit": limit})
+        response_received_at = self.clock()
         if not isinstance(snapshot, dict) or not snapshot.get("healthy") or snapshot.get("source_read_health") is not True:
             raise SnapshotUnhealthy("symbol snapshot unhealthy", snapshot if isinstance(snapshot, dict) else None)
         rates, info, quote = snapshot.get("rates") or {}, snapshot.get("symbol_info"), snapshot.get("quote")
@@ -273,14 +277,25 @@ class MarketDataCollector:
             archive_result = self.archive_sink(symbol,archive_batches,observed_at=self.clock())
             log.info('%s',json.dumps(dict(event='candle_archive_committed',provider_symbol=symbol,
                                          **archive_result),sort_keys=True))
-        for tf in TIMEFRAMES:        # write only after every timeframe validated
-            self.store.set_bars(symbol, tf, merged[tf])
         from .opening import opening_evidence
         prior_snapshot = self.store.snapshot(symbol) or {}
         openings = opening_evidence(rates, prior_snapshot.get("opening_observations", {}), self.clock())
         forming = {tf: _forming_time(rates[tf]) for tf in TIMEFRAMES}
-        self.store.set_snapshot(symbol, {"fetched_at": now, "symbol_info": info, "quote": quote, "forming": forming,
-                                         "source_read_health": True, "full": full, "opening_observations": openings})
+        remainder = {"fetched_at": now, "symbol_info": info, "quote": quote, "forming": forming,
+                                         "source_read_health": True, "full": full, "opening_observations": openings,
+                                         "source_timing": {'collector_request_started_at': requested_at,
+                                             'collector_response_received_at': response_received_at,
+                                             'collector_cache_write_started_at': self.clock()}}
+        if self.event_sink is not None:
+            # Commit immutable evidence and its notification intent before publishing the
+            # mutable cache remainder. Event consumers never depend on current Redis values.
+            self.event_sink.snapshot(symbol, remainder, merged, self.clock())
+        for tf in TIMEFRAMES:        # evidence intent commits before any mutable cache advances
+            self.store.set_bars(symbol, tf, merged[tf])
+        self.store.set_snapshot(symbol, remainder)
+        log.info('%s', json.dumps({'event': 'market_snapshot_cached', 'provider_symbol': symbol,
+            'collector_request_started_at': requested_at, 'collector_response_received_at': response_received_at,
+            'collector_cache_write_completed_at': self.clock()}, sort_keys=True))
         self.store.set_metadata(symbol, info, now)
         advanced = previous.get("forming", {}).get("M5") != forming["M5"]
         retries = 0 if advanced or full else int(previous.get("awaiting_new_bar_retries", 0)) + 1
@@ -472,6 +487,8 @@ class MarketDataCollector:
                 log.warning("%s", json.dumps(telemetry, sort_keys=True))
                 continue
             log.info("%s", json.dumps(telemetry, sort_keys=True))
+            if self.event_sink is not None:
+                self.event_sink.quote(symbol, quote, observed_at)
             self.store.set_quote(symbol, quote, observed_at)
             refreshed.append(symbol)
         return refreshed

@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -248,6 +249,18 @@ class KojoLiveEntryPathTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
+        # This fixture needs earlier same-day M15 reaction structure for TP1.
+        # Near UTC midnight its wall-clock-relative history crosses into yesterday,
+        # legitimately removing that structure and intermittently suppressing entry.
+        fixed_now = datetime(2026, 10, 21, 14, 15, 50, tzinfo=timezone.utc)
+        class FixtureDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now.astimezone(tz) if tz else fixed_now.replace(tzinfo=None)
+        self._time_patch = patch.object(time, 'time', return_value=fixed_now.timestamp())
+        self._datetime_patch = patch('orchestration.adapters.kojo_structure_reclaim_v3_adapter.datetime', FixtureDatetime)
+        self._time_patch.start(); self.addCleanup(self._time_patch.stop)
+        self._datetime_patch.start(); self.addCleanup(self._datetime_patch.stop)
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
