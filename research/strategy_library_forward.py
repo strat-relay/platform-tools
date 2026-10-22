@@ -48,8 +48,14 @@ class RunConfig:
     max_retained_bars: int = 10000
     entry_mode: str = "COMPLETED_CANDLE_RECONSTRUCTION"
     entry_quote_max_age_seconds: float | None = None
+    transport: str = 'POLL'
 
     def __post_init__(self):
+        if self.transport not in {'POLL','JETSTREAM'}:
+            raise ValueError('explicit supported transport required')
+        if self.transport == 'JETSTREAM' and (self.entry_mode != 'CONTEMPORANEOUS_CANDLE_OPEN'
+                                              or self.entry_quote_max_age_seconds is None):
+            raise ValueError('JetStream requires next-open quote capture')
         if self.entry_mode not in {"COMPLETED_CANDLE_RECONSTRUCTION", "CONTEMPORANEOUS_CANDLE_OPEN"}:
             raise ValueError("explicit supported entry mode required")
         if self.entry_quote_max_age_seconds is not None:
@@ -142,7 +148,7 @@ class ForwardObserver:
             raise ValueError('run identity/configuration/artifact changed')
         self.state = deepcopy(state)
 
-    def process(self, key, instrument, snapshot, *, observed_at):
+    def process(self, key, instrument, snapshot, *, observed_at, recovery=False):
         """Atomic stream transition; caller commits state and records together."""
         d = BY_KEY[key]
         if key not in self.config.keys or instrument not in self.config.symbols:
@@ -153,7 +159,8 @@ class ForwardObserver:
                [('gap_status', 'NONE'), ('recovery_status', 'NONE'),
                 ('continuity_status', 'CONTINUOUS')]):
             raise ValueError('unhealthy canonical cache')
-        if not math.isfinite(snapshot.cache_age_seconds) or not 0 <= snapshot.cache_age_seconds <= self.config.max_age_seconds:
+        if (not math.isfinite(snapshot.cache_age_seconds) or snapshot.cache_age_seconds < 0 or
+                (not recovery and snapshot.cache_age_seconds > self.config.max_age_seconds)):
             raise ValueError('stale canonical cache')
         # The canonical bridge cache exports tick_size. Do not infer it from
         # point/digits, which describe display precision rather than tick rules.
@@ -172,7 +179,7 @@ class ForwardObserver:
                 raise ValueError('empty canonical series')
             old = [MarketEvent(**b) for b in streams.get(tf, [])]
             required_close = int((observed_at - self.config.max_age_seconds) // STEPS[tf]) * STEPS[tf]
-            if fresh[-1].close_timestamp < required_close:
+            if not recovery and fresh[-1].close_timestamp < required_close:
                 raise ValueError('completed candle watermark is stale')
             series[tf] = _merge(old, fresh)
             if len(series[tf]) > self.config.max_retained_bars:
@@ -221,7 +228,7 @@ class ForwardObserver:
                                 'decision_time': bar.close_timestamp, 'evidence_class': evidence,
                                 'processing_delay_seconds': observed_at - bar.close_timestamp,
                                 'execution_eligible': False, 'payload': payload})
-        if self.config.entry_mode == 'CONTEMPORANEOUS_CANDLE_OPEN' and previous is not None:
+        if self.config.entry_mode == 'CONTEMPORANEOUS_CANDLE_OPEN' and previous is not None and not recovery:
             from market_data_cache.opening import read_opening
             raw = {'opening_observations': getattr(snapshot, 'opening_observations', {})}
             opening = read_opening(raw, instrument, self.config.symbols[instrument], d.execution,
@@ -299,6 +306,8 @@ class PostgresResearchLedger:
 
 
 def run_once(config):
+    if config.transport != 'POLL':
+        raise ValueError('JetStream manifests require the event consumer, not the polling runner')
     cycle_started_at = time.time()
     stages = {'cycle_started_at': cycle_started_at}
     observer = ForwardObserver(config)

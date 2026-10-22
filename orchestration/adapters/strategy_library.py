@@ -43,6 +43,8 @@ class StrategyLibraryAdapter:
             raise ValueError('explicit publication activation boundary required')
 
     def discover_new_signals(self, seen_signal_ids):
+        if self.instance.get('publication_transport') == 'JETSTREAM':
+            return []  # dedicated event consumer owns this run's publication; no table scan
         read_started_at = datetime.now(timezone.utc).timestamp()
         with self.conn.cursor() as cur:
             cur.execute('''SELECT event_id, instrument, payload FROM

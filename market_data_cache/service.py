@@ -99,6 +99,8 @@ def main() -> None:
             return value
         return wrapped
 
+    from research.library_event_store import collector_sink_from_env
+    event_sink = collector_sink_from_env()
     collector = MarketDataCollector(
         store, lambda tool, args: client.call(tool, args),
         bar_symbols=every("bars", bar_symbols), quote_symbols=every("quotes", quote_symbols, 15.0),
@@ -108,7 +110,7 @@ def main() -> None:
         quote_interval=float(os.getenv("MARKET_QUOTE_REFRESH_SECONDS", "2")),
         max_quotes_per_pass=int(os.getenv("MARKET_QUOTES_PER_PASS", "10")),
         metadata_interval=float(os.getenv("MARKET_METADATA_REFRESH_SECONDS", "300")),
-        archive_sink=archive_sink)
+        archive_sink=archive_sink, event_sink=event_sink)
     stop = {"now": False}
     signal.signal(signal.SIGTERM, lambda *_: stop.update(now=True))
     signal.signal(signal.SIGINT, lambda *_: stop.update(now=True))
