@@ -106,6 +106,7 @@ class Wakeup:
         self.stopped = threading.Event()
         self.thread = None
         self.error = None
+        self.operation = "NOT_STARTED"
         self.last_event_id = None
         self.last_received_at = None
         self.last_received_monotonic = None
@@ -185,13 +186,12 @@ class Wakeup:
                 self.error = type(exc).__name__
                 self.healthy = False
                 self.condition.notify_all()
-            report('strategy_event_subscription_failed', runtime_id=self.runtime, error_type=self.error)
+            report('strategy_event_subscription_failed', runtime_id=self.runtime, error_type=self.error,
+                   operation=self.operation)
 
     async def _listen(self):
         import nats
         from nats.js.api import ConsumerConfig, AckPolicy, DeliverPolicy
-        from nats.errors import TimeoutError as NatsTimeoutError
-
         async def disconnected():
             with self.condition:
                 self.healthy = False
@@ -205,6 +205,7 @@ class Wakeup:
         async def error_callback(exc):
             report('strategy_nats_error', runtime_id=self.runtime, error_type=type(exc).__name__)
 
+        self.operation = 'CONNECT'
         nc = await nats.connect(os.environ['NATS_URL'], user=os.environ['P2_NATS_USER'],
             password=os.environ['P2_NATS_PASSWORD'], name='strategy-'+self.runtime,
             connect_timeout=5, max_reconnect_attempts=2, error_cb=error_callback,
@@ -218,6 +219,7 @@ class Wakeup:
             routes = [(STREAM, filters)]
             subscriptions = []
             for stream, filters in routes:
+                self.operation = 'STREAM_INFO'
                 info = await js.stream_info(stream)
                 if (set(info.config.subjects) != {CACHE+'.*', READY+'.*'}
                         or info.config.storage != 'file' or not 0 < info.config.max_age <= 86400
@@ -225,10 +227,12 @@ class Wakeup:
                         or info.config.discard != 'new' or info.config.max_msg_size != 1024):
                     raise ValueError('strategy wakeup stream ownership/storage mismatch')
                 durable = 'wakeup-'+self.runtime+'-'+stream.lower()
+                self.operation = 'SUBSCRIBE'
                 sub = await js.pull_subscribe(filters[0], durable=durable, stream=stream,
                     config=ConsumerConfig(durable_name=durable, filter_subjects=filters,
                         ack_policy=AckPolicy.EXPLICIT, deliver_policy=DeliverPolicy.NEW,
                         ack_wait=30, max_ack_pending=64))
+                self.operation = 'CONSUMER_INFO'
                 actual = (await js.consumer_info(stream, durable)).config
                 actual_filters = set(actual.filter_subjects or [actual.filter_subject])
                 if (actual_filters != set(filters) or actual.ack_policy != AckPolicy.EXPLICIT
@@ -237,23 +241,7 @@ class Wakeup:
                 subscriptions.append(sub)
             await reconnected()
 
-            async def consume(sub):
-                while not self.stopped.is_set():
-                    try:
-                        # A large batch fetch may wait for its batch/timeout even
-                        # after the first message arrives. One message is the wakeup.
-                        messages = await sub.fetch(1, timeout=1)
-                    except NatsTimeoutError:
-                        continue
-                    for message in messages:
-                        if len(message.data) > 1024:
-                            raise ValueError('oversized strategy wakeup')
-                        payload = json.loads(message.data)
-                        if set(payload) != {'event_id'} or not re.fullmatch('[0-9a-f]{64}', payload['event_id']):
-                            raise ValueError('invalid strategy wakeup reference')
-                        self.receive(payload['event_id'], time.time())
-                        await message.ack_sync()
-            tasks = [asyncio.create_task(consume(sub)) for sub in subscriptions]
+            tasks = [asyncio.create_task(self._consume(sub)) for sub in subscriptions]
             try:
                 await asyncio.gather(*tasks)
             finally:
@@ -262,6 +250,47 @@ class Wakeup:
                 await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             await nc.close()
+
+    async def _consume(self, sub):
+        """Accept hints once available; a lost ACK reply does not lose the hint.
+
+        A timeout waiting for a fetch is normal idleness. An ACK timeout is
+        uncertain delivery: retain the accepted generation, leave the message
+        available for redelivery and bound repeated failures. No broker work or
+        evidence commit is acknowledged by this scheduling-only consumer.
+        """
+        from nats.errors import TimeoutError as NatsTimeoutError
+        ack_timeouts = 0
+        while not self.stopped.is_set():
+            try:
+                self.operation = 'FETCH'
+                messages = await sub.fetch(1, timeout=1)
+            except (NatsTimeoutError, asyncio.TimeoutError):
+                continue
+            for message in messages:
+                if len(message.data) > 1024:
+                    raise ValueError('oversized strategy wakeup')
+                payload = json.loads(message.data)
+                if (not isinstance(payload, dict) or set(payload) != {'event_id'}
+                        or not isinstance(payload['event_id'], str)
+                        or not re.fullmatch('[0-9a-f]{64}', payload['event_id'])):
+                    raise ValueError('invalid strategy wakeup reference')
+                self.receive(payload['event_id'], time.time())
+                try:
+                    self.operation = 'ACK_CONFIRMATION'
+                    await message.ack_sync(timeout=2)
+                except (NatsTimeoutError, asyncio.TimeoutError) as exc:
+                    ack_timeouts += 1
+                    report('strategy_event_ack_timeout', runtime_id=self.runtime,
+                           event_id=payload['event_id'], error_type=type(exc).__name__,
+                           consecutive_failures=ack_timeouts)
+                    if ack_timeouts >= 3:
+                        raise RuntimeError('repeated strategy hint ACK confirmation timeouts') from exc
+                else:
+                    if ack_timeouts:
+                        report('strategy_event_ack_recovered', runtime_id=self.runtime,
+                               event_id=payload['event_id'])
+                    ack_timeouts = 0
 
 
 def notify_cache_ready(provider_symbol, revision):
