@@ -143,7 +143,9 @@ class ContextStructureRetraceAdapter:
                     entry_opportunity_id=position.get("entry_opportunity_id"), economic_position_id=position.get("economic_position_id"),
                     created_at=created, signal_timestamp=position.get("fill_timestamp_iso") or str(position.get("fill_timestamp")),
                     symbol=symbol, canonical_symbol=canonical_symbol, broker_symbol_hint=symbol,
-                    direction=direction, entry_type="MARKET_PAPER_OBSERVATION",
+                    direction=direction,
+                    entry_type=("MARKET" if self.instance.get("execution_mode") in ("LIVE", "SHADOW")
+                                else "MARKET_PAPER_OBSERVATION"),
                     entry_price=float(position.get("executable_paper_entry")), stop_price=float(position.get("stop")),
                     target_price=float(position.get("target")), risk_distance=float(geometry.get("stop_distance") or 0),
                     target_distance=target_distance(position.get("executable_paper_entry"), position.get("target")), target_r=geometry.get("target_R"),
