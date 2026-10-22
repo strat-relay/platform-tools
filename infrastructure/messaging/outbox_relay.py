@@ -76,12 +76,20 @@ class OutboxRelay:
         return result
 
     async def run_forever(self, *, stop: asyncio.Event, idle_seconds: float = 1.0,
-                          batch_size: int = 100) -> None:
+                          batch_size: int = 100, wake: asyncio.Event | None = None) -> None:
         """Relay pending rows without any dependency on signal-file ingestion."""
         while not stop.is_set():
+            if wake is not None:
+                # Clear before scanning so a commit DURING the scan is retained.
+                wake.clear()
             result = await self.publish_batch(limit=batch_size)
             if result["failed"] or not result["published"]:
+                waits = [asyncio.create_task(stop.wait())]
+                if wake is not None and not result['failed']:
+                    waits.append(asyncio.create_task(wake.wait()))
                 try:
-                    await asyncio.wait_for(stop.wait(), timeout=idle_seconds)
-                except TimeoutError:
-                    pass
+                    await asyncio.wait(waits, timeout=idle_seconds, return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    for task in waits:
+                        task.cancel()
+                    await asyncio.gather(*waits, return_exceptions=True)
