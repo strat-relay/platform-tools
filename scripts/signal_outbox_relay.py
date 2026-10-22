@@ -69,9 +69,9 @@ async def serve(*, idle_seconds: float = 1.0, once: bool = False) -> None:
         if mode() == 'JETSTREAM':
             import psycopg
             async with await psycopg.AsyncConnection.connect(**db_config.connect_kwargs(), autocommit=True) as listener:
-                cursor = await listener.execute("SELECT to_regclass('platform.strategy_runtime_outbox')")
-                if (await cursor.fetchone())[0] is None:
-                    raise RuntimeError('event-driven canonical relay requires migration 072')
+                cursor = await listener.execute("SELECT EXISTS (SELECT 1 FROM platform.schema_migrations WHERE version='073')")
+                if (await cursor.fetchone())[0] is not True:
+                    raise RuntimeError('event-driven canonical relay requires migration 073')
                 await listener.execute('LISTEN canonical_outbox_events')
                 wake = asyncio.Event()
                 async def notifications():

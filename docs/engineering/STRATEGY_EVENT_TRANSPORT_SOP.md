@@ -96,7 +96,7 @@ after one hour; pending rows and every strategy/checkpoint/signal/outcome table
 remain untouched. Monitor pending growth and primary DB capacity during outages.
 
 The existing canonical outbox relay also supports `STRATEGY_EVENT_MODE=JETSTREAM`:
-migration 072 notifies `canonical_outbox_events` on INSERT after transaction commit.
+migration 073 notifies `canonical_outbox_events` on INSERT after transaction commit.
 The relay LISTENs on a separate connection and publishes immediately, retaining a
 30-second reconciliation scan for lost notifications and expired leases. Failed
 publication retries are bounded by that reconciliation interval. Its existing
@@ -145,7 +145,7 @@ would load-balance wakeups and is not a substitute for evaluator ownership.
    preserve its authority, policies, cutoff and execution configuration exactly.
    Never deploy a second canonical publisher for the same managed binding.
    Enable the same event-mode flag on the existing signal outbox relay after the
-   migration is verified, to remove the final publication timer as well.
+   additive migration 073 is verified, to remove the final publication timer as well.
 6. Switch Context scheduling after identity/rule regression and checkpoint audit.
    The decision-code fingerprint remains unchanged. Preserve all existing state.
 7. Library artifacts hash their runner source. PA experiments can also have frozen
