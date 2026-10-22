@@ -69,6 +69,13 @@ jobs:
           python3 -c 'from postgres.db import apply_migrations, connect; conn=connect(); cur=conn.cursor(); cur.execute("DO $do$ BEGIN CREATE ROLE trading_app; EXCEPTION WHEN duplicate_object THEN NULL; END $do$;"); cur.execute("DO $do$ BEGIN CREATE ROLE trading_readonly; EXCEPTION WHEN duplicate_object THEN NULL; END $do$;"); conn.commit(); print(apply_migrations(conn)); conn.close()'
           echo "OUTCOME_RESOLVER_TEST_DSN=$TRADING_POSTGRES_DSN" >> "$GITHUB_ENV"
 
+      - name: Install isolated JetStream test server
+        run: |
+          curl -fsSL --retry 3 https://github.com/nats-io/nats-server/releases/download/v2.10.29/nats-server-v2.10.29-linux-amd64.tar.gz -o "$RUNNER_TEMP/nats-server.tar.gz"
+          echo "e314da74a83a1d3876db8814c27eb990fe729640fd6452025b441bcede8390da  $RUNNER_TEMP/nats-server.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/nats-server.tar.gz" -C "$RUNNER_TEMP"
+          echo "NATS_SERVER_TEST_BINARY=$RUNNER_TEMP/nats-server-v2.10.29-linux-amd64/nats-server" >> "$GITHUB_ENV"
+
       - name: Run tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 

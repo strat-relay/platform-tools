@@ -106,6 +106,8 @@ class MarketDataCollector:
                             bridge_commands_total=self.commands)
         started = self._health["pass_started_at"]
         self._health["current_pass_duration"] = now - started if self._health["in_pass"] and started else None
+        from infrastructure.messaging.runtime_events import cache_event_health
+        self._health["strategy_event_health"] = cache_event_health()
         self.store.set_health(dict(self._health))
 
     def _read(self, tool: str, arguments: dict[str, Any]) -> Any:
@@ -310,6 +312,8 @@ class MarketDataCollector:
         if archive_result is not None:
             state.update(archive_status='VERIFIED',archive=archive_result,archive_retry_count=0)
         self.store.set_state(symbol, state)
+        from infrastructure.messaging.runtime_events import notify_cache_ready
+        notify_cache_ready(symbol, {"kind": "SNAPSHOT", "cached_at": now, "forming": forming})
         previous_failures = int(previous.get("consecutive_failures", 0))
         if previous_failures:
             missing_interval = [item for item in recovery.values() if item.get("status") == "RECOVERED"]
@@ -490,6 +494,8 @@ class MarketDataCollector:
             if self.event_sink is not None:
                 self.event_sink.quote(symbol, quote, observed_at)
             self.store.set_quote(symbol, quote, observed_at)
+            from infrastructure.messaging.runtime_events import notify_cache_ready
+            notify_cache_ready(symbol, {"kind": "QUOTE", "cached_at": observed_at, "quote": quote})
             refreshed.append(symbol)
         return refreshed
 
