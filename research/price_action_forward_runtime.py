@@ -239,6 +239,9 @@ def run_once() -> dict[str, Any]:
             observer.state["events_count"] = before + len(emitted)
             observed_at = now_iso()
             ledger.save(conn, observer.state, emitted, observed_at=observed_at)
+            if emitted:
+                from infrastructure.messaging.runtime_events import notify_ready
+                notify_ready([_event_id(instance_id, event) for event in emitted], conn=conn)
             conn.commit()
             return {"instance_id": instance_id, "strategy": strategy,
                     "market_data_source": "REDIS_CANONICAL_CACHE", "bridge_requests": 0,
@@ -271,15 +274,20 @@ def main() -> None:
         if result["status"] != "healthy":
             raise SystemExit(1)
         return
+    from infrastructure.messaging.runtime_events import Wakeup
+    wakeup = Wakeup(symbols=_symbols().values()).start()
     interval = max(60.0, float(os.environ.get("PRICE_ACTION_POLL_SECONDS", "60")))
-    while True:
-        try:
-            print(json.dumps(run_once(), default=str), flush=True)
-        except Exception as exc:  # fail closed for one cycle; preserve durable state
-            print(json.dumps({"status": "degraded", "error": f"{type(exc).__name__}: {exc}", "broker_writes": 0}), flush=True)
-        if args.command == "once":
-            return
-        time.sleep(interval)
+    try:
+        while True:
+            try:
+                print(json.dumps(run_once(), default=str), flush=True)
+            except Exception as exc:  # fail closed for one cycle; preserve durable state
+                print(json.dumps({"status": "degraded", "error": f"{type(exc).__name__}: {exc}", "broker_writes": 0}), flush=True)
+            if args.command == "once":
+                return
+            wakeup.wait(interval)
+    finally:
+        wakeup.close()
 
 
 if __name__ == "__main__":

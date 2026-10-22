@@ -1041,10 +1041,13 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
         if db_conn is not None:
             db_conn.close()
         raise
+    from infrastructure.messaging.runtime_events import Wakeup
+    wakeup = Wakeup(orchestrator=True)
     halt = {"x": False}
     def handler(signum: int, frame: Any) -> None: halt["x"] = True
     signal.signal(signal.SIGINT, handler); signal.signal(signal.SIGTERM, handler)
     try:
+        wakeup.start()
         next_cycle = time.monotonic()
         while not halt["x"] and not stop_path.exists():
             cycle_started = time.monotonic()
@@ -1089,8 +1092,9 @@ def run(args: argparse.Namespace, orchestration_mode: str) -> None:
                   cycle_elapsed_ms=round((time.monotonic() - cycle_started) * 1000, 3),
                   configured_interval_ms=round(max(0.25, float(args.interval)) * 1000, 3),
                   next_cycle_delay_ms=round(delay * 1000, 3))
-            time.sleep(delay)
+            wakeup.wait(delay, stopping=lambda: halt["x"] or stop_path.exists())
     finally:
+        wakeup.close()
         state = store.load_state(); state["status"] = "STOPPED"; store.save_state(state); PID.unlink(missing_ok=True)
         if db_conn is not None:
             if os.environ.get("LIQUIDITY_LIVE_ORCHESTRATOR_MODE", "").lower() == "true":

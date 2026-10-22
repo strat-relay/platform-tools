@@ -725,6 +725,8 @@ def poll(state: dict[str, Any], symbols: tuple[str, ...], mcp_url: str, limit: i
                               "elapsed_ms": round((time.perf_counter() - symbol_started) * 1000, 3)},
                              sort_keys=True, default=str), flush=True)
     save_state(state); write_heartbeat(state)
+    from infrastructure.messaging.runtime_events import notify_ready
+    notify_ready(state.get("positions", {}))
     print(json.dumps({"audit": "strategy", "event": "context_poll_completed",
                       "runner": "context-structure-retrace", "symbol_count": len(symbols),
                       "elapsed_ms": round((time.perf_counter() - cycle_started) * 1000, 3)},
@@ -1131,6 +1133,8 @@ def print_report(symbol: str | None = None, recent: int | None = None) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
+    from infrastructure.messaging.runtime_events import Wakeup
+    wakeup = Wakeup()
     manifest = assert_frozen(); acquire_lock(); STOP_FILE.unlink(missing_ok=True)
     state = load_state(); state["runner_status"] = "ACTIVE"; state["poll_interval_seconds"] = args.interval; state["prospective_boundary"] = manifest["freeze_timestamp"]; save_state(state); write_heartbeat(state)
     # Compatibility only: until the shared Outcome Resolver runtime is deployed,
@@ -1146,6 +1150,7 @@ def run(args: argparse.Namespace) -> None:
         stopping["value"] = True
     signal.signal(signal.SIGINT, stop_handler); signal.signal(signal.SIGTERM, stop_handler)
     try:
+        wakeup.start()
         next_cycle = time.monotonic()
         while not stopping["value"] and not STOP_FILE.exists():
             cycle_started = time.monotonic()
@@ -1168,8 +1173,9 @@ def run(args: argparse.Namespace) -> None:
                               "next_cycle_delay_ms": round(delay * 1000, 3)},
                              sort_keys=True), flush=True)
             if stopping["value"] or STOP_FILE.exists(): break
-            time.sleep(delay)
+            wakeup.wait(delay, stopping=lambda: stopping["value"] or STOP_FILE.exists())
     finally:
+        wakeup.close()
         state["runner_status"] = "STOPPED"; state["stopped_at"] = now_iso(); save_state(state); write_heartbeat(state, "STOPPED"); SUMMARY.write_text(summary(state) + "\n", encoding="utf-8"); release_lock()
         print("CONTEXT_STRUCTURE_RETRACE_V1 paper runner stopped cleanly")
 

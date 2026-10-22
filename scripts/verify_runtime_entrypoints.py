@@ -17,6 +17,7 @@ ENTRYPOINT_MODULES = (
     "context_structure_retrace_v2_forward",
     "research.strategy_library_forward",
     "research.donchian_v2_forward",
+    "infrastructure.messaging.runtime_event_service",
 )
 
 

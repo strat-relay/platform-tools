@@ -318,6 +318,8 @@ def _prospective_boundary(manifest: dict) -> str:
 def run(args: argparse.Namespace) -> None:
     """V2 runner loop with a runtime identity, not a freeze assertion."""
     global PARAMETER_VALUES, PARAMETER_IDENTITY
+    from infrastructure.messaging.runtime_events import Wakeup
+    wakeup = Wakeup()
     manifest = runtime_identity()
     _v1.acquire_lock()
     _v1.STOP_FILE.unlink(missing_ok=True)
@@ -343,6 +345,7 @@ def run(args: argparse.Namespace) -> None:
     signal.signal(signal.SIGINT, stop_handler)
     signal.signal(signal.SIGTERM, stop_handler)
     try:
+        wakeup.start()
         next_cycle = __import__("time").monotonic()
         while not stopping["value"] and not _v1.STOP_FILE.exists():
             cycle_started = __import__("time").monotonic()
@@ -360,8 +363,10 @@ def run(args: argparse.Namespace) -> None:
                 break
             next_cycle = cycle_started + max(0.25, float(args.interval))
             delay = next_cycle - __import__("time").monotonic()
-            __import__("time").sleep(max(0.25, float(args.interval)) if delay <= 0 else delay)
+            wakeup.wait(max(0.25, float(args.interval)) if delay <= 0 else delay,
+                        stopping=lambda: stopping["value"] or _v1.STOP_FILE.exists())
     finally:
+        wakeup.close()
         state["runner_status"] = "STOPPED"
         state["stopped_at"] = _v1.now_iso()
         _v1.save_state(state)

@@ -367,6 +367,9 @@ def run_once(config):
                       else 'DEGRADED'}
         stages['ledger_write_started_at'] = time.time()
         ledger.save(observer.state, records)
+        if records:
+            from infrastructure.messaging.runtime_events import notify_ready
+            notify_ready([record['event_id'] for record in records], conn=conn)
         stages['ledger_write_completed_at'] = time.time()
     stages['transaction_committed_at'] = time.time()
     print(dumps({'event': 'library_observer_batch_committed', 'run_id': config.run_id,
@@ -400,13 +403,18 @@ def main():
                 raise SystemExit(0 if valid else 1)
     if not math.isfinite(args.interval) or args.interval < 1:
         raise ValueError('interval must be at least one second')
-    while True:
-        cycle_started = time.monotonic()
-        print(dumps(run_once(config)), flush=True)
-        if args.command == 'once':
-            break
-        # Evaluation/persistence time counts toward the cadence; cycles never overlap.
-        time.sleep(max(0.0, args.interval-(time.monotonic()-cycle_started)))
+    from infrastructure.messaging.runtime_events import Wakeup
+    wakeup = Wakeup(symbols=config.symbols.values()).start()
+    try:
+        while True:
+            cycle_started = time.monotonic()
+            print(dumps(run_once(config)), flush=True)
+            if args.command == 'once':
+                break
+            # Evaluation/persistence time counts toward the cadence; cycles never overlap.
+            wakeup.wait(max(0.0, args.interval-(time.monotonic()-cycle_started)))
+    finally:
+        wakeup.close()
 
 
 if __name__ == '__main__':
