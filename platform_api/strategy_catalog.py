@@ -64,6 +64,7 @@ ORDER BY d.strategy_id"""
 # scoped by (strategy_id, strategy_instance_id), never aggregated across a family.
 _INSTANCE_SQL = """
 SELECT i.instance_id, i.strategy_id, i.display_name, i.enabled, i.attributes, i.revision,
+       identity.ids AS signal_instance_ids,
        i.created_at, i.updated_at, i.updated_by, d.enabled AS parent_enabled, d.strategy_version,
        coalesce(sig.signals, 0) AS signals, coalesce(sig.signals_24h, 0) AS signals_24h,
        coalesce(o.tracked, 0) AS outcomes_tracked, coalesce(o.open_n, 0) AS open_n,
@@ -73,18 +74,19 @@ SELECT i.instance_id, i.strategy_id, i.display_name, i.enabled, i.attributes, i.
        obs.fingerprint AS observed_config_fingerprint, obs.at AS observed_config_at
 FROM platform.strategy_instance i
 JOIN platform.strategy_definition d ON d.strategy_id = i.strategy_id
+{identity_join}
 LEFT JOIN LATERAL (
     SELECT count(*) AS signals,
            count(*) FILTER (WHERE s.signal_emitted_at > now() - interval '24 hours') AS signals_24h
     FROM strategy.entry_signals s
-    WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id) sig ON TRUE
+    WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = ANY(identity.ids)) sig ON TRUE
 LEFT JOIN LATERAL (
     SELECT count(*) AS tracked, count(*) FILTER (WHERE o.status = 'OPEN') AS open_n,
            count(*) FILTER (WHERE o.status <> 'OPEN' AND o.realized_r IS NOT NULL) AS closed_n,
            count(*) FILTER (WHERE o.status = 'INVALIDATED') AS invalidated_n,
            sum(o.realized_r) FILTER (WHERE o.status <> 'OPEN') AS realized_r_total
     FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
-    WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id) o ON TRUE
+    WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = ANY(identity.ids)) o ON TRUE
 LEFT JOIN LATERAL (
     SELECT array_agg(m.canonical_instrument ORDER BY m.canonical_instrument)
                FILTER (WHERE m.state = 'ACTIVE') AS active,
@@ -96,11 +98,11 @@ LEFT JOIN LATERAL (
         SELECT s.signal_emitted_at AS at, 'SIGNAL_CREATED' AS type,
                s.direction || ' ' || s.instrument AS message
         FROM strategy.entry_signals s
-        WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id
+        WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = ANY(identity.ids)
         UNION ALL
         SELECT o.exit_timestamp, o.status, s.instrument || ' ' || o.status
         FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
-        WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id
+        WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = ANY(identity.ids)
           AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
     ORDER BY e.at DESC NULLS LAST LIMIT 1) ev ON TRUE
 LEFT JOIN LATERAL (
@@ -108,7 +110,7 @@ LEFT JOIN LATERAL (
     SELECT coalesce(s.source_provenance ->> 'config_fingerprint', s.source_provenance ->> 'source_config_hash')
                AS fingerprint, s.signal_emitted_at AS at
     FROM strategy.entry_signals s
-    WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = i.instance_id
+    WHERE s.strategy_id = i.strategy_id AND s.strategy_instance_id = ANY(identity.ids)
     ORDER BY s.signal_emitted_at DESC NULLS LAST LIMIT 1) obs ON TRUE
 {where}
 ORDER BY i.strategy_id, i.instance_id"""
@@ -425,6 +427,8 @@ def _instance(row: dict[str, Any], execution: dict[str, Any] | None,
                   if row["last_event_at"] is not None else None)
     return {
         "instance_id": row["instance_id"], "strategy_id": row["strategy_id"],
+        "signal_identity": {"instance_ids": sorted(set(row.get("signal_instance_ids") or [row["instance_id"]])),
+                            "source": "EXPLICIT_REGISTRY_LINKS"},
         "display_name": row["display_name"], "enabled": bool(row["enabled"]),
         "lifecycle_state": "ONLINE" if row["enabled"] else "OFFLINE",
         "revision": int(row["revision"]), "created_at": row["created_at"], "updated_at": row["updated_at"],
@@ -625,19 +629,42 @@ class StrategyCatalogRepository:
         self._require_instances(cur)
         execution = self._execution_facts(cur)
         published = self._published_parameter_sets(cur)
-        rows = self._rows(cur, _INSTANCE_SQL.format(where=where), params)
+        from .strategy_identity import (signal_identity_links, declared_identity, _IDENTITY_ROWS_SQL,
+                                        _IDENTITY_JOIN_SQL, _SINGLE_IDENTITY_JOIN_SQL)
         # Migration 030 is present on all current deployments, but managed V2 tables are
         # introduced later.  Keep older schema-030 deployments readable by treating their
         # managed-instance contribution as optional.
         cur.execute("SELECT to_regclass('strategy_mgmt.strategy_instance_v2') IS NOT NULL")
-        if cur.fetchone()[0]:
+        has_managed = cur.fetchone()[0]
+        links = signal_identity_links(self._rows(cur, _IDENTITY_ROWS_SQL)) if has_managed else {}
+        rows = self._rows(cur, _INSTANCE_SQL.format(
+            where=where, identity_join=_IDENTITY_JOIN_SQL if has_managed else _SINGLE_IDENTITY_JOIN_SQL),
+            (json.dumps(links), *params) if has_managed else params)
+        # An alias must not absorb a separate operational instance's history.
+        from .strategy_identity import IdentityConflict
+        operational = {(r["strategy_id"], r["instance_id"]) for r in rows}
+        for sid, instances in links.items():
+            for iid, aliases in instances.items():
+                if any(alias != iid and (sid, alias) in operational for alias in aliases):
+                    raise IdentityConflict('alias overlaps a distinct operational instance')
+        if has_managed:
             managed = self._rows(cur, _MANAGED_INSTANCE_SQL)
             if params:
                 strategy_id = params[0]
                 managed = [r for r in managed if r["strategy_id"] == strategy_id]
                 if len(params) > 1:
                     managed = [r for r in managed if r["instance_id"] == params[1]]
-            rows.extend(managed)
+            # A managed alias can refer to an existing operational row. Keep its
+            # canonical history/configuration projection, not a second identical card.
+            known = {(r["strategy_id"], r["instance_id"]) for r in rows}
+            for row in managed:
+                sid, iid, _ = declared_identity(row.get("attributes"), row["instance_id"])
+                if sid and (sid, iid) in known:
+                    continue
+                key = (row["strategy_id"], row["instance_id"])
+                if key not in known:
+                    rows.append(row)
+                    known.add(key)
         result = []
         from .library_observation import load_observation
         for r in rows:
@@ -660,6 +687,7 @@ class StrategyCatalogRepository:
                 return None
             page = rows[0]
             scope = (strategy_id, instance_id)
+            signal_scope = (strategy_id, page.get("signal_identity", {}).get("instance_ids") or [instance_id])
             parent_rows = self._rows(cur, "SELECT display_name, strategy_version, trade_management FROM platform.strategy_definition "
                                          "WHERE strategy_id = %s", (strategy_id,))
             if not parent_rows:
@@ -676,20 +704,20 @@ class StrategyCatalogRepository:
                     s.entry_price AS simulated_entry, s.stop_price AS simulated_stop,
                     s.target_price AS simulated_target, s.target_r AS simulated_rr, o.realized_r, o.exit_timestamp
                 FROM strategy.entry_signals s LEFT JOIN strategy.entry_signal_outcomes o USING (signal_id)
-                WHERE s.strategy_id = %s AND s.strategy_instance_id = %s
+                WHERE s.strategy_id = %s AND s.strategy_instance_id = ANY(%s)
                 ORDER BY (coalesce(o.status, '') = 'OPEN') DESC, s.decision_time DESC LIMIT %s""",
-                                     (*scope, RECENT_LIMIT))
+                                     (*signal_scope, RECENT_LIMIT))
             events = self._rows(cur, """SELECT * FROM (
                     SELECT s.signal_id || ':created' AS id, s.signal_emitted_at AS timestamp, 'SIGNAL_CREATED' AS type,
                            s.direction || ' ' || s.instrument || ' @ ' || s.entry_price AS message, s.instrument AS symbol
-                    FROM strategy.entry_signals s WHERE s.strategy_id = %s AND s.strategy_instance_id = %s
+                    FROM strategy.entry_signals s WHERE s.strategy_id = %s AND s.strategy_instance_id = ANY(%s)
                     UNION ALL
                     SELECT o.signal_id || ':' || o.status, o.exit_timestamp, o.status,
                            s.instrument || ' ' || o.status || coalesce(' ' || round(o.realized_r::numeric, 2) || 'R', ''), s.instrument
                     FROM strategy.entry_signal_outcomes o JOIN strategy.entry_signals s USING (signal_id)
-                    WHERE s.strategy_id = %s AND s.strategy_instance_id = %s
+                    WHERE s.strategy_id = %s AND s.strategy_instance_id = ANY(%s)
                       AND o.status <> 'OPEN' AND o.exit_timestamp IS NOT NULL) e
-                ORDER BY timestamp DESC NULLS LAST LIMIT %s""", (*scope, *scope, RECENT_LIMIT))
+                ORDER BY timestamp DESC NULLS LAST LIMIT %s""", (*signal_scope, *signal_scope, RECENT_LIMIT))
             page.update({
                 "strategy_display_name": parent["display_name"],
                 "strategy_version": page.get("strategy_version") or parent["strategy_version"],
