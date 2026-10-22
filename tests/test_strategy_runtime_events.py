@@ -185,6 +185,57 @@ class WakeupTests(unittest.TestCase):
         self.assertEqual(digest, 'af4fd7c34b729daafcb7d1fa2b1248afd2af743c34ec8b754637c3209c03fd6f')
 
 
+class HintAcknowledgementTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.env = patch.dict(os.environ, ENV, clear=True)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.wake = Wakeup()
+
+    def message(self, event='a', ack_error=None):
+        return SimpleNamespace(data=json.dumps({'event_id': event*64}).encode(),
+                               ack_sync=AsyncMock(side_effect=ack_error))
+
+    async def test_idle_timeouts_and_lost_ack_response_do_not_destroy_subscription(self):
+        from nats.errors import TimeoutError as NatsTimeoutError
+        first=self.message(ack_error=NatsTimeoutError())
+        second=self.message('b')
+        steps=iter([NatsTimeoutError(), asyncio.TimeoutError(), [first], [second]])
+        async def fetch(*args, **kwargs):
+            item=next(steps)
+            if isinstance(item,Exception):raise item
+            if item==[second]:self.wake.stopped.set()
+            return item
+        with patch('infrastructure.messaging.runtime_events.report') as log:
+            await self.wake._consume(SimpleNamespace(fetch=fetch))
+        self.assertEqual(self.wake.generation,2)
+        self.assertEqual(self.wake.last_event_id,'b'*64)
+        self.assertEqual([c.args[0] for c in log.call_args_list],
+                         ['strategy_event_ack_timeout','strategy_event_ack_recovered'])
+        first.ack_sync.assert_awaited_once_with(timeout=2)
+
+    async def test_repeated_ack_timeouts_fail_closed(self):
+        msg=self.message(ack_error=asyncio.TimeoutError())
+        sub=SimpleNamespace(fetch=AsyncMock(return_value=[msg]))
+        with patch('infrastructure.messaging.runtime_events.report'),self.assertRaisesRegex(RuntimeError,'repeated'):
+            await self.wake._consume(sub)
+        self.assertEqual(sub.fetch.await_count,3)
+        self.assertEqual(self.wake.generation,3)
+
+    async def test_malformed_hint_is_never_acknowledged(self):
+        for payload in ([], {'event_id':123}, {'event_id':'bad'}, {'event_id':'a'*64,'extra':True}):
+            msg=SimpleNamespace(data=json.dumps(payload).encode(),ack_sync=AsyncMock())
+            with self.subTest(payload=payload),self.assertRaises(ValueError):
+                await self.wake._consume(SimpleNamespace(fetch=AsyncMock(return_value=[msg])))
+            msg.ack_sync.assert_not_awaited()
+        self.assertEqual(self.wake.generation,0)
+
+    async def test_non_timeout_transport_failure_remains_fatal(self):
+        msg=self.message(ack_error=ConnectionError('private connection'))
+        with self.assertRaises(ConnectionError):
+            await self.wake._consume(SimpleNamespace(fetch=AsyncMock(return_value=[msg])))
+
+
 class RelayTests(unittest.IsolatedAsyncioTestCase):
     async def test_canonical_outbox_commit_during_scan_is_not_lost(self):
         from infrastructure.messaging.outbox_relay import OutboxRelay
