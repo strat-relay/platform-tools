@@ -14,6 +14,7 @@ accepted production integration. Archived desktop/replay scripts remain offline.
 | Kojo V1/V2/V3 adapters | Orchestrator wakes and invokes existing adapter | Same orchestrator cycle; existing pending-publication files retained |
 | Liquidity live adapter | Orchestrator wakes and invokes existing adapter | Same orchestrator cycle; existing authority/fencing retained |
 | Standalone Liquidity live/monitor process | Shared Wakeup | Existing canonical publication path; no second publisher added |
+| Canonical signal outbox relay | PostgreSQL commit notification | Existing JetStream publisher and publication bookkeeping; no timer wait on the normal path |
 | Historical Wine desktop Liquidity and replay scripts | Offline only | Not production runners; do not activate these as event services |
 
 The immutable `research.library_event_service` route is still supported. It binds
@@ -94,6 +95,14 @@ history. Delivered scheduling outbox rows are pruned in bounded 1000-row batches
 after one hour; pending rows and every strategy/checkpoint/signal/outcome table
 remain untouched. Monitor pending growth and primary DB capacity during outages.
 
+The existing canonical outbox relay also supports `STRATEGY_EVENT_MODE=JETSTREAM`:
+migration 074 notifies `canonical_outbox_events` on INSERT after transaction commit.
+The relay LISTENs on a separate connection and publishes immediately, retaining a
+30-second reconciliation scan for lost notifications and expired leases. Failed
+publication retries are bounded by that reconciliation interval. Its existing
+publication/lease/idempotency logic and execution credentials remain unchanged.
+This relay requires no new NATS stream and does not need a strategy runtime ID.
+
 Scoped grants, provisioned through the approved mechanism (no role names assumed):
 
 | Principal | PostgreSQL | NATS |
@@ -135,6 +144,8 @@ would load-balance wakeups and is not a substitute for evaluator ownership.
 5. Switch the existing orchestrator's scheduling mode in a reviewed GitOps patch;
    preserve its authority, policies, cutoff and execution configuration exactly.
    Never deploy a second canonical publisher for the same managed binding.
+   Enable the same event-mode flag on the existing signal outbox relay after the
+   additive migration 074 is verified, to remove the final publication timer as well.
 6. Switch Context scheduling after identity/rule regression and checkpoint audit.
    The decision-code fingerprint remains unchanged. Preserve all existing state.
 7. Library artifacts hash their runner source. PA experiments can also have frozen
@@ -165,3 +176,12 @@ Local and CI tests exercise race-free generation wakeups, coalescing, disconnect
 failure, notification idempotency, post-cache ordering, isolated real JetStream
 delivery/restart, and PostgreSQL rollback/immutability when a test DSN is present.
 None of these tests establishes live production readiness.
+
+Migration numbering: transport migration 072 remains byte-for-byte identical to
+merged #238. The later Kojo routing migration from #235 is resequenced from the
+colliding 072 to 073 with identical SQL bytes; canonical notifications use 074.
+No existing ledger rows are rewritten. If an administrator manually recorded the
+Kojo SQL as version 072, stop and audit that ledger before applying migrations;
+checksum validation must fail rather than silently reinterpret its identity.
+The standard all-or-nothing migrator could not commit both colliding 072 files.
+A duplicate-version preflight now rejects such a bundle before executing any SQL.

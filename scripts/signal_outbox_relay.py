@@ -65,7 +65,31 @@ async def serve(*, idle_seconds: float = 1.0, once: bool = False) -> None:
         if once:
             print(await relay.publish_batch())
             return
-        await relay.run_forever(stop=stop, idle_seconds=idle_seconds)
+        from infrastructure.messaging.runtime_events import mode
+        if mode() == 'JETSTREAM':
+            import psycopg
+            async with await psycopg.AsyncConnection.connect(**db_config.connect_kwargs(), autocommit=True) as listener:
+                cursor = await listener.execute("SELECT EXISTS (SELECT 1 FROM platform.schema_migrations WHERE version='074')")
+                if (await cursor.fetchone())[0] is not True:
+                    raise RuntimeError('event-driven canonical relay requires migration 074')
+                await listener.execute('LISTEN canonical_outbox_events')
+                wake = asyncio.Event()
+                async def notifications():
+                    async for _ in listener.notifies():
+                        wake.set()
+                task = asyncio.create_task(notifications())
+                async def run():
+                    await relay.run_forever(stop=stop, idle_seconds=30, wake=wake)
+                worker = asyncio.create_task(run())
+                try:
+                    done, _ = await asyncio.wait([task, worker], return_when=asyncio.FIRST_COMPLETED)
+                    for finished in done:
+                        finished.result()
+                finally:
+                    task.cancel(); worker.cancel()
+                    await asyncio.gather(task, worker, return_exceptions=True)
+        else:
+            await relay.run_forever(stop=stop, idle_seconds=idle_seconds)
     finally:
         if nc is not None:
             await nc.drain()

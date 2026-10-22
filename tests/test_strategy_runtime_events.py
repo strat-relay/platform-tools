@@ -186,6 +186,20 @@ class WakeupTests(unittest.TestCase):
 
 
 class RelayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_canonical_outbox_commit_during_scan_is_not_lost(self):
+        from infrastructure.messaging.outbox_relay import OutboxRelay
+        stop, wake = asyncio.Event(), asyncio.Event()
+        relay = OutboxRelay(MagicMock(), MagicMock())
+        async def batch(**kwargs):
+            if relay.publish_batch.await_count == 1:
+                wake.set()  # transaction commits while the scan is in flight
+                return {'published': 0, 'failed': 0}
+            stop.set()
+            return {'published': 1, 'failed': 0}
+        relay.publish_batch = AsyncMock(side_effect=batch)
+        await asyncio.wait_for(relay.run_forever(stop=stop, idle_seconds=30, wake=wake), timeout=0.5)
+        self.assertEqual(relay.publish_batch.await_count, 2)
+
     async def test_publish_acceptance_precedes_bookkeeping_and_uses_stable_message_id(self):
         conn = MagicMock()
         cur = conn.cursor.return_value.__enter__.return_value

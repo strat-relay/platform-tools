@@ -76,6 +76,32 @@ class RealWakeupTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('OUTCOME_RESOLVER_TEST_DSN'), 'isolated PostgreSQL unavailable')
 class ReadyOutboxPostgresTests(unittest.TestCase):
+    def test_canonical_publication_notification_occurs_only_after_commit(self):
+        import psycopg
+        dsn = os.environ['OUTCOME_RESOLVER_TEST_DSN']
+        with psycopg.connect(dsn) as conn, psycopg.connect(dsn, autocommit=True) as listener:
+            database = conn.execute('SELECT current_database()').fetchone()[0]
+            conn.rollback()
+            self.assertTrue('test' in database.lower() or database.lower().endswith('_ci'))
+            listener.execute('LISTEN canonical_outbox_events')
+            event_id = 'notify-ci-'+uuid.uuid4().hex
+            try:
+                sql = '''INSERT INTO platform.outbox_events
+                    (event_id,event_type,aggregate_type,aggregate_id,schema_version,payload,occurred_at)
+                    VALUES (%s,'signal.entry.created.v1','signal',%s,'event-envelope.v1','{}'::jsonb,clock_timestamp())'''
+                conn.execute(sql, (event_id, event_id))
+                self.assertEqual(list(listener.notifies(timeout=0.05, stop_after=1)), [])
+                conn.rollback()
+                self.assertEqual(list(listener.notifies(timeout=0.05, stop_after=1)), [])
+                conn.execute(sql, (event_id, event_id))
+                conn.commit()
+                notifications = list(listener.notifies(timeout=1, stop_after=1))
+                self.assertEqual([item.channel for item in notifications], ['canonical_outbox_events'])
+            finally:
+                conn.rollback()
+                conn.execute('DELETE FROM platform.outbox_events WHERE event_id=%s', (event_id,))
+                conn.commit()
+
     def test_checkpoint_and_notification_commit_or_rollback_together(self):
         import psycopg
         conn = psycopg.connect(os.environ['OUTCOME_RESOLVER_TEST_DSN'])

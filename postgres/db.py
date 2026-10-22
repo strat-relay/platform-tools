@@ -62,6 +62,12 @@ def health_check(conn) -> dict[str, Any]:
 def apply_migrations(conn, migrations_dir: Path = MIGRATIONS) -> list[str]:
     """Apply ordered, checksum-verified migrations under a transaction lock."""
     files = sorted(migrations_dir.glob("*.sql"))
+    versions: dict[str, str] = {}
+    for path in files:
+        version = path.name.split("_", 1)[0]
+        if version in versions:
+            raise RuntimeError(f"Duplicate migration version {version}: {versions[version]} and {path.name}; no SQL executed")
+        versions[version] = path.name
     with transaction(conn):
         with conn.cursor() as cur:
             # If this process is killed while holding the transaction lock, the connection
