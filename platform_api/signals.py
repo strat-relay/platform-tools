@@ -91,6 +91,37 @@ _ORDER_BY = (
 )
 
 
+def _execution_exclusion(metadata: Any, provenance: Any) -> dict[str, Any] | None:
+    """Explain known exclusions from immutable signal facts, never current mode.
+
+    This is a read projection, not a synthetic execution evaluation or intent.
+    Existing execution audit records always take precedence in the caller.
+    """
+    metadata = metadata if isinstance(metadata, dict) else {}
+    provenance = provenance if isinstance(provenance, dict) else {}
+    classes = (metadata.get('signal_emission_class'), provenance.get('signal_emission_class'),
+               provenance.get('classification'))
+    if 'RETROSPECTIVE_RESEARCH_EVIDENCE' in classes:
+        reason = 'RETROSPECTIVE_RESEARCH_ONLY'
+        message = 'Reconstructed research signal; execution intentionally excluded'
+    elif metadata.get('research_only') is True:
+        reason = 'RESEARCH_ONLY_SIGNAL'
+        message = 'Research-only signal; execution intentionally excluded'
+    elif metadata.get('execution_eligible') is False:
+        reason = 'EXECUTION_INELIGIBLE_SIGNAL'
+        message = 'Signal was marked execution-ineligible at publication'
+    elif provenance.get('execution_mode_at_decision') == 'SHADOW':
+        reason = 'SHADOW_AT_DECISION'
+        message = 'SHADOW signal; broker execution is intentionally excluded'
+    elif provenance.get('execution_mode_at_decision') == 'OFF':
+        reason = 'EXECUTION_OFF_AT_DECISION'
+        message = 'Execution was OFF when this signal was created'
+    else:
+        return None
+    return {'account': None, 'decision': 'SKIPPED', 'reason': reason,
+            'humanReason': message, 'evidenceSource': 'IMMUTABLE_SIGNAL_PROVENANCE'}
+
+
 class CanonicalSourceUnavailable(RuntimeError):
     """The canonical PostgreSQL source could not serve a read."""
 
@@ -329,14 +360,18 @@ class CanonicalSignalRepository:
                                ORDER BY i.entry_signal_id, i.account_id""", (signal_ids,))
                     names = [column.name if hasattr(column, "name") else column[0] for column in cur.description]
                     rows = [_row_dict(cur, row) for row in cur.fetchall()]
-                    cur.execute("SELECT signal_id, decision_time FROM strategy.entry_signals WHERE signal_id = ANY(%s)",
+                    cur.execute("SELECT signal_id, decision_time, strategy_metadata, source_provenance FROM strategy.entry_signals WHERE signal_id = ANY(%s)",
                                 (signal_ids,))
-                    signal_times = {row[0]: row[1] for row in cur.fetchall()}
+                    signal_facts = {row[0]: row[1:] for row in cur.fetchall()}
             by_signal: dict[str, list[dict[str, Any]]] = {signal_id: [] for signal_id in signal_ids}
             for row in rows:
                 by_signal.setdefault(row["entry_signal_id"], []).append(self._execution_evaluation(row, full=full))
-            for signal_id, decision_time in signal_times.items():
+            for signal_id, (decision_time, metadata, provenance) in signal_facts.items():
                 if by_signal.get(signal_id):
+                    continue
+                excluded = _execution_exclusion(metadata, provenance)
+                if excluded is not None:
+                    by_signal[signal_id] = [excluded]
                     continue
                 before_cutoff = False
                 if cutoff and decision_time:

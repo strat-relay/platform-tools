@@ -132,14 +132,15 @@ class FakeCursor:
         elif stripped.startswith("SELECT i.entry_signal_id"):
             self.description = [(name,) for name in _AUDIT_COLUMNS]
             self.rows = list(self.connection.audit_rows)
-        elif "SELECT SIGNAL_ID, DECISION_TIME FROM STRATEGY.ENTRY_SIGNALS" in sql.upper():
+        elif "SELECT SIGNAL_ID, DECISION_TIME, STRATEGY_METADATA, SOURCE_PROVENANCE FROM STRATEGY.ENTRY_SIGNALS" in sql.upper():
             ids = set(params[0])
             # A real timestamptz column comes back as a datetime, not the ISO string CANONICAL_ROW
             # stores it as - matters here specifically because the audit-cutoff comparison
             # (`decision_time < cutoff_dt`) would silently no-op (caught TypeError -> before_cutoff
             # = False) against a string, masking exactly the behavior under test below.
             self.rows = [
-                (r["signal_id"], datetime.fromisoformat(str(r["decision_time"]).replace("Z", "+00:00")))
+                (r["signal_id"], datetime.fromisoformat(str(r["decision_time"]).replace("Z", "+00:00")),
+                 r.get("strategy_metadata"), r.get("source_provenance"))
                 for r in self.connection.rows if r["signal_id"] in ids and r.get("decision_time")
             ]
         elif "research.context_post_exit_observations" in sql:
@@ -293,6 +294,43 @@ class PlatformSignalApiTests(unittest.TestCase):
         evaluations = body["data"]["executionEvaluations"]
         self.assertEqual(evaluations[0]["decision"], "NOT_EVALUATED")
         self.assertEqual(evaluations[0]["reason"], "HISTORICAL_AUDIT_UNAVAILABLE")
+
+    def test_reconstructed_donchian_signal_is_intentionally_excluded(self):
+        row = {**CANONICAL_ROW, 'strategy_id': 'BREAKOUT_DONCHIAN_BREAKOUT',
+               'entry_type': 'MARKET_PAPER_OBSERVATION',
+               'strategy_metadata': {'research_only': True, 'execution_eligible': False},
+               'source_provenance': {'classification': 'RETROSPECTIVE_RESEARCH_EVIDENCE'}}
+        api = self.make_api(rows=(row,))
+        for path in ['/api/v1/signals', '/api/v1/signals/SIG_POST_T0_CANONICAL']:
+            with self.subTest(path=path):
+                status, body = api.execute('GET', path)
+                self.assertEqual(status, 200)
+                item = body['data'][0] if isinstance(body['data'], list) else body['data']
+                evaluations = item.get('executionSummary') or item.get('executionEvaluations')
+                self.assertEqual(evaluations[0]['decision'], 'SKIPPED')
+                self.assertEqual(evaluations[0]['reason'], 'RETROSPECTIVE_RESEARCH_ONLY')
+
+    def test_immutable_shadow_and_off_modes_explain_missing_intent(self):
+        for mode, reason in [('SHADOW', 'SHADOW_AT_DECISION'), ('OFF', 'EXECUTION_OFF_AT_DECISION')]:
+            row = {**CANONICAL_ROW, 'source_provenance': {'execution_mode_at_decision': mode}}
+            api = self.make_api(rows=(row,))
+            status, body = api.execute('GET', '/api/v1/signals/SIG_POST_T0_CANONICAL')
+            self.assertEqual(status, 200)
+            self.assertEqual(body['data']['executionEvaluations'][0]['reason'], reason)
+
+    def test_live_missing_intent_stays_unknown(self):
+        row = {**CANONICAL_ROW, 'source_provenance': {'execution_mode_at_decision': 'LIVE'}}
+        api = self.make_api(rows=(row,))
+        _, body = api.execute('GET', '/api/v1/signals/SIG_POST_T0_CANONICAL')
+        self.assertEqual(body['data']['executionEvaluations'][0]['reason'], 'NO_EXECUTION_INTENT')
+
+    def test_existing_intent_audit_takes_precedence_over_signal_classification(self):
+        row = {**CANONICAL_ROW, 'strategy_metadata': {'research_only': True}}
+        evidence = audit_row(entry_signal_id=row['signal_id'], intent_status='BLOCKED',
+                             block_reason='SYMBOL_NOT_ALLOWED')
+        api = self.make_api(rows=(row,), audit_rows=(evidence,))
+        _, body = api.execute('GET', '/api/v1/signals/SIG_POST_T0_CANONICAL')
+        self.assertEqual(body['data']['executionEvaluations'][0]['reason'], 'SYMBOL_NOT_ALLOWED')
 
     def test_detail_exposes_full_risk_evidence_and_broker_result(self):
         rows = (audit_row(entry_signal_id=CANONICAL_ROW["signal_id"], execution_intent_id="INTENT_1",
