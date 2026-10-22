@@ -96,7 +96,7 @@ after one hour; pending rows and every strategy/checkpoint/signal/outcome table
 remain untouched. Monitor pending growth and primary DB capacity during outages.
 
 The existing canonical outbox relay also supports `STRATEGY_EVENT_MODE=JETSTREAM`:
-migration 073 notifies `canonical_outbox_events` on INSERT after transaction commit.
+migration 074 notifies `canonical_outbox_events` on INSERT after transaction commit.
 The relay LISTENs on a separate connection and publishes immediately, retaining a
 30-second reconciliation scan for lost notifications and expired leases. Failed
 publication retries are bounded by that reconciliation interval. Its existing
@@ -145,7 +145,7 @@ would load-balance wakeups and is not a substitute for evaluator ownership.
    preserve its authority, policies, cutoff and execution configuration exactly.
    Never deploy a second canonical publisher for the same managed binding.
    Enable the same event-mode flag on the existing signal outbox relay after the
-   additive migration 073 is verified, to remove the final publication timer as well.
+   additive migration 074 is verified, to remove the final publication timer as well.
 6. Switch Context scheduling after identity/rule regression and checkpoint audit.
    The decision-code fingerprint remains unchanged. Preserve all existing state.
 7. Library artifacts hash their runner source. PA experiments can also have frozen
@@ -176,3 +176,12 @@ Local and CI tests exercise race-free generation wakeups, coalescing, disconnect
 failure, notification idempotency, post-cache ordering, isolated real JetStream
 delivery/restart, and PostgreSQL rollback/immutability when a test DSN is present.
 None of these tests establishes live production readiness.
+
+Migration numbering: transport migration 072 remains byte-for-byte identical to
+merged #238. The later Kojo routing migration from #235 is resequenced from the
+colliding 072 to 073 with identical SQL bytes; canonical notifications use 074.
+No existing ledger rows are rewritten. If an administrator manually recorded the
+Kojo SQL as version 072, stop and audit that ledger before applying migrations;
+checksum validation must fail rather than silently reinterpret its identity.
+The standard all-or-nothing migrator could not commit both colliding 072 files.
+A duplicate-version preflight now rejects such a bundle before executing any SQL.
