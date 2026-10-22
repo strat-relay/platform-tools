@@ -98,16 +98,21 @@ def load_config_from_database(conn: Any) -> dict[str, Any]:
             strategies.append(record)
     instances = load_instances_from_database(conn)
     known = {row["strategy_id"] for row in strategies}
-    # Pipeline-created research instances are authoritative in strategy_mgmt and
-    # do not require a duplicate legacy platform.strategy_definition row.
+    # Pipeline-created instances are authoritative in strategy_mgmt and do not require a
+    # duplicate legacy platform.strategy_definition row.  Derive execution flags from the
+    # instance's execution_mode so that execution-eligible V2 strategies are not silently
+    # downgraded to paper-only (migration 069 adds an explicit row for V2 strategies that
+    # should execute; this synthesis is a safety net for new strategies between migrations).
     for instance in instances:
         if instance["strategy_id"] not in known and instance.get("_source") == "strategy_instance_v2":
+            exec_mode = instance.get("execution_mode", "OFF")
+            paper_only = exec_mode not in ("LIVE", "SHADOW")
             strategies.append({"strategy_id": instance["strategy_id"], "strategy_version": "V2",
                                 "enabled": bool(instance.get("enabled")),
                                 "adapter": "ContextStructureRetraceAdapter",
-                                "routes": {"audit": True, "shadow_execution": False,
+                                "routes": {"audit": True, "shadow_execution": not paper_only,
                                            "distribution_queue": True},
-                                "research_only": True, "paper_only": True})
+                                "research_only": paper_only, "paper_only": paper_only})
             known.add(instance["strategy_id"])
     return {**settings, "accounts": accounts, "portfolios": portfolios,
             "strategies": strategies, "instances": instances}
