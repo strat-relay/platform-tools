@@ -960,7 +960,14 @@ class PlatformControlApi:
         """
         grouped: dict[str, dict[str, Any]] = {}
         for row in rows:
+            if not row.get("instance_id"):
+                continue  # A version/definition without an instance is not an operational card.
             family = MANAGED_FAMILY_TO_CANONICAL.get(row["family_key"], row["family_key"])
+            if family == "CONTEXT_STRUCTURE_RETRACE":
+                family = {
+                    "ContextStructureRetraceAdapter": "CONTEXT_STRUCTURE_RETRACE_V1",
+                    "context_structure_retrace_v2_research": "CONTEXT_STRUCTURE_RETRACE_V2",
+                }.get(row.get("evaluator_key"), family)
             item = grouped.setdefault(family, {
                 "strategy_id": family,
                 "strategy_version": row.get("version_label"),
@@ -990,8 +997,9 @@ class PlatformControlApi:
             })
             if row.get("online"):
                 item["enabled"] = True
-            legacy_instance_id = (row.get("attributes") or {}).get("legacy_instance_id")
-            instance_id = legacy_instance_id or str(row["instance_id"])
+            attributes = row.get("attributes") or {}
+            instance_id = (attributes.get("instance_id") or attributes.get("legacy_instance_id")
+                           or str(row["instance_id"]))
             raw_instruments = row.get("instruments") or []
             instruments = [x.get("canonical_instrument") if isinstance(x, dict) else x
                            for x in raw_instruments]

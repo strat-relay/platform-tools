@@ -637,7 +637,14 @@ class StrategyCatalogRepository:
                 managed = [r for r in managed if r["strategy_id"] == strategy_id]
                 if len(params) > 1:
                     managed = [r for r in managed if r["instance_id"] == params[1]]
-            rows.extend(managed)
+            # A managed alias can refer to an existing operational row. Keep its
+            # canonical history/configuration projection, not a second identical card.
+            known = {(r["strategy_id"], r["instance_id"]) for r in rows}
+            for row in managed:
+                key = (row["strategy_id"], row["instance_id"])
+                if key not in known:
+                    rows.append(row)
+                    known.add(key)
         result = []
         from .library_observation import load_observation
         for r in rows:
