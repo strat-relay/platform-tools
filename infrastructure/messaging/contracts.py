@@ -42,12 +42,17 @@ SUBJECTS = frozenset({
     "system.status_changed.v1",
 })
 
-STREAMS = {
+RESEARCH_STREAMS = {
     # Opt-in research transport; subjects never overlap execution or canonical signal streams.
     'MARKET_EVIDENCE': {'subjects': ('market.evidence.committed.v1.*',),
                         'storage': 'file', 'retention': 'limits', 'max_age': 24*60*60},
     'LIBRARY_RESEARCH': {'subjects': ('research.library.entry.observed.v1.*',),
                          'storage': 'file', 'retention': 'limits', 'max_age': 7*24*60*60},
+}
+
+# Existing execution startup reconciles STREAMS. Opt-in research streams must
+# stay outside that default topology and require their own explicit provisioning.
+STREAMS = {
     # Core carries strategy, signal, and explicit management lifecycle subjects.  Do not use
     # a trade.> wildcard: TRADING_OBSERVATION owns the observation subject separately.
     "TRADING_CORE": {"subjects": tuple(sorted(x for x in SUBJECTS if x.startswith(("strategy.", "signal."))

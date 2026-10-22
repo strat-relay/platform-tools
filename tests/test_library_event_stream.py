@@ -180,10 +180,11 @@ class LibraryEventTests(unittest.TestCase):
         self.store.conn.cursor.assert_not_called()
 
     def test_research_notifications_never_enter_execution_stream(self):
-        from infrastructure.messaging.contracts import STREAMS
+        from infrastructure.messaging.contracts import STREAMS, RESEARCH_STREAMS
         self.assertNotIn(ENTRY,STREAMS['EXECUTION']['subjects'])
         self.assertNotIn(ENTRY,STREAMS['TRADING_CORE']['subjects'])
-        self.assertEqual(STREAMS['LIBRARY_RESEARCH']['subjects'],(ENTRY+'.*',))
+        self.assertEqual(RESEARCH_STREAMS['LIBRARY_RESEARCH']['subjects'],(ENTRY+'.*',))
+        self.assertTrue(set(STREAMS).isdisjoint(RESEARCH_STREAMS))
 
     def test_legacy_scan_is_disabled_for_explicit_event_owned_instance(self):
         from tests.test_strategy_library_orchestration import fixture
