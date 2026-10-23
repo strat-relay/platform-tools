@@ -50,8 +50,10 @@ def policy(**overrides) -> RiskPolicy:
 
 
 def seeded_conn(signal_id="SIG1", entry_signal_hash="hash-1", strategy_id="STRAT1",
-                strategy_version=1, strategy_ref="strat-ref", **signal_fields) -> FakeConnection:
+                strategy_version=1, strategy_ref=None, **signal_fields) -> FakeConnection:
     conn = FakeConnection()
+    if strategy_ref is None:
+        strategy_ref = f"{strategy_id}@{strategy_version}"
     conn.seed_entry_signal(signal_id=signal_id, strategy_id=strategy_id, strategy_version=strategy_version,
                            strategy_ref=strategy_ref, instrument="EURUSD", direction="LONG",
                            decision_time=NOW, signal_emitted_at=NOW, entry_price=1.1000, stop_price=1.0950,
