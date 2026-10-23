@@ -30,14 +30,9 @@ from .ids import execution_intent_id as _execution_intent_id
 from .risk import RiskPolicy, decision_to_emission_age_seconds, evaluate_candidate
 from .risk_policy_store import policy_fingerprint
 from .trace import emit as trace_emit
+from .eligibility import research_restricted, database_policy_reason
 
 OUTBOX_EVENT_TYPE = "execution.intent.created.v1"
-RESEARCH_ONLY_STRATEGIES = frozenset({
-    "ICT_JUDAS_SWING", "ICT_POWER_OF_THREE", "SMC_ORDER_BLOCK_RETRACEMENT",
-    "CONTEXT_STRUCTURE_RETRACE_V2", "BREAKOUT_DONCHIAN_BREAKOUT",
-    "TREND_FOLLOWING_EMA_PULLBACK", "SMC_FVG_RETRACEMENT",
-    "PRICE_ACTION_SUPPORT_RESISTANCE_RETEST", "PRICE_ACTION_ENGULFING_CONTINUATION",
-})
 TERMINAL_SIGNAL_OUTCOMES = frozenset({"TARGET_HIT", "STOPPED", "TIME_EXIT", "INVALIDATED"})
 
 
@@ -177,7 +172,8 @@ def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
                              strategy.entry_signals.entry_price, strategy.entry_signals.stop_price,
                              strategy.entry_signals.target_price, strategy.entry_signals.entry_signal_hash,
                              outcome.status, outcome.exit_timestamp,
-                             strategy.entry_signals.strategy_metadata, strategy.entry_signals.source_provenance
+                             strategy.entry_signals.strategy_metadata, strategy.entry_signals.source_provenance,
+                             strategy.entry_signals.strategy_instance_id
                       FROM strategy.entry_signals
                       LEFT JOIN strategy.entry_signal_outcomes AS outcome USING (signal_id)
                       WHERE strategy.entry_signals.signal_id=%s""", (signal_id,))
@@ -187,7 +183,7 @@ def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
     keys = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
             "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
             "entry_signal_hash", "outcome_status", "outcome_exit_timestamp",
-            "strategy_metadata", "source_provenance")
+            "strategy_metadata", "source_provenance", "strategy_instance_id")
     return dict(zip(keys, row))
 
 
@@ -231,23 +227,17 @@ def create_execution_intent(conn: Any, *, signal_id: str, account_id: str, risk_
                             canonical_bytes({"reason": "EVENT_HASH_MISMATCH", "signal_id": signal_id}).decode("utf-8")))
             return IntentResult(status="QUARANTINED", execution_intent_id=None, reason="EVENT_HASH_MISMATCH")
 
-        # Strategy-scoped boundary: research-only strategies must terminate before the
-        # execution-intent insert, regardless of global authority or risk-policy state.
-        # This is deliberately inside the canonical intent factory so no normal caller can
-        # accidentally turn a V2 research signal into a durable executable record.
+        # The canonical boundary is data-driven, not a list of strategy names.
+        # Immutable research restrictions cannot be cleared by changing current policy.
         metadata = record.get("strategy_metadata") or {}
         provenance = record.get("source_provenance") or {}
-        research_evidence = "RETROSPECTIVE_RESEARCH_EVIDENCE"
-        if (record.get("strategy_id") in RESEARCH_ONLY_STRATEGIES or
-                metadata.get("research_only") is True or
-                metadata.get("execution_eligible") is False or
-                metadata.get("signal_emission_class") == research_evidence or
-                provenance.get("signal_emission_class") == research_evidence or
-                provenance.get("classification") == research_evidence):
-            trace_emit("INTENT_RESEARCH_STRATEGY_REJECTED", signal_id=signal_id,
-                       strategy_id=record.get("strategy_id"), reason="STRATEGY_NOT_EXECUTION_ENABLED")
+        policy_reason = ('STRATEGY_NOT_EXECUTION_ENABLED' if research_restricted(metadata, provenance)
+                         else database_policy_reason(conn, record))
+        if policy_reason:
+            trace_emit("INTENT_ELIGIBILITY_POLICY_REJECTED", signal_id=signal_id,
+                       strategy_id=record.get("strategy_id"), reason=policy_reason)
             return IntentResult(status="BLOCKED", execution_intent_id=None,
-                                eligible=False, reason="STRATEGY_NOT_EXECUTION_ENABLED")
+                                eligible=False, reason=policy_reason)
 
         diagnostics: dict[str, Any] = {}
         outcome_status = record.get("outcome_status")

@@ -23,7 +23,7 @@ class StaleFencingGeneration(RuntimeError):
 _ENTRY_SIGNAL_COLUMNS = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
                         "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
                         "entry_signal_hash", "outcome_status", "outcome_exit_timestamp",
-                        "strategy_metadata", "source_provenance")
+                        "strategy_metadata", "source_provenance", "strategy_instance_id")
 
 _INTENT_COLUMNS = ("execution_intent_id", "entry_signal_id", "entry_signal_hash", "strategy_id",
                   "strategy_version", "strategy_ref", "instrument", "direction", "order_type",
@@ -75,6 +75,9 @@ class FakeCursor:
         raise AssertionError(f"FakeCursor cannot handle statement: {sql[:100]}")
 
     def _select(self, upper: str, sql: str, params: Any) -> None:
+        if 'FROM STRATEGY_MGMT.STRATEGY_INSTANCE_V2 I' in upper:
+            self._result = self.conn.instance_policies.get((params[0], params[1]), [])
+            return
         if "SELECT SIGNAL_EMITTED_AT FROM STRATEGY.ENTRY_SIGNALS" in upper:
             row = self.conn.entry_signals.get(params[0])
             self._result = (row["signal_emitted_at"],) if row else None
@@ -156,7 +159,7 @@ class FakeCursor:
         return self._result
 
     def fetchall(self) -> list[Any]:
-        return []
+        return self._result if isinstance(self._result, list) else []
 
 
 _ON_CONFLICT_FIELD = {
@@ -181,6 +184,7 @@ class FakeConnection:
     tables: dict[str, dict[Any, dict[str, Any]]] = field(default_factory=lambda: defaultdict(dict))
     pending: dict[str, dict[Any, dict[str, Any]]] = field(default_factory=lambda: defaultdict(dict))
     entry_signals: dict[str, dict[str, Any]] = field(default_factory=dict)
+    instance_policies: dict[Any, list[Any]] = field(default_factory=dict)
     leases: dict[str, dict[str, Any]] = field(default_factory=dict)
     statement_count: int = 0
     commits: int = 0
@@ -212,6 +216,10 @@ class FakeConnection:
         fields.setdefault("source_provenance", {
             "execution_mode_at_decision": "LIVE", "execution_mode_revision": 0,
         })
+        fields.setdefault('strategy_instance_id', 'fixture-instance')
+        self.instance_policies.setdefault((fields['strategy_id'], fields['strategy_instance_id']), [(
+            'fixture-uuid', True, 'LIVE', True,
+            fields['source_provenance'].get('execution_mode_revision', 0), {}, fields['strategy_id'], True, {})])
         self.entry_signals[fields["signal_id"]] = {k: fields.get(k) for k in _ENTRY_SIGNAL_COLUMNS}
 
     # -- platform.ownership_leases / acquire_ownership / assert_generation simulation ----------
