@@ -167,6 +167,7 @@ def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute("""SELECT strategy.entry_signals.signal_id, strategy.entry_signals.strategy_id,
                              strategy.entry_signals.strategy_version, strategy.entry_signals.strategy_ref,
+                             strategy.entry_signals.parameter_set_ref,
                              strategy.entry_signals.instrument, strategy.entry_signals.direction,
                              strategy.entry_signals.decision_time, strategy.entry_signals.signal_emitted_at,
                              strategy.entry_signals.entry_price, strategy.entry_signals.stop_price,
@@ -180,7 +181,7 @@ def _load_entry_signal(conn: Any, signal_id: str) -> dict[str, Any] | None:
         row = cur.fetchone()
     if row is None:
         return None
-    keys = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
+    keys = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "parameter_set_ref", "instrument",
             "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
             "entry_signal_hash", "outcome_status", "outcome_exit_timestamp",
             "strategy_metadata", "source_provenance", "strategy_instance_id")
