@@ -30,7 +30,7 @@ def _worker(conn: FakeConnection, broker: FakeBroker) -> ExecutionWorker:
 
 def _seed(conn: FakeConnection) -> None:
     conn.seed_entry_signal(signal_id="SIG1", strategy_id="STRAT1", strategy_version=1,
-                           strategy_ref="strat-ref", instrument="EURUSD", direction="LONG",
+                           strategy_ref="STRAT1@1", instrument="EURUSD", direction="LONG",
                            decision_time=NOW, signal_emitted_at=NOW, entry_price=1.1,
                            stop_price=1.095, target_price=1.11, entry_signal_hash="hash-1")
 
