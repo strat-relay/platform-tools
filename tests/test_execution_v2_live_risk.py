@@ -16,7 +16,7 @@ def valid_policy():
     return {
         "version": 2, "enabled": True,
         "allowed_accounts": ["188428665"],
-        "allowed_strategies": ["STRAT@V1:param-a"],
+        "allowed_strategies": ["STRAT@V1"],
         "allowed_symbols": ["EURUSD"],
         "risk_per_trade": 0.005, "max_volume": 0.05,
         "max_signal_age_seconds": 60, "max_daily_loss": 25,
@@ -36,7 +36,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
         return load_risk_policy(path)
 
     def candidate(self, **overrides):
-        value = {"strategy_id": "STRAT", "strategy_version": "V1", "strategy_ref": "STRAT@V1:param-a",
+        value = {"strategy_id": "STRAT", "strategy_version": "V1", "strategy_ref": "STRAT@V1",
                  "instrument": "EURUSD", "entry_price": 1.10, "stop_price": 1.095,
                  "decision_time": NOW, "signal_emitted_at": NOW}
         value.update(overrides)
@@ -131,7 +131,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
         policy = self.write_policy(valid_policy())
         conn = FakeConnection()
         conn.seed_entry_signal(signal_id="SIG-WIRED", strategy_id="STRAT", strategy_version="V1",
-                               strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
+                               strategy_ref="STRAT@V1", instrument="EURUSD", direction="LONG",
                                decision_time=NOW, signal_emitted_at=NOW, entry_price=1.10, stop_price=1.095,
                                target_price=1.11, entry_signal_hash="hash")
         result = create_execution_intent(
