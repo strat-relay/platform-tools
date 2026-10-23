@@ -679,6 +679,7 @@ def persist_new_opportunity_provenance(state: dict[str, Any], before_opportuniti
 def poll(state: dict[str, Any], symbols: tuple[str, ...], mcp_url: str, limit: int) -> None:
     cycle_started = time.perf_counter()
     state["last_poll_at"] = now_iso(); state["runner_status"] = "ACTIVE"
+    ready_notified = False
     for symbol in symbols:
         symbol_started = time.perf_counter()
         try:
@@ -709,6 +710,22 @@ def poll(state: dict[str, Any], symbols: tuple[str, ...], mcp_url: str, limit: i
             state["symbols"].setdefault(symbol, {})["last_quote"] = quote
             state["symbols"][symbol]["contract"] = contract
             state["last_successful_read_at"] = now_iso()
+            # A newly filled opportunity is the actionable evidence the
+            # orchestrator scans. Persist its final provenance before sending
+            # the wake-up, then notify immediately instead of waiting for the
+            # remaining instruments in this sequential poll cycle.
+            new_positions = {
+                position_id: position
+                for position_id, position in state.get("positions", {}).items()
+                if position_id not in before_opportunities
+                and position.get("symbol") in (None, symbol)
+            }
+            if new_positions:
+                save_state(state)
+                write_heartbeat(state)
+                from infrastructure.messaging.runtime_events import notify_ready
+                notify_ready(new_positions, provider_symbol=symbol)
+                ready_notified = True
             print(json.dumps({"audit": "strategy", "event": "context_symbol_poll_completed",
                               "runner": "context-structure-retrace", "symbol": symbol,
                               "evaluation_timestamp": evaluation_timestamp,
@@ -725,8 +742,9 @@ def poll(state: dict[str, Any], symbols: tuple[str, ...], mcp_url: str, limit: i
                               "elapsed_ms": round((time.perf_counter() - symbol_started) * 1000, 3)},
                              sort_keys=True, default=str), flush=True)
     save_state(state); write_heartbeat(state)
-    from infrastructure.messaging.runtime_events import notify_ready
-    notify_ready(state.get("positions", {}))
+    if not ready_notified:
+        from infrastructure.messaging.runtime_events import notify_ready
+        notify_ready(state.get("positions", {}))
     print(json.dumps({"audit": "strategy", "event": "context_poll_completed",
                       "runner": "context-structure-retrace", "symbol_count": len(symbols),
                       "elapsed_ms": round((time.perf_counter() - cycle_started) * 1000, 3)},

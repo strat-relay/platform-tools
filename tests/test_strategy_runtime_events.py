@@ -184,6 +184,39 @@ class WakeupTests(unittest.TestCase):
         # Captured from main 344dc99 before the transport-only edit.
         self.assertEqual(digest, 'af4fd7c34b729daafcb7d1fa2b1248afd2af743c34ec8b754637c3209c03fd6f')
 
+    def test_context_new_position_is_checkpointed_and_notified_before_next_symbol(self):
+        import context_structure_retrace_forward as runner
+        order = []
+        state = {"positions": {}, "setups": {}, "symbols": {}, "counters": {}}
+
+        def read_symbol(symbol, *_args, **_kwargs):
+            order.append(f"read:{symbol}")
+            return {}, {}, {"M5": []}, {"source_read_health": True}
+
+        def process_symbol(target_state, symbol, *_args):
+            order.append(f"evaluate:{symbol}")
+            if symbol == "BTCUSDm":
+                target_state["positions"]["p1"] = {"symbol": symbol, "economic_position_id": "p1"}
+
+        def save_checkpoint(_state):
+            order.append("checkpoint")
+
+        def notify(revision, *, provider_symbol=None):
+            order.append(("notify", tuple(revision), provider_symbol))
+
+        with (patch.object(runner, "read_symbol", side_effect=read_symbol),
+              patch.object(runner, "process_symbol", side_effect=process_symbol),
+              patch.object(runner, "persist_new_opportunity_provenance"),
+              patch.object(runner, "_recovery_context", return_value=(False, False, None, None)),
+              patch.object(runner, "save_state", side_effect=save_checkpoint),
+              patch.object(runner, "write_heartbeat"),
+              patch("infrastructure.messaging.runtime_events.notify_ready", side_effect=notify)):
+            runner.poll(state, ("BTCUSDm", "EURUSDm"), "unused", 1)
+
+        self.assertLess(order.index("checkpoint"), order.index(("notify", ("p1",), "BTCUSDm")))
+        self.assertLess(order.index(("notify", ("p1",), "BTCUSDm")), order.index("read:EURUSDm"))
+        self.assertEqual(sum(isinstance(item, tuple) and item[0] == "notify" for item in order), 1)
+
 
 class HintAcknowledgementTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
