@@ -13,9 +13,11 @@ production-ineligible and retrospective evidence cannot be overridden by changin
 today's configuration.
 
 For a prospective LIVE signal, load exactly one managed instance by registry UUID or
-explicit publication/legacy alias, within the same declared strategy. Strategy ownership
-comes from instance `strategy_id`/`legacy_strategy_id` metadata, or an exactly matching
-registry family key; there is no evaluator/name inference. Conflicting declarations or
+explicit publication/legacy alias, within the same declared strategy. Bind the canonical
+signal's strategy ID, version, strategy reference, and any explicit parameter-set reference
+to that instance's registry version and parameter set. Strategy ownership comes from
+instance `strategy_id`/`legacy_strategy_id` metadata, or an exactly matching registry family
+key; there is no evaluator/name inference. Conflicting declarations or
 multiple matching instances are rejected. Both the instance and operational parent must
 be enabled, the instance must be LIVE and explicitly execution-eligible, and its current
 mode revision must match the captured revision. Research restrictions on the instance
