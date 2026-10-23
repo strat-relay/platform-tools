@@ -11,14 +11,12 @@ def main():
         from postgres.db import connect
         from orchestration.config import load_config_from_database
         from orchestration.execution_readiness import execution_readiness
-        from execution_v2.intent import RESEARCH_ONLY_STRATEGIES
         with connect(readonly=True) as conn:
             with conn.cursor() as cur:
                 cur.execute('SET TRANSACTION READ ONLY')
                 cur.execute('SELECT current_database(), NOT pg_is_in_recovery()')
                 database, primary = cur.fetchone()
-            report = execution_readiness(load_config_from_database(conn),
-                                         research_only_strategies=RESEARCH_ONLY_STRATEGIES)
+            report = execution_readiness(load_config_from_database(conn))
             report['database'] = database
             report['primary'] = primary
             conn.rollback()

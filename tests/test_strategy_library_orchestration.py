@@ -119,7 +119,8 @@ class LibraryOrchestrationTests(unittest.TestCase):
             conn=FakeConnection();adapter,record=self.adapter(key)
             signal=adapter.convert('event','XAUUSD',record)
             conn.seed_entry_signal(signal_id=signal.signal_id,strategy_id=signal.strategy_id,
-                                   entry_signal_hash='hash')
+                                   entry_signal_hash='hash', strategy_metadata=signal.strategy_metadata,
+                                   source_provenance=signal.provenance)
             policy=RiskPolicy(version=1,enabled=True,max_volume=.01,allowed_accounts=('a',),
                               allowed_symbols=None,max_signal_age_seconds=999999,source='test')
             result=create_execution_intent(conn,signal_id=signal.signal_id,account_id='a',

@@ -1,7 +1,7 @@
 """Read-only configuration diagnostics; never derive or grant broker authority."""
 
 
-def execution_readiness(config, *, research_only_strategies=()):
+def execution_readiness(config):
     definitions = {s['strategy_id']: s for s in config.get('strategies', [])}
     accounts = {a['account_id']: a for a in config.get('accounts', [])}
     rows = []
@@ -16,8 +16,6 @@ def execution_readiness(config, *, research_only_strategies=()):
             blockers.append('PARENT_MISSING_OR_DISABLED')
         if mode != 'LIVE':
             blockers.append('MODE_NOT_LIVE')
-        if sid in research_only_strategies:
-            blockers.append('EXECUTOR_RESEARCH_ONLY_STRATEGY')
         if (definition or {}).get('research_only') is True or instance.get('research_only') is True:
             blockers.append('CURRENT_CONFIGURATION_RESEARCH_ONLY')
         routes = [{'portfolio_id': p['portfolio_id'], 'account_id': aid}
@@ -36,6 +34,7 @@ def execution_readiness(config, *, research_only_strategies=()):
                      'authority_granted': False,
                      'requires_runtime_preflight': True})
     return {'schema': 'execution-readiness-diagnostics.v1', 'read_only': True,
+            'canonical_instance_policy': 'NOT_EVALUATED',
             'broker_writes': 0, 'instances': rows,
             'note': 'Configuration diagnostics only. Empty blockers do not establish live eligibility; '
                     'immutable signal provenance, authority, risk and broker checks remain independent.'}

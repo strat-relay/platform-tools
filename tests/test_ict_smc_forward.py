@@ -94,8 +94,8 @@ def test_contemporaneous_forward_entry_publishes_correct_version_without_future_
     signal=StrategyLibraryAdapter(MagicMock(),key,inst).convert(entry['event_id'],symbol,entry)
     assert signal.strategy_version==d.version and signal.strategy_metadata['signal_emission_class']=='PROSPECTIVE'
     assert signal.strategy_metadata['research_only'] is True and signal.strategy_metadata['execution_eligible'] is False
-    from execution_v2.intent import RESEARCH_ONLY_STRATEGIES
-    assert signal.strategy_id in RESEARCH_ONLY_STRATEGIES
+    from execution_v2.eligibility import research_restricted
+    assert research_restricted(signal.strategy_metadata, signal.provenance)
     restored=ForwardObserver(config,artifact='frozen-test');restored.restore(observer.state)
     repeated=restored.process(key,symbol,current,observed_at=at+3)
     assert not any(r.get('payload',{}).get('provenance',{}).get('research_entry') for r in repeated)

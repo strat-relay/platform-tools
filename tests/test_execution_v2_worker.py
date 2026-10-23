@@ -87,7 +87,8 @@ class EndToEndTests(unittest.TestCase):
 
     def test_research_only_v2_is_rejected_before_intent_or_broker_boundary(self):
         conn = seeded_conn(strategy_id="CONTEXT_STRUCTURE_RETRACE_V2", strategy_version="V2",
-                           strategy_ref="CONTEXT_STRUCTURE_RETRACE_V2@V2")
+                           strategy_ref="CONTEXT_STRUCTURE_RETRACE_V2@V2",
+                           strategy_metadata={"research_only": True})
         broker = FakeBroker(mode="fill")
         worker = make_worker(conn, broker=broker)
 

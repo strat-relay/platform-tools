@@ -24,9 +24,8 @@ class ExecutionReadinessDiagnosticsTest(unittest.TestCase):
         self.assertEqual(row['legacy_routing_warnings'], [])
 
     def test_research_block_and_missing_routes_are_separate(self):
-        row = execution_readiness(self.config(research=True, route=False, portfolio=False),
-                                  research_only_strategies={'S'})['instances'][0]
-        self.assertIn('EXECUTOR_RESEARCH_ONLY_STRATEGY', row['known_v2_blockers'])
+        row = execution_readiness(self.config(research=True, route=False, portfolio=False))['instances'][0]
+        self.assertIn('CURRENT_CONFIGURATION_RESEARCH_ONLY', row['known_v2_blockers'])
         self.assertEqual(set(row['legacy_routing_warnings']),
                          {'LEGACY_SHADOW_ROUTE_NOT_ENABLED', 'NO_ENABLED_PORTFOLIO_ACCOUNT_ROUTE'})
 
