@@ -89,8 +89,8 @@ class CheckEligibilityTests(unittest.TestCase):
 class CreateExecutionIntentTests(unittest.TestCase):
     def _seeded_conn(self, signal_id="SIG1", entry_signal_hash="hash-1", **overrides) -> FakeConnection:
         conn = FakeConnection()
-        fields = dict(signal_id=signal_id, strategy_id="STRAT1", strategy_version=1, strategy_ref="strat-ref",
-                     instrument="EURUSD", direction="LONG", decision_time=NOW, entry_price=1.1000,
+        fields = dict(signal_id=signal_id, strategy_id="STRAT1", strategy_version=1,
+                     strategy_ref="STRAT1@1", instrument="EURUSD", direction="LONG", decision_time=NOW, entry_price=1.1000,
                      stop_price=1.0950, target_price=1.1100, signal_emitted_at=NOW,
                      entry_signal_hash=entry_signal_hash)
         fields.update(overrides)
