@@ -158,7 +158,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
         policy = self.write_policy(valid_policy())
         conn = FakeConnection()
         conn.seed_entry_signal(signal_id="SIG-EXPOSURE", strategy_id="STRAT", strategy_version="V1",
-                               strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
+                               strategy_ref="STRAT@V1", instrument="EURUSD", direction="LONG",
                                decision_time=NOW, signal_emitted_at=NOW, entry_price=1.10, stop_price=1.095,
                                target_price=1.11, entry_signal_hash="hash")
         result = create_execution_intent(
@@ -182,7 +182,7 @@ class LiveRiskPolicyTests(unittest.TestCase):
         policy = self.write_policy(valid_policy())
         conn = FakeConnection()
         conn.seed_entry_signal(signal_id="SIG-NO-STATE", strategy_id="STRAT", strategy_version="V1",
-                               strategy_ref="STRAT@V1:param-a", instrument="EURUSD", direction="LONG",
+                               strategy_ref="STRAT@V1", instrument="EURUSD", direction="LONG",
                                decision_time=NOW, signal_emitted_at=NOW, entry_price=1.10, stop_price=1.095,
                                target_price=1.11, entry_signal_hash="hash")
         result = create_execution_intent(conn, signal_id="SIG-NO-STATE", account_id="188428665",
