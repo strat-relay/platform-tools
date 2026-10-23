@@ -20,7 +20,7 @@ class StaleFencingGeneration(RuntimeError):
     pass
 
 
-_ENTRY_SIGNAL_COLUMNS = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "instrument",
+_ENTRY_SIGNAL_COLUMNS = ("signal_id", "strategy_id", "strategy_version", "strategy_ref", "parameter_set_ref", "instrument",
                         "direction", "decision_time", "signal_emitted_at", "entry_price", "stop_price", "target_price",
                         "entry_signal_hash", "outcome_status", "outcome_exit_timestamp",
                         "strategy_metadata", "source_provenance", "strategy_instance_id")
@@ -216,10 +216,14 @@ class FakeConnection:
         fields.setdefault("source_provenance", {
             "execution_mode_at_decision": "LIVE", "execution_mode_revision": 0,
         })
+        fields.setdefault('strategy_version', 'V1')
+        fields.setdefault('strategy_ref', f"{fields['strategy_id']}@{fields['strategy_version']}")
+        fields.setdefault('parameter_set_ref', None)
         fields.setdefault('strategy_instance_id', 'fixture-instance')
         self.instance_policies.setdefault((fields['strategy_id'], fields['strategy_instance_id']), [(
             'fixture-uuid', True, 'LIVE', True,
-            fields['source_provenance'].get('execution_mode_revision', 0), {}, fields['strategy_id'], True, {})])
+            fields['source_provenance'].get('execution_mode_revision', 0), {}, fields['strategy_id'],
+            fields['strategy_version'], 'fixture-parameter-set', True, {})])
         self.entry_signals[fields["signal_id"]] = {k: fields.get(k) for k in _ENTRY_SIGNAL_COLUMNS}
 
     # -- platform.ownership_leases / acquire_ownership / assert_generation simulation ----------
