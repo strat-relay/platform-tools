@@ -26,6 +26,14 @@ def instance_policy_reason(record, rows):
     row = rows[0]
     if row['declared_strategy_id'] != record.get('strategy_id'):
         return 'INSTANCE_STRATEGY_IDENTITY_MISMATCH'
+    if row['version_label'] != record.get('strategy_version'):
+        return 'STRATEGY_VERSION_MISMATCH'
+    expected_ref = f"{record.get('strategy_id')}@{record.get('strategy_version')}"
+    if record.get('strategy_ref') != expected_ref:
+        return 'STRATEGY_REF_MISMATCH'
+    parameter_set_ref = record.get('parameter_set_ref')
+    if parameter_set_ref is not None and row['parameter_set_id'] != parameter_set_ref:
+        return 'PARAMETER_SET_MISMATCH'
     if row['online'] is not True or row['parent_enabled'] is not True:
         return 'INSTANCE_OR_PARENT_DISABLED'
     if row['execution_mode'] != 'LIVE':
@@ -49,16 +57,18 @@ def database_policy_reason(conn, record):
         cur.execute('''SELECT i.id, i.online, i.execution_mode, i.execution_eligible,
             i.execution_mode_revision, i.attributes,
             coalesce(i.attributes->>'strategy_id', i.attributes->>'legacy_strategy_id', d.family_key),
-            parent.enabled, parent.attributes
+            v.version_label, p.parameter_set_id, parent.enabled, parent.attributes
             FROM strategy_mgmt.strategy_instance_v2 i
             JOIN strategy_mgmt.strategy_version v ON v.id=i.strategy_version_id
+            JOIN strategy_mgmt.parameter_set p ON p.id=i.parameter_set_id
             JOIN strategy_mgmt.strategy_definition d ON d.id=v.definition_id
             JOIN platform.strategy_definition parent ON parent.strategy_id=%s
             WHERE %s = ANY(ARRAY[i.id::text, i.attributes->>'instance_id', i.attributes->>'legacy_instance_id'])
               AND coalesce(i.attributes->>'strategy_id', i.attributes->>'legacy_strategy_id', d.family_key) = parent.strategy_id
             FOR SHARE OF i, parent''', (record['strategy_id'], instance_id))
         columns = ('id', 'online', 'execution_mode', 'execution_eligible', 'mode_revision',
-                   'attributes', 'declared_strategy_id', 'parent_enabled', 'parent_attributes')
+                   'attributes', 'declared_strategy_id', 'version_label', 'parameter_set_id',
+                   'parent_enabled', 'parent_attributes')
         rows = [dict(zip(columns, row)) for row in cur.fetchall()]
     for row in rows:
         attrs = row['attributes'] or {}
